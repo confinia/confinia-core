@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <title>Confinia — communes through time</title>
@@ -57,31 +57,32 @@
 <body>
 <div id="map"></div>
 <header>
-  <h1><span>Confinia</span> · les frontières ont une histoire</h1>
+  <h1><span>Confinia</span> · boundaries have a history</h1>
   <div id="controls">
-    <label>Dépt <input id="dept" type="text" value="01" maxlength="3" spellcheck="false"></label>
+    <label>Dept <input id="dept" type="text" value="01" maxlength="3" spellcheck="false"></label>
     <span id="deptname"></span>
-    <button id="play" type="button" title="Faire défiler le temps">▶</button>
+    <button id="play" type="button" title="Play through time">▶</button>
     <div id="sliderbox">
       <input id="slider" type="range" min="0" step="1">
       <div id="ticks"></div>
     </div>
     <div id="datebox">
       <span id="datefr"></span>
-      <input id="month" type="month" title="Choisir un mois précis">
+      <input id="month" type="month" title="Pick a specific month">
     </div>
     <span id="count"></span>
   </div>
-  <div id="hint">🖱 molette / boutons en bas à droite : zoom · <b>cliquez n'importe où en
-    Europe</b> : la « région-département » s'ouvre entière (département FR, Land DE, province,
-    canton…) · dates civiles de validité (état au 1ᵉʳ jour du mois choisi) · l'URL mémorise
-    la vue — partagez-la</div>
+  <div id="hint">🖱 scroll / buttons bottom-right: zoom · <b>click anywhere in Europe</b> —
+    the local "department" opens whole (French département, German Land, Italian province,
+    Swiss canton…) · dates are civil validity dates (state as of the 1st of the chosen month)
+    · the URL remembers the view — share it</div>
 </header>
 <div id="info"></div>
 <div id="flash"></div>
 <footer>
-  Données : INSEE COG · IGN Admin Express (Licence Ouverte 2.0) — géométries simplifiées ·
-  <a href="https://api.confinia.io/docs">API Confinia</a>
+  Data: INSEE COG · IGN Admin Express (Licence Ouverte 2.0) · © EuroGeographics (NUTS/LAU) ·
+  © GeoBasis-DE / BKG (dl-de/by-2-0) · CBS/Kadaster (CC BY 4.0) — simplified geometries ·
+  <a href="https://api.confinia.io/docs">Confinia API</a>
 </footer>
 <script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
 <script>
@@ -121,13 +122,14 @@ const deptOf = code => code.startsWith("97") ? code.slice(0, 3) : code.slice(0, 
 const DEPT_RE = /^([0-9]{2}[0-9]?|2[AB])$/;
 
 const COUNTRY_NAMES = {
-  DE: "Allemagne", NL: "Pays-Bas", BE: "Belgique", LU: "Luxembourg", IT: "Italie",
-  ES: "Espagne", PT: "Portugal", AT: "Autriche", CH: "Suisse", DK: "Danemark",
-  SE: "Suède", FI: "Finlande", NO: "Norvège", PL: "Pologne", CZ: "Tchéquie",
-  SK: "Slovaquie", HU: "Hongrie", SI: "Slovénie", HR: "Croatie", RO: "Roumanie",
-  BG: "Bulgarie", GR: "Grèce", EL: "Grèce", IE: "Irlande", EE: "Estonie",
-  LV: "Lettonie", LT: "Lituanie", MT: "Malte", CY: "Chypre", IS: "Islande",
-  LI: "Liechtenstein", UK: "Royaume-Uni", FR: "France",
+  DE: "Germany", NL: "Netherlands", BE: "Belgium", LU: "Luxembourg", IT: "Italy",
+  ES: "Spain", PT: "Portugal", AT: "Austria", CH: "Switzerland", DK: "Denmark",
+  SE: "Sweden", FI: "Finland", NO: "Norway", PL: "Poland", CZ: "Czechia",
+  SK: "Slovakia", HU: "Hungary", SI: "Slovenia", HR: "Croatia", RO: "Romania",
+  BG: "Bulgaria", GR: "Greece", EL: "Greece", IE: "Ireland", EE: "Estonia",
+  LV: "Latvia", LT: "Lithuania", MT: "Malta", CY: "Cyprus", IS: "Iceland",
+  LI: "Liechtenstein", UK: "United Kingdom", FR: "France", TR: "Türkiye",
+  RS: "Serbia", MK: "North Macedonia", AL: "Albania", ME: "Montenegro",
 };
 
 // Länder allemands : préfixe AGS (2 chiffres) — l'équivalent du département.
@@ -382,7 +384,7 @@ function fitTo(fc) {
   if (minX < maxX) map.fitBounds([[minX, minY], [maxX, maxY]], { padding: 60, duration: 400 });
 }
 
-const FR_DATE = new Intl.DateTimeFormat("fr-FR",
+const UI_DATE = new Intl.DateTimeFormat("en-GB",
   { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
 let pending = 0;
@@ -402,7 +404,7 @@ function show(decorated, countLabel) {
 
 async function render() {
   const date = DATES[slider.value];
-  $("datefr").textContent = "au " + FR_DATE.format(new Date(date + "T00:00:00Z"));
+  $("datefr").textContent = "as of " + UI_DATE.format(new Date(date + "T00:00:00Z"));
   if (month.value !== date.slice(0, 7)) month.value = date.slice(0, 7);
   writeHash();
   if (mode === "area") return renderArea();
@@ -417,7 +419,7 @@ async function render() {
     show(decorated, `${decorated.fc.features.length} communes`);
     if (firstFit && decorated.fc.features.length) { fitTo(decorated.fc); firstFit = false; }
   } catch (e) {
-    $("count").textContent = "erreur API";
+    $("count").textContent = "API error";
   }
 }
 
@@ -439,10 +441,10 @@ async function renderRegion() {
     }
     const decorated = cache.get(key);
     if (ticket !== pending) return;
-    show(decorated, `${decorated.fc.features.length} unités · ${regionName || regionCode}`);
+    show(decorated, `${decorated.fc.features.length} units · ${regionName || regionCode}`);
     if (firstFit && decorated.fc.features.length) { fitTo(decorated.fc); firstFit = false; }
   } catch {
-    $("count").textContent = "erreur API";
+    $("count").textContent = "API error";
   }
 }
 
@@ -453,7 +455,7 @@ async function renderArea() {
   $("deptname").textContent = COUNTRY_NAMES[areaCountry] || areaCountry;
   if (map.getZoom() < 7) {
     clearCommunes();
-    $("count").textContent = `zoomez (≥ 7) pour ${areaCountry} — ou cliquez un autre pays`;
+    $("count").textContent = `zoom in (≥ 7) to load ${areaCountry} — or click another country`;
     return;
   }
   const b = map.getBounds();
@@ -465,9 +467,9 @@ async function renderArea() {
     if (!r.ok) throw new Error();
     const decorated = decorate(await r.json());
     if (ticket !== pending) return;
-    show(decorated, `${decorated.fc.features.length} unités (${areaCountry})`);
+    show(decorated, `${decorated.fc.features.length} units (${areaCountry})`);
   } catch {
-    $("count").textContent = "erreur API";
+    $("count").textContent = "API error";
   }
 }
 
@@ -506,8 +508,8 @@ map.on("load", () => {
   map.on("mousemove", "communes-fill", e => {
     const p = e.features[0].properties;
     info.innerHTML = `<b>${p.nom}</b> (${p.code})<br>` +
-      `valide : ${p.valid_from} → ${p.valid_to === "null" || !p.valid_to ? "aujourd’hui" : p.valid_to}<br>` +
-      `géométrie : édition ${p.geometry_vintage || "—"}${p.geometry_approx === "true" || p.geometry_approx === true ? " (approchée)" : ""}`;
+      `valid: ${p.valid_from} → ${p.valid_to === "null" || !p.valid_to ? "today" : p.valid_to}<br>` +
+      `geometry: ${p.geometry_vintage || "—"} edition${p.geometry_approx === "true" || p.geometry_approx === true ? " (approx.)" : ""}`;
     info.style.visibility = "visible";
     map.getCanvas().style.cursor = "pointer";
   });
@@ -522,7 +524,7 @@ map.on("load", () => {
     const date = DATES[slider.value];
     try {
       const r = await fetch(`${API}/v1/units?lat=${lat.toFixed(5)}&lon=${lng.toFixed(5)}&at=${date}`);
-      if (r.status === 404) { flash("Aucune unité connue ici à cette date (mer ? hors couverture ?)."); return; }
+      if (r.status === 404) { flash("No known unit here at this date (sea? outside coverage?)."); return; }
       if (!r.ok) throw new Error();
       const f = await r.json();
       const country = f.properties.country;
@@ -563,7 +565,7 @@ map.on("load", () => {
           else render();
         }
       }
-    } catch { flash("Requête impossible — réessayez."); }
+    } catch { flash("Request failed — please retry."); }
   });
 
   // En mode « area », recharger quand la vue bouge.
