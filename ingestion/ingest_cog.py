@@ -369,11 +369,18 @@ def demo_versions() -> list[CommuneVersion]:
 SCHEMA_SQL = """
 CREATE EXTENSION IF NOT EXISTS postgis;
 
-DROP TABLE IF EXISTS commune_version;
+DROP MATERIALIZED VIEW IF EXISTS departement_geom;
+DROP TABLE IF EXISTS commune_version CASCADE;
+-- Table générale des unités administratives temporelles (Step 5) : les
+-- communes FR et les régions NUTS partagent le même modèle. Le nom
+-- commune_version est historique — renommage en admin_unit_version envisagé
+-- au durcissement pré-beta.
 CREATE TABLE commune_version (
     id               bigserial PRIMARY KEY,
     code             text        NOT NULL,
     nom              text        NOT NULL,
+    unit_type        text        NOT NULL DEFAULT 'commune',  -- commune | nuts0..nuts3 | gemeinde…
+    country          text        NOT NULL DEFAULT 'FR',
     valid_from       date        NOT NULL,
     valid_to         date        NOT NULL,
     parents          text[]      NOT NULL DEFAULT '{}',
@@ -383,6 +390,7 @@ CREATE TABLE commune_version (
     geom             geometry(Geometry, 4326),   -- brute (source de vérité, requêtes spatiales)
     geom_simple      geometry(Geometry, 4326)    -- simplifiée ~50 m (servie au web)
 );
+CREATE INDEX idx_cv_type_country  ON commune_version (unit_type, country);
 
 -- Index temporel : accélère "quelles communes à telle date"
 CREATE INDEX idx_cv_validity      ON commune_version (valid_from, valid_to);
@@ -391,6 +399,18 @@ CREATE INDEX idx_cv_code_validity ON commune_version (code, valid_from, valid_to
 -- Index spatiaux : "quelle commune contient ce point"
 CREATE INDEX idx_cv_geom          ON commune_version USING gist (geom);
 CREATE INDEX idx_cv_geom_simple   ON commune_version USING gist (geom_simple);
+"""
+
+# Contours départementaux (couche de navigation de la démo / API) : union des
+# communes actuelles par département, matérialisée en fin de chargement.
+DEPT_GEOM_SQL = """
+DROP MATERIALIZED VIEW IF EXISTS departement_geom;
+CREATE MATERIALIZED VIEW departement_geom AS
+SELECT CASE WHEN code LIKE '97%' THEN left(code, 3) ELSE left(code, 2) END AS dept,
+       ST_Multi(ST_Union(geom_simple)) AS geom
+FROM commune_version
+WHERE valid_to = '9999-01-01' AND geom_simple IS NOT NULL
+GROUP BY 1;
 """
 
 INSERT_SQL = """

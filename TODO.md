@@ -56,13 +56,20 @@
 - [ ] Human: record the GIF/screenshot (press ▶, slide across 2019-01-01) → outreach kit
 - [x] Published to GitHub Pages ✅ 2026-07-18: public repo `confinia/confinia.github.io` → **https://confinia.github.io** (deploy via `make demo-publish`; core `demo/` stays the source of truth). Custom domain ✅ 2026-07-18: **https://time-slider.confinia.io live as a caddy-managed 302** → confinia.github.io (wildcard DNS lands on the VM, caddy holds the cert — no DNS change needed; 302 keeps it reversible). Native GitHub-Pages custom domain (DNS CNAME + Pages cname) remains an option later
 - [x] Front-end v2 ✅ 2026-07-18: zoom controls moved bottom-right (were hidden under the header), scroll zoom + maxZoom 15; **click anywhere switches to the clicked département** (point-in-polygon via the API; out-of-France click → polite "France only" flash); **explicit date picker** (`type=month` input synced with the slider, year tick marks, French long-date label, note that dates are civil validity dates — no timezone ambiguity)
+- [x] Front-end v3 ✅ 2026-07-18: **all-France département layer** — silhouettes + boundaries + named labels ("01 Ain"…) under the commune layer, so neighbouring départements are visible click targets. Data: new `departement_geom` materialized view (union of current communes per dept, built at `load-fr` time) served by `GET /v1/departements` (24h cache); labels via demotiles glyphs; names hardcoded client-side (they're presentation, not data)
 
 **Done when:** the slider demo runs end-to-end against the API. ✅ (visual check + GIF = human task)
 
-## Step 5 — Second country + NUTS (starts the "EU" in the pitch)
-- [ ] Eurostat GISCO NUTS (7 versions) ingestion — same temporal model, `level=nuts1|2|3`
-- [ ] Country #2 implementation once the business track picks DE or NL (decision lives in `business/TODO.md`); source: national portal (DE: BKG VG250; NL: CBS/Kadaster) — verify licenses
-- [ ] Generalize schema: `unit_type` (commune, nuts3, gemeente…), `country`
+## Step 5 — Second country + NUTS (starts the "EU" in the pitch) *(NUTS done 2026-07-18)*
+- [x] Eurostat GISCO NUTS ingestion ✅ — `ingestion/ingest_nuts.py`, 7 versions (2003→2024, official in-force dates as transitions), consecutive unchanged versions merged into periods (3,771 rows), hierarchical parents; `make load-nuts` (auto-download from GISCO on the VM). API: `GET /v1/nuts?level=&country=&at=` + `?code=` + `/v1/nuts/{code}/history`. Sanity at 2022: FR = 14/27/101 (nuts1/2/3) ✓. **Attribution © EuroGeographics required (Step 6 page).** v1 limits: children empty, cross-version correspondences (splits/renames) later via Eurostat correspondence tables
+- [ ] Country #2 implementation once the business track picks DE or NL (decision lives in `business/TODO.md`); source: national portal (DE: BKG VG250 — license **DL-DE/BY-2.0**, commercial OK, exact attribution string + "modified" note required; NL: CBS/Kadaster — generally **CC BY 4.0**, verify per product). "Verify licenses" = final read of the exact product terms for the attribution page, not a data-access problem
+- [x] Generalize schema ✅ — `unit_type` (commune | nuts0..nuts3 | gemeinde…), `country` columns + (unit_type, country) index; commune endpoints filter `unit_type='commune'` (NUTS polygons must never answer commune point-in-polygon); table name `commune_version` kept for now, rename to `admin_unit_version` at pre-beta hardening
+
+## Step 5b — Observability (Grafana + OpenTelemetry) *(added 2026-07-18 — founder: load-bearing for usage feedback)*
+- [ ] OpenTelemetry instrumentation in the API (`opentelemetry-instrumentation-fastapi` + psycopg2): traces + metrics — latency, status, endpoint, and which departments/codes/dates get queried (product signal, not just ops)
+- [ ] OTel Collector + Prometheus + **Grafana** as compose services (founder's tool of choice; grafana image already on the VM from the legacy stack) — dashboards: req/s, p95 per endpoint, error rate, top queried units
+- [ ] Callers by country: GeoIP (MaxMind GeoLite2 or caddy geoip) on **truncated/anonymized IPs only** — GDPR: IP is personal data; log country + /24 max, state retention in the privacy/attribution page
+- [ ] caddy JSON access logs as a second source; per-API-key counters join at Step 6 (metering, plan 2.3)
 
 ## Step 6 — Pre-beta hardening (before inviting anyone)
 - [ ] API keys + per-key request counting (plan 1.3: metering from day one)

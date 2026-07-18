@@ -172,7 +172,8 @@ def commune_at(
         if dept:
             cur.execute(
                 f"SELECT {COLS} FROM commune_version "
-                "WHERE code LIKE %s AND valid_from <= %s AND valid_to > %s "
+                "WHERE unit_type = 'commune' AND code LIKE %s "
+                "AND valid_from <= %s AND valid_to > %s "
                 "ORDER BY code", (dept + "%", at, at))
             rows = cur.fetchall()
             # L'état d'un département à une date passée ne change plus : cacheable.
@@ -181,12 +182,14 @@ def commune_at(
         if code:
             cur.execute(
                 f"SELECT {COLS} FROM commune_version "
-                "WHERE code = %s AND valid_from <= %s AND valid_to > %s "
+                "WHERE unit_type = 'commune' AND code = %s "
+                "AND valid_from <= %s AND valid_to > %s "
                 "ORDER BY valid_from DESC LIMIT 1", (code, at, at))
         else:
             cur.execute(
                 f"SELECT {COLS} FROM commune_version "
-                "WHERE valid_from <= %s AND valid_to > %s AND geom IS NOT NULL "
+                "WHERE unit_type = 'commune' "
+                "AND valid_from <= %s AND valid_to > %s AND geom IS NOT NULL "
                 "AND ST_Contains(geom, ST_SetSRID(ST_Point(%s, %s), 4326)) "
                 "LIMIT 1", (at, at, lon, lat))
         row = cur.fetchone()
@@ -203,8 +206,77 @@ def commune_history(code: str, geometry: bool = Query(False)):
         cur.execute(
             "SELECT code, nom, valid_from, valid_to, parents, children, "
             f"geometry_vintage, geometry_approx, {geom_col} "
-            "FROM commune_version WHERE code = %s ORDER BY valid_from", (code,))
+            "FROM commune_version WHERE unit_type = 'commune' AND code = %s "
+            "ORDER BY valid_from", (code,))
         rows = cur.fetchall()
     if not rows:
         raise HTTPException(404, f"Code INSEE inconnu : {code}")
     return {"code": code, "versions": [feature(r) for r in rows]}
+
+
+@app.get("/v1/departements")
+def departements(response: Response):
+    """Contours départementaux actuels (couche de navigation, union des communes)."""
+    with cursor() as cur:
+        cur.execute(
+            "SELECT dept, ST_AsGeoJSON(ST_SimplifyPreserveTopology(geom, 0.002), 5) "
+            "FROM departement_geom ORDER BY dept")
+        rows = cur.fetchall()
+    if not rows:
+        raise HTTPException(503, "Contours non matérialisés — relancer le chargement.")
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return {"type": "FeatureCollection", "features": [
+        {"type": "Feature", "geometry": json.loads(g), "properties": {"dept": d}}
+        for d, g in rows]}
+
+
+@app.get("/v1/nuts")
+def nuts_at(
+    response: Response,
+    at: date = Query(..., description="Date de validité (YYYY-MM-DD)"),
+    code: str | None = Query(None, min_length=2, max_length=5,
+                             description="Code NUTS (ex: FR101)"),
+    level: int | None = Query(None, ge=0, le=3),
+    country: str | None = Query(None, min_length=2, max_length=2,
+                                description="Code pays (ex: FR, DE, NL)"),
+):
+    """Région(s) NUTS valide(s) à la date donnée : par code, ou par niveau (+ pays)."""
+    if (code is None) == (level is None):
+        raise HTTPException(422, "Fournir soit code=, soit level= (avec country= optionnel).")
+    with cursor() as cur:
+        if code:
+            cur.execute(
+                f"SELECT {COLS} FROM commune_version "
+                "WHERE unit_type LIKE 'nuts%%' AND code = %s "
+                "AND valid_from <= %s AND valid_to > %s "
+                "ORDER BY valid_from DESC LIMIT 1", (code.upper(), at, at))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(404, "Aucune région NUTS valide à cette date pour ce code.")
+            return feature(row)
+        sql = (f"SELECT {COLS} FROM commune_version "
+               "WHERE unit_type = %s AND valid_from <= %s AND valid_to > %s ")
+        params = [f"nuts{level}", at, at]
+        if country:
+            sql += "AND country = %s "
+            params.append(country.upper())
+        cur.execute(sql + "ORDER BY code", params)
+        rows = cur.fetchall()
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return {"type": "FeatureCollection", "features": [feature(r) for r in rows]}
+
+
+@app.get("/v1/nuts/{code}/history")
+def nuts_history(code: str, geometry: bool = Query(False)):
+    """Toutes les versions d'un code NUTS."""
+    geom_col = "ST_AsGeoJSON(geom_simple, 6)" if geometry else "NULL"
+    with cursor() as cur:
+        cur.execute(
+            "SELECT code, nom, valid_from, valid_to, parents, children, "
+            f"geometry_vintage, geometry_approx, {geom_col} "
+            "FROM commune_version WHERE unit_type LIKE 'nuts%%' AND code = %s "
+            "ORDER BY valid_from", (code.upper(),))
+        rows = cur.fetchall()
+    if not rows:
+        raise HTTPException(404, f"Code NUTS inconnu : {code}")
+    return {"code": code.upper(), "versions": [feature(r) for r in rows]}

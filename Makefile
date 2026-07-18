@@ -37,6 +37,9 @@ demo-data:        ## ingestion en mode démo (aucune donnée requise)
 ingest:           ## COG INSEE -> PostGIS (données dans ./data/raw/insee)
 	$(COMPOSE) run --rm ingest /app/ingest_cog.py --millesimes 2025 --data-dir /data/raw/insee
 
+load-nuts:        ## NUTS Eurostat GISCO (7 versions) -> PostGIS
+	$(COMPOSE) run --rm ingest /app/ingest_nuts.py --data-dir /data/raw/nuts --download --dsn
+
 load-fr:          ## pleine France, tous millésimes géométrie -> PostGIS (long)
 	$(COMPOSE) run --rm ingest /app/join_geometry.py \
 	  --millesimes 2025 --data-dir /data/raw/insee \

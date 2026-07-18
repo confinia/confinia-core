@@ -68,9 +68,9 @@
     </div>
     <span id="count"></span>
   </div>
-  <div id="hint">🖱 molette / boutons en bas à droite : zoom · clic sur la carte : bascule vers le
-    département cliqué (France uniquement) · les dates sont des dates civiles de validité
-    (l'état affiché est celui du 1ᵉʳ jour du mois choisi)</div>
+  <div id="hint">🖱 molette / boutons en bas à droite : zoom · les départements voisins sont la
+    silhouette grise nommée — <b>cliquez-en un pour l'ouvrir</b> (France uniquement) · les dates
+    sont des dates civiles de validité (l'état affiché est celui du 1ᵉʳ jour du mois choisi)</div>
 </header>
 <div id="info"></div>
 <div id="flash"></div>
@@ -117,11 +117,78 @@ const DEPT_RE = /^([0-9]{2}[0-9]?|2[AB])$/;
 
 const map = new maplibregl.Map({
   container: "map",
-  style: { version: 8, sources: {}, layers: [
-    { id: "bg", type: "background", paint: { "background-color": "#10151d" } } ] },
+  style: { version: 8, sources: {},
+    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+    layers: [
+      { id: "bg", type: "background", paint: { "background-color": "#10151d" } } ] },
   center: [5.7, 46.05], zoom: 9, maxZoom: 15, attributionControl: false,
 });
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+
+const DEPT_NAMES = {
+  "01":"Ain","02":"Aisne","03":"Allier","04":"Alpes-de-Haute-Provence","05":"Hautes-Alpes",
+  "06":"Alpes-Maritimes","07":"Ardèche","08":"Ardennes","09":"Ariège","10":"Aube",
+  "11":"Aude","12":"Aveyron","13":"Bouches-du-Rhône","14":"Calvados","15":"Cantal",
+  "16":"Charente","17":"Charente-Maritime","18":"Cher","19":"Corrèze","2A":"Corse-du-Sud",
+  "2B":"Haute-Corse","21":"Côte-d'Or","22":"Côtes-d'Armor","23":"Creuse","24":"Dordogne",
+  "25":"Doubs","26":"Drôme","27":"Eure","28":"Eure-et-Loir","29":"Finistère","30":"Gard",
+  "31":"Haute-Garonne","32":"Gers","33":"Gironde","34":"Hérault","35":"Ille-et-Vilaine",
+  "36":"Indre","37":"Indre-et-Loire","38":"Isère","39":"Jura","40":"Landes",
+  "41":"Loir-et-Cher","42":"Loire","43":"Haute-Loire","44":"Loire-Atlantique","45":"Loiret",
+  "46":"Lot","47":"Lot-et-Garonne","48":"Lozère","49":"Maine-et-Loire","50":"Manche",
+  "51":"Marne","52":"Haute-Marne","53":"Mayenne","54":"Meurthe-et-Moselle","55":"Meuse",
+  "56":"Morbihan","57":"Moselle","58":"Nièvre","59":"Nord","60":"Oise","61":"Orne",
+  "62":"Pas-de-Calais","63":"Puy-de-Dôme","64":"Pyrénées-Atlantiques","65":"Hautes-Pyrénées",
+  "66":"Pyrénées-Orientales","67":"Bas-Rhin","68":"Haut-Rhin","69":"Rhône","70":"Haute-Saône",
+  "71":"Saône-et-Loire","72":"Sarthe","73":"Savoie","74":"Haute-Savoie","75":"Paris",
+  "76":"Seine-Maritime","77":"Seine-et-Marne","78":"Yvelines","79":"Deux-Sèvres","80":"Somme",
+  "81":"Tarn","82":"Tarn-et-Garonne","83":"Var","84":"Vaucluse","85":"Vendée","86":"Vienne",
+  "87":"Haute-Vienne","88":"Vosges","89":"Yonne","90":"Territoire de Belfort","91":"Essonne",
+  "92":"Hauts-de-Seine","93":"Seine-Saint-Denis","94":"Val-de-Marne","95":"Val-d'Oise",
+  "971":"Guadeloupe","972":"Martinique","973":"Guyane","974":"La Réunion","976":"Mayotte",
+};
+
+// Point d'étiquette : centre de la bbox du plus grand polygone du département.
+function labelPoint(geom) {
+  const polys = geom.type === "Polygon" ? [geom.coordinates] : geom.coordinates;
+  let best = null, bestArea = -1;
+  for (const p of polys) {
+    let [mnX, mnY, mxX, mxY] = [180, 90, -180, -90];
+    for (const [x, y] of p[0]) {
+      mnX = Math.min(mnX, x); mxX = Math.max(mxX, x);
+      mnY = Math.min(mnY, y); mxY = Math.max(mxY, y);
+    }
+    const a = (mxX - mnX) * (mxY - mnY);
+    if (a > bestArea) { bestArea = a; best = [(mnX + mxX) / 2, (mnY + mxY) / 2]; }
+  }
+  return best;
+}
+
+async function addDeptLayer() {
+  try {
+    const r = await fetch(`${API}/v1/departements`);
+    if (!r.ok) return;
+    const fc = await r.json();
+    const labels = { type: "FeatureCollection", features: fc.features.map(f => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: labelPoint(f.geometry) },
+      properties: { dept: f.properties.dept,
+                    label: `${f.properties.dept}\n${DEPT_NAMES[f.properties.dept] || ""}` },
+    })) };
+    map.addSource("depts", { type: "geojson", data: fc });
+    map.addSource("dept-labels", { type: "geojson", data: labels });
+    // Sous les communes : silhouette de la France cliquable.
+    map.addLayer({ id: "depts-fill", type: "fill", source: "depts",
+      paint: { "fill-color": "#1a2332", "fill-opacity": 1 } }, "communes-fill");
+    map.addLayer({ id: "depts-line", type: "line", source: "depts",
+      paint: { "line-color": "#3a4a66", "line-width": 1 } }, "communes-fill");
+    // Au-dessus de tout : noms des départements.
+    map.addLayer({ id: "dept-names", type: "symbol", source: "dept-labels",
+      layout: { "text-field": ["get", "label"], "text-font": ["Open Sans Semibold"],
+                "text-size": 11, "text-line-height": 1.1 },
+      paint: { "text-color": "#9fb3d1", "text-halo-color": "#0b0f16", "text-halo-width": 1.4 } });
+  } catch { /* couche de navigation optionnelle */ }
+}
 
 const cache = new Map();          // "dept|date" -> FeatureCollection
 async function fetchState(dept, date) {
@@ -184,6 +251,7 @@ map.on("load", () => {
     paint: { "fill-color": ["get", "_color"], "fill-opacity": 0.82 } });
   map.addLayer({ id: "communes-line", type: "line", source: "communes",
     paint: { "line-color": "#0b0f16", "line-width": 0.8 } });
+  addDeptLayer();
   render();
 
   const info = $("info");

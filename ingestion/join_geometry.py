@@ -46,7 +46,7 @@ from pyproj import Transformer, CRS
 
 sys.path.insert(0, str(Path(__file__).parent))
 from ingest_cog import (CommuneVersion, build_versions, FAR_FUTURE,  # noqa: E402
-                        SCHEMA_SQL, INSERT_SQL, version_row)
+                        SCHEMA_SQL, INSERT_SQL, DEPT_GEOM_SQL, version_row)
 
 SIMPLIFY_TOLERANCE_DEG = 0.0005  # ~50 m : suffisant pour l'affichage web communal
 
@@ -211,6 +211,8 @@ def stream_to_postgis(versions: list[CommuneVersion],
         if batch:
             execute_batch(cur, INSERT_SQL, batch, page_size=50)
             total += len(batch)
+        print("  ... matérialisation des contours départementaux (union des communes)")
+        cur.execute(DEPT_GEOM_SQL)
     conn.close()
     print(f"  [ok] {total} versions chargées dans PostGIS "
           f"({approx_n} géométries approx, {missing} sans géométrie)")
