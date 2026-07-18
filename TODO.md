@@ -66,11 +66,12 @@
 - [ ] Country #2 implementation once the business track picks DE or NL (decision lives in `business/TODO.md`); source: national portal (DE: BKG VG250 — license **DL-DE/BY-2.0**, commercial OK, exact attribution string + "modified" note required; NL: CBS/Kadaster — generally **CC BY 4.0**, verify per product). "Verify licenses" = final read of the exact product terms for the attribution page, not a data-access problem
 - [x] Generalize schema ✅ — `unit_type` (commune | nuts0..nuts3 | gemeinde…), `country` columns + (unit_type, country) index; commune endpoints filter `unit_type='commune'` (NUTS polygons must never answer commune point-in-polygon); table name `commune_version` kept for now, rename to `admin_unit_version` at pre-beta hardening
 
-## Step 5b — Observability (Grafana + OpenTelemetry) *(added 2026-07-18 — founder: load-bearing for usage feedback)*
-- [ ] OpenTelemetry instrumentation in the API (`opentelemetry-instrumentation-fastapi` + psycopg2): traces + metrics — latency, status, endpoint, and which departments/codes/dates get queried (product signal, not just ops)
-- [ ] OTel Collector + Prometheus + **Grafana** as compose services (founder's tool of choice; grafana image already on the VM from the legacy stack) — dashboards: req/s, p95 per endpoint, error rate, top queried units
-- [ ] Callers by country: GeoIP (MaxMind GeoLite2 or caddy geoip) on **truncated/anonymized IPs only** — GDPR: IP is personal data; log country + /24 max, state retention in the privacy/attribution page
-- [ ] caddy JSON access logs as a second source; per-API-key counters join at Step 6 (metering, plan 2.3)
+## Step 5b — Observability (Grafana + OpenTelemetry) ✅ 2026-07-18
+- [x] OTel metrics in the API (FastAPI + psycopg2 instrumentation; counter `confinia.requests` by route/method/status/country; `http.server.duration` histogram) — observability never breaks the API (fail-open)
+- [x] OTel Collector → Prometheus → **Grafana** compose services; provisioned datasource + "Confinia API" dashboard (req/s by route, p50/p95, statuses, countries, top routes). **https://grafana.confinia.io** (admin password in `deploy/secrets.env`, gitignored; sign-up disabled). Legacy monitoring containers + images purged (volumes kept, prune later)
+- [x] Callers by country: DB-IP Country Lite (CC BY 4.0 — **add attribution at Step 6**) in `data/geoip/`; only the country code is recorded, never the IP. **Gotcha fixed: rootlessport rewrites source IPs → caddy moved to host network** (real client IPs; backends joined via localhost ports)
+- [x] p95 measured (Step 3 leftover): server-side p50 <10 ms, worst of 20 = 38 ms — well under the 200 ms contract
+- [ ] Traces exporter (Tempo) later if needed; caddy JSON access logs as second source; per-API-key counters join at Step 6 (metering, plan 2.3); refresh the GeoIP mmdb monthly (cron or ansible-style task)
 
 ## Step 6 — Pre-beta hardening (before inviting anyone)
 - [ ] API keys + per-key request counting (plan 1.3: metering from day one)

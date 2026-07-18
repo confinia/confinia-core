@@ -28,3 +28,5 @@ data/
 
 # Local env
 .env
+# Secrets (mot de passe admin Grafana…) — jamais dans le repo
+deploy/secrets.env

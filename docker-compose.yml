@@ -41,6 +41,9 @@ services:
     image: confinia-api:latest
     environment:
       PG_DSN: postgresql://confinia:<dev-password-rotated>@db:5432/confinia
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    volumes:
+      - ./data/geoip:/geoip:ro   # dbip-country-lite.mmdb (pays d'appel, jamais l'IP)
     ports:
       - "127.0.0.1:8000:8000"   # accès local/ssh ; le public passe par caddy
     depends_on:
@@ -49,19 +52,47 @@ services:
     restart: unless-stopped
 
   # Reverse proxy + HTTPS automatique (Let's Encrypt). DNS: *.confinia.io -> VM.
+  # network_mode host : rootlessport réécrit l'IP source (GeoIP aveugle) ; en
+  # réseau hôte, caddy voit la vraie IP client et joint les backends via leurs
+  # ports publiés en localhost (api 8000, grafana 3000).
   caddy:
     image: docker.io/library/caddy:2
-    ports:
-      # 0.0.0.0 explicite : sans lui, rootlessport n'ouvre qu'une socket IPv6
-      # et les SYN IPv4 externes sont rejetés (RST) — vu le 2026-07-18.
-      - "0.0.0.0:80:80"
-      - "0.0.0.0:443:443"
+    network_mode: host
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
       - api
+    restart: unless-stopped
+
+  # --- Observabilité (Step 5b) : OTel collector -> Prometheus -> Grafana ---
+  otel-collector:
+    image: docker.io/otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./deploy/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    restart: unless-stopped
+
+  prometheus:
+    image: docker.io/prom/prometheus:latest
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom_data:/prometheus
+    restart: unless-stopped
+
+  grafana:
+    image: docker.io/grafana/grafana-oss:latest
+    env_file:
+      - ./deploy/secrets.env          # GF_SECURITY_ADMIN_PASSWORD — jamais commité
+    environment:
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: https://grafana.confinia.io
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "127.0.0.1:3000:3000"   # joint par caddy (réseau hôte)
     restart: unless-stopped
 
   # Aperçu local/VM de la démo (make demo). La prod de la démo ira sur
@@ -79,3 +110,5 @@ volumes:
   pgdata:
   caddy_data:
   caddy_config:
+  prom_data:
+  grafana_data:

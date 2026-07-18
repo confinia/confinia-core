@@ -3,7 +3,7 @@
 
 api.confinia.io {
 	encode zstd gzip
-	reverse_proxy api:8000
+	reverse_proxy 127.0.0.1:8000
 }
 
 # La démo vit sur GitHub Pages ; le wildcard DNS amène ce nom ici, caddy
@@ -11,6 +11,12 @@ api.confinia.io {
 # d'hébergement ou passe en domaine custom GitHub Pages natif).
 time-slider.confinia.io {
 	redir https://confinia.github.io{uri} temporary
+}
+
+# Grafana (observabilité) — authentification gérée par Grafana lui-même
+# (mot de passe admin dans deploy/secrets.env, inscriptions désactivées).
+grafana.confinia.io {
+	reverse_proxy 127.0.0.1:3000
 }
 
 confinia.io, www.confinia.io {

@@ -60,12 +60,68 @@ app = FastAPI(
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["GET"], allow_headers=["*"])
 
+# ---------------------------------------------------------------------------
+#  Observabilité (Step 5b) : métriques OpenTelemetry -> collector -> Prometheus
+#  -> Grafana. Pays d'appel via GeoIP (DB-IP Country Lite, CC BY 4.0) sur IP
+#  anonymisée — on ne stocke jamais l'IP, seulement le code pays.
+# ---------------------------------------------------------------------------
+REQ_COUNTER = None
+OTLP = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")   # ex: http://otel-collector:4318
+if OTLP:
+    try:
+        from opentelemetry import metrics as otel_metrics
+        from opentelemetry.sdk.metrics import MeterProvider
+        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+        from opentelemetry.sdk.resources import Resource
+        reader = PeriodicExportingMetricReader(
+            OTLPMetricExporter(endpoint=f"{OTLP}/v1/metrics"),
+            export_interval_millis=15000)
+        otel_metrics.set_meter_provider(MeterProvider(
+            resource=Resource.create({"service.name": "confinia-api"}),
+            metric_readers=[reader]))
+        REQ_COUNTER = otel_metrics.get_meter("confinia").create_counter(
+            "confinia.requests", description="Requêtes API par route/statut/pays")
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        from opentelemetry.instrumentation.psycopg2 import Psycopg2Instrumentor
+        FastAPIInstrumentor.instrument_app(app)
+        Psycopg2Instrumentor().instrument()
+    except Exception as e:                      # l'observabilité ne casse jamais l'API
+        print(f"[obs] OpenTelemetry non initialisé : {e}")
+
+GEOIP = None
+try:
+    import maxminddb
+    GEOIP = maxminddb.open_database("/geoip/dbip-country-lite.mmdb")
+except Exception:
+    pass
+
+
+def client_country(request: Request) -> str:
+    ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \
+        or (request.client.host if request.client else "")
+    if not GEOIP or not ip:
+        return "??"
+    try:
+        rec = GEOIP.get(ip)
+        return (rec or {}).get("country", {}).get("iso_code", "??")
+    except Exception:
+        return "??"
+
 
 @app.middleware("http")
 async def timing(request: Request, call_next):
     t0 = time.perf_counter()
     response = await call_next(request)
     response.headers["X-Response-Time-Ms"] = f"{(time.perf_counter() - t0) * 1000:.1f}"
+    if REQ_COUNTER is not None:
+        route = request.scope.get("route")
+        REQ_COUNTER.add(1, {
+            "route": getattr(route, "path", request.url.path),
+            "method": request.method,
+            "status": str(response.status_code),
+            "country": client_country(request),
+        })
     return response
 
 
