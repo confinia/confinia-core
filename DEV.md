@@ -6,7 +6,7 @@
 
 **Tous les processus (base, ingestion, API, proxy) tournent sur la VM OVH,
 jamais sur le poste macOS local.** Le poste local sert uniquement à éditer les
-fichiers (VS Code / Claude Code) et à les synchroniser vers la VM :
+fichiers (VS Code) et à les synchroniser vers la VM :
 
 ```sh
 rsync -az --delete --exclude '.git/' --exclude 'business/' --exclude 'data/' \
@@ -61,13 +61,13 @@ environnement qu'en production.
 
 ### Poste local (macOS) — édition uniquement
 
-- VS Code / Claude Code, git, rsync. Aucun service, aucune donnée de prod.
+- VS Code, git, rsync. Aucun service, aucune donnée de prod.
 - Le repo git est ici (`~/project/confinia`) ; la VM reçoit une copie rsync
   (sans `.git/`, sans `business/`).
 
 ## Arborescence
 
-Poste local `~/project/confinia/` (sessions VS Code / Claude Code ouvertes ici) :
+Poste local `~/project/confinia/` (sessions VS Code ouvertes ici) :
 
 - code du repo `confinia/confinia-core` à la racine — dont `TODO.md`
   (build track, interne : à relire avant passage public) ;

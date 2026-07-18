@@ -2,7 +2,7 @@
 
 *(interne — relire avant tout passage du repo en public, comme `DEV.md`)*
 
-**Purpose:** bootstrap file for fresh Claude Code sessions on the **build track** (code). Work top-down; check items off; log outcomes in `business/STORY.md` after each session. Business/validation tasks live in **`business/TODO.md`** — keep the two tracks separate.
+**Purpose:** bootstrap file for fresh working sessions on the **build track** (code). Work top-down; check items off; log outcomes in `business/STORY.md` after each session. Business/validation tasks live in **`business/TODO.md`** — keep the two tracks separate.
 
 **Layout (since 2026-07-18):** everything lives in **`~/project/confinia/`** — sessions open there. Repo `github.com/confinia/confinia-core` at the root (`ingestion/`, `api/`, `demo/`, `DEV.md`, `TODO.md`, `docker-compose.yml`, `Makefile`); **`business/` and `data/` are gitignored — never commit them** (repo goes public at beta).
 
