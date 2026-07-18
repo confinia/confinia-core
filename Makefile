@@ -40,6 +40,15 @@ ingest:           ## COG INSEE -> PostGIS (données dans ./data/raw/insee)
 load-nuts:        ## NUTS Eurostat GISCO (7 versions) -> PostGIS
 	$(COMPOSE) run --rm ingest /app/ingest_nuts.py --data-dir /data/raw/nuts --download --dsn
 
+load-de:          ## Gemeinden DE (BKG VG250 2016-2025) -> PostGIS
+	$(COMPOSE) run --rm ingest /app/ingest_de.py --data-dir /data/raw/de --download --dsn
+
+load-nl:          ## gemeenten NL (CBS/PDOK 2016-2026) -> PostGIS
+	$(COMPOSE) run --rm ingest /app/ingest_nl.py --data-dir /data/raw/nl --download --dsn
+
+load-lau:         ## LAU Eurostat (toute l'UE hors FR/DE/NL, 2016-2023) -> PostGIS (long)
+	$(COMPOSE) run --rm ingest /app/ingest_lau.py --data-dir /data/raw/lau --download --dsn
+
 load-fr:          ## pleine France, tous millésimes géométrie -> PostGIS (long)
 	$(COMPOSE) run --rm ingest /app/join_geometry.py \
 	  --millesimes 2025 --data-dir /data/raw/insee \

@@ -63,7 +63,12 @@
 
 ## Step 5 — Second country + NUTS (starts the "EU" in the pitch) *(NUTS done 2026-07-18)*
 - [x] Eurostat GISCO NUTS ingestion ✅ — `ingestion/ingest_nuts.py`, 7 versions (2003→2024, official in-force dates as transitions), consecutive unchanged versions merged into periods (3,771 rows), hierarchical parents; `make load-nuts` (auto-download from GISCO on the VM). API: `GET /v1/nuts?level=&country=&at=` + `?code=` + `/v1/nuts/{code}/history`. Sanity at 2022: FR = 14/27/101 (nuts1/2/3) ✓. **Attribution © EuroGeographics required (Step 6 page).** v1 limits: children empty, cross-version correspondences (splits/renames) later via Eurostat correspondence tables
-- [ ] Country #2 implementation once the business track picks DE or NL (decision lives in `business/TODO.md`); source: national portal (DE: BKG VG250 — license **DL-DE/BY-2.0**, commercial OK, exact attribution string + "modified" note required; NL: CBS/Kadaster — generally **CC BY 4.0**, verify per product). "Verify licenses" = final read of the exact product terms for the attribution page, not a data-access problem
+- [x] ~~Country #2~~ **Founder decision 2026-07-18: maximum European coverage — the POC becomes THE product.** Strategy: **breadth via Eurostat GISCO LAU** (all EU municipalities, yearly editions, © EuroGeographics) + **depth via national adapters** (exact dates, richer genealogy) that override LAU per country. Engine: `ingest_snapshots.py` (generic snapshot-diff temporal builder; transitions at edition dates — near-exact for NL where mergers land Jan 1; approximation documented for DE until Destatis Gebietsänderungen are wired)
+- [x] DE adapter ✅ `ingest_de.py` — BKG VG250 Gemeinden 2016–2025 (AGS, GF=4, UTM32→WGS84; license **DL-DE/BY-2.0**: attribution « © GeoBasis-DE / BKG (année), dl-de/by-2-0 » + modification note)
+- [x] NL adapter ✅ `ingest_nl.py` — CBS/PDOK gemeente_gegeneraliseerd 2016–2026 (statcode GM…, CC BY 4.0)
+- [x] LAU adapter ✅ loaded 2026-07-18 — `ingest_lau.py`, GISCO LAU 2016–2023, all EU/EFTA/UK minus native FR/DE/NL. **Total in base: 168,312 versions across 43 countries** (Barcelona/Warszawa/Milano/Wien verified via point queries). Cleanup note: 1 stray `country=UN` unit from GISCO; deepen countries by demand signal (Grafana country panel)
+- [x] API `/v1/units` ✅ deployed — code/point/**bbox** (≤6°×6°, limit 3000) lookups + `/history`, `unit_type`+`country` in all feature properties. DE encoding fixed (CPG-aware: « München »). **Demo v5: click anywhere in Europe** — FR opens the département, elsewhere viewport-driven loading (zoom ≥ 7, refetch on pan)
+- [ ] Snapshot-diff refinements later: DE exact dates via Destatis Gebietsänderungen; LAU code-continuity checks (e.g. Warszawa period break at 2023 — LAU_ID churn)
 - [x] Generalize schema ✅ — `unit_type` (commune | nuts0..nuts3 | gemeinde…), `country` columns + (unit_type, country) index; commune endpoints filter `unit_type='commune'` (NUTS polygons must never answer commune point-in-polygon); table name `commune_version` kept for now, rename to `admin_unit_version` at pre-beta hardening
 
 ## Step 5b — Observability (Grafana + OpenTelemetry) ✅ 2026-07-18
@@ -73,12 +78,12 @@
 - [x] p95 measured (Step 3 leftover): server-side p50 <10 ms, worst of 20 = 38 ms — well under the 200 ms contract
 - [ ] Traces exporter (Tempo) later if needed; caddy JSON access logs as second source; per-API-key counters join at Step 6 (metering, plan 2.3); refresh the GeoIP mmdb monthly (cron or ansible-style task)
 
-## Step 6 — Pre-beta hardening (before inviting anyone)
-- [ ] API keys + per-key request counting (plan 1.3: metering from day one)
-- [ ] Deploy on EU host (Scaleway/Hetzner/OVH — personal account); domain `api.confinia.io`; HTTPS
-- [ ] Minimal docs page at confinia.io: pitch line (from `business/PITCH.md`), quickstart curl, playground link
-- [ ] Attribution/licences page: IGN Licence Ouverte, INSEE, Eurostat, (OSM ODbL when/if used) — **non-negotiable before anything is public** (see OSM etiquette in `business/INTERVIEWS.md`)
-- [ ] Sanitize `DEV.md` + `TODO.md` (internal notes, VM IP/ssh) before the repo goes public
+## Step 6 — Pre-beta hardening (before inviting anyone) *(started 2026-07-18)*
+- [x] API keys + per-key request counting ✅ — `POST /v1/keys {email}` → uuid key (`X-API-Key` header), daily `api_usage` counters, `GET /v1/keys/{key}/usage` self-service; `keyed` label in Grafana metrics. Keys optional until beta: **flip `REQUIRE_API_KEY=true` in compose when inviting** (fail-open metering, fail-closed once required)
+- [x] Deploy on EU host ✅ (OVH VM, `api.confinia.io`, HTTPS auto)
+- [x] Public page ✅ — pitch + quickstart + coverage + **attribution/licences** (INSEE · IGN Licence Ouverte 2.0 · © EuroGeographics NUTS/LAU · © GeoBasis-DE/BKG dl-de/by-2-0 · CBS/Kadaster CC BY 4.0 · DB-IP CC BY 4.0), served by caddy from `deploy/site/`. Live at **www.confinia.io**; apex blocked: **human — the OVH `@ A <vm-ip>` edit was never saved** (still 213.186.33.5); re-apply it, caddy's cert follows automatically
+- [ ] Sanitize `DEV.md` + `TODO.md` (internal notes, VM IP/ssh) + rotate dev DB password + review compose before the repo goes public
+- [ ] Rate limiting (caddy or slowapi) before Show HN-scale exposure; monthly GeoIP mmdb refresh cron
 
 ## Later / parked
 - OSM change-tracking product (osm2pgsql #2144 evidence) — post-GO

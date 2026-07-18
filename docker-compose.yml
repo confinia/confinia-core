@@ -60,10 +60,15 @@ services:
     network_mode: host
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Vhosts par projet (import sites/*.caddy dans le Caddyfile) —
+      # chaque projet de la VM dépose ici son fichier .caddy.
+      - ./deploy/sites:/etc/caddy/sites:ro
+      # Page publique confinia.io (pitch, quickstart, attributions)
+      - ./deploy/site:/srv/site:ro
       - caddy_data:/data
       - caddy_config:/config
-    depends_on:
-      - api
+    # pas de depends_on : caddy (réseau hôte) joint l'api via 127.0.0.1:8000 et
+    # la dépendance podman bloquait toute recréation isolée du conteneur api.
     restart: unless-stopped
 
   # --- Observabilité (Step 5b) : OTel collector -> Prometheus -> Grafana ---

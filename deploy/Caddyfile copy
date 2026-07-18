@@ -20,13 +20,5 @@ grafana.confinia.io {
 }
 
 confinia.io, www.confinia.io {
-	encode zstd gzip
-	root * /srv/site
-	file_server
+	respond "Confinia — open-source EU boundary API with historical versioning. Beta soon. API: https://api.confinia.io/docs · Demo: https://time-slider.confinia.io" 200
 }
-
-# Vhosts des autres projets hébergés sur la VM (un fichier par projet,
-# déposé dans deploy/sites/ — monté sur /etc/caddy/sites). Ce caddy est
-# l'edge partagé de la VM : il possède 80/443, les backends publient en
-# 127.0.0.1 uniquement. Ex. : overwatch.caddy (projects/overwatch).
-import sites/*.caddy

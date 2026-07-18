@@ -72,9 +72,9 @@
     </div>
     <span id="count"></span>
   </div>
-  <div id="hint">🖱 molette / boutons en bas à droite : zoom · les départements voisins sont la
-    silhouette grise nommée — <b>cliquez-en un pour l'ouvrir</b> (France uniquement) · les dates
-    sont des dates civiles de validité (l'état affiché est celui du 1ᵉʳ jour du mois choisi)</div>
+  <div id="hint">🖱 molette / boutons en bas à droite : zoom · <b>cliquez n'importe où en
+    Europe</b> : un département français s'ouvre entier, ailleurs les communes se chargent
+    selon la vue (zoomez ≥ 7) · dates civiles de validité (état au 1ᵉʳ jour du mois choisi)</div>
 </header>
 <div id="info"></div>
 <div id="flash"></div>
@@ -118,6 +118,20 @@ function colorOf(code) {
 
 const deptOf = code => code.startsWith("97") ? code.slice(0, 3) : code.slice(0, 2);
 const DEPT_RE = /^([0-9]{2}[0-9]?|2[AB])$/;
+
+const COUNTRY_NAMES = {
+  DE: "Allemagne", NL: "Pays-Bas", BE: "Belgique", LU: "Luxembourg", IT: "Italie",
+  ES: "Espagne", PT: "Portugal", AT: "Autriche", CH: "Suisse", DK: "Danemark",
+  SE: "Suède", FI: "Finlande", NO: "Norvège", PL: "Pologne", CZ: "Tchéquie",
+  SK: "Slovaquie", HU: "Hongrie", SI: "Slovénie", HR: "Croatie", RO: "Roumanie",
+  BG: "Bulgarie", GR: "Grèce", EL: "Grèce", IE: "Irlande", EE: "Estonie",
+  LV: "Lettonie", LT: "Lituanie", MT: "Malte", CY: "Chypre", IS: "Islande",
+  LI: "Liechtenstein", UK: "Royaume-Uni", FR: "France",
+};
+
+// Mode d'affichage : "dept" (France, département entier) ou "area"
+// (autres pays : unités communales chargées selon la vue courante).
+let mode = "dept", areaCountry = null;
 
 const map = new maplibregl.Map({
   container: "map",
@@ -250,17 +264,19 @@ function labelFeature(f) {
     properties: { nom: f.properties.nom, rank: -bestA } };
 }
 
+function decorate(fc) {
+  for (const f of fc.features) f.properties._color = colorOf(f.properties.code);
+  return { fc, labels: { type: "FeatureCollection",
+                         features: fc.features.map(labelFeature).filter(Boolean) } };
+}
+
 const cache = new Map();          // "dept|date" -> {fc, labels}
 async function fetchState(dept, date) {
   const key = dept + "|" + date;
   if (!cache.has(key)) {
     const r = await fetch(`${API}/v1/communes?dept=${dept}&at=${date}`);
     if (!r.ok) throw new Error(`API ${r.status}`);
-    const fc = await r.json();
-    for (const f of fc.features) f.properties._color = colorOf(f.properties.code);
-    const labels = { type: "FeatureCollection",
-                     features: fc.features.map(labelFeature).filter(Boolean) };
-    cache.set(key, { fc, labels });
+    cache.set(key, decorate(await r.json()));
   }
   return cache.get(key);
 }
@@ -280,24 +296,50 @@ const FR_DATE = new Intl.DateTimeFormat("fr-FR",
   { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
 let pending = 0;
+function show(decorated, countLabel) {
+  const src = map.getSource("communes");
+  if (!src) return;                              // carte pas encore chargée
+  src.setData(decorated.fc);
+  map.getSource("commune-labels").setData(decorated.labels);
+  $("count").textContent = countLabel;
+}
+
 async function render() {
-  const dept = $("dept").value.trim();
   const date = DATES[slider.value];
   $("datefr").textContent = "au " + FR_DATE.format(new Date(date + "T00:00:00Z"));
   if (month.value !== date.slice(0, 7)) month.value = date.slice(0, 7);
+  if (mode === "area") return renderArea();
+  const dept = $("dept").value.trim();
   if (!DEPT_RE.test(dept)) return;
   $("deptname").textContent = DEPT_NAMES[dept] || "";
   const ticket = ++pending;
   try {
-    const { fc, labels } = await fetchState(dept, date);
+    const decorated = await fetchState(dept, date);
     if (ticket !== pending) return;              // une requête plus récente a gagné
-    const src = map.getSource("communes");
-    if (!src) return;                            // carte pas encore chargée
-    src.setData(fc);
-    map.getSource("commune-labels").setData(labels);
-    $("count").textContent = `${fc.features.length} communes`;
-    if (firstFit && fc.features.length) { fitTo(fc); firstFit = false; }
+    show(decorated, `${decorated.fc.features.length} communes`);
+    if (firstFit && decorated.fc.features.length) { fitTo(decorated.fc); firstFit = false; }
   } catch (e) {
+    $("count").textContent = "erreur API";
+  }
+}
+
+// Hors de France : unités communales chargées selon la vue (bbox), tous pays.
+async function renderArea() {
+  const date = DATES[slider.value];
+  $("dept").value = areaCountry;
+  $("deptname").textContent = COUNTRY_NAMES[areaCountry] || areaCountry;
+  if (map.getZoom() < 7) { $("count").textContent = "zoomez pour charger"; return; }
+  const b = map.getBounds();
+  const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]
+    .map(v => v.toFixed(3)).join(",");
+  const ticket = ++pending;
+  try {
+    const r = await fetch(`${API}/v1/units?bbox=${bbox}&country=${areaCountry}&at=${date}`);
+    if (!r.ok) throw new Error();
+    const decorated = decorate(await r.json());
+    if (ticket !== pending) return;
+    show(decorated, `${decorated.fc.features.length} unités (${areaCountry})`);
+  } catch {
     $("count").textContent = "erreur API";
   }
 }
@@ -347,25 +389,38 @@ map.on("load", () => {
     map.getCanvas().style.cursor = "";
   });
 
-  // Clic n'importe où : point-dans-polygone côté API → bascule de département.
+  // Clic n'importe où en Europe : point-dans-polygone côté API (tous pays).
   map.on("click", async e => {
     const { lng, lat } = e.lngLat;
     const date = DATES[slider.value];
     try {
-      const r = await fetch(`${API}/v1/communes?lat=${lat.toFixed(5)}&lon=${lng.toFixed(5)}&at=${date}`);
-      if (r.status === 404) { flash("Hors de France — données françaises uniquement pour l’instant."); return; }
+      const r = await fetch(`${API}/v1/units?lat=${lat.toFixed(5)}&lon=${lng.toFixed(5)}&at=${date}`);
+      if (r.status === 404) { flash("Aucune unité connue ici à cette date (mer ? hors couverture ?)."); return; }
       if (!r.ok) throw new Error();
       const f = await r.json();
-      const dept = deptOf(f.properties.code);
-      if (dept !== $("dept").value.trim()) {
-        $("dept").value = dept;
-        firstFit = true;
-        cacheWarm();
+      const country = f.properties.country;
+      if (country === "FR") {
+        mode = "dept";
+        const dept = deptOf(f.properties.code);
+        if (dept !== $("dept").value.trim() || areaCountry) {
+          areaCountry = null;
+          $("dept").value = dept;
+          firstFit = true;
+          cacheWarm();
+          render();
+          flash(`Département ${dept} — ${f.properties.nom}`);
+        }
+      } else {
+        mode = "area";
+        areaCountry = country;
+        flash(`${f.properties.nom} · ${COUNTRY_NAMES[country] || country}`);
         render();
-        flash(`Département ${dept} — ${f.properties.nom}`);
       }
     } catch { flash("Requête impossible — réessayez."); }
   });
+
+  // En mode « area », recharger quand la vue bouge.
+  map.on("moveend", () => { if (mode === "area") debouncedRender(); });
 });
 
 let timer = null;
@@ -376,6 +431,8 @@ month.addEventListener("change", () => {
   if (i >= 0) { slider.value = i; render(); }
 });
 $("dept").addEventListener("change", () => {
+  if (!DEPT_RE.test($("dept").value.trim())) return;   // codes pays : via clic carte
+  mode = "dept"; areaCountry = null;
   firstFit = true; cacheWarm(); debouncedRender();
 });
 

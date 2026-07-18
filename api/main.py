@@ -30,6 +30,28 @@ DSN = os.environ.get("PG_DSN", "postgresql://confinia:<dev-password-rotated>@db:
 pool: psycopg2.pool.SimpleConnectionPool | None = None
 
 
+KEYS_SQL = """
+CREATE TABLE IF NOT EXISTS api_key (
+    key        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    email      text NOT NULL,
+    note       text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    active     boolean NOT NULL DEFAULT true
+);
+CREATE TABLE IF NOT EXISTS api_usage (
+    key      uuid NOT NULL REFERENCES api_key(key),
+    day      date NOT NULL,
+    requests bigint NOT NULL DEFAULT 0,
+    PRIMARY KEY (key, day)
+);
+"""
+
+# Clés facultatives pendant le développement ; passer REQUIRE_API_KEY=true
+# à l'ouverture de la beta (plan 2.3 : metering dès le premier jour).
+REQUIRE_KEY = os.environ.get("REQUIRE_API_KEY", "false").lower() == "true"
+OPEN_PATHS = ("/", "/docs", "/openapi.json", "/redoc", "/healthz", "/v1/keys")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     global pool
@@ -43,6 +65,12 @@ async def lifespan(_: FastAPI):
             time.sleep(2)
     if pool is None:
         raise RuntimeError(f"PostGIS injoignable : {last_err}")
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(KEYS_SQL)
+    finally:
+        pool.putconn(conn)
     yield
     pool.closeall()
 
@@ -109,9 +137,39 @@ def client_country(request: Request) -> str:
         return "??"
 
 
+def meter_key(request: Request) -> str | None:
+    """Valide la clé API éventuelle et compte l'usage du jour. Fail-open."""
+    key = request.headers.get("x-api-key") or request.query_params.get("api_key")
+    if not key:
+        return None
+    try:
+        conn = pool.getconn()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute("SELECT active FROM api_key WHERE key = %s::uuid", (key,))
+                row = cur.fetchone()
+                if not row or not row[0]:
+                    return None
+                cur.execute(
+                    "INSERT INTO api_usage (key, day, requests) VALUES (%s::uuid, CURRENT_DATE, 1) "
+                    "ON CONFLICT (key, day) DO UPDATE SET requests = api_usage.requests + 1", (key,))
+                return key
+        finally:
+            pool.putconn(conn)
+    except Exception:
+        return None
+
+
 @app.middleware("http")
 async def timing(request: Request, call_next):
     t0 = time.perf_counter()
+    valid_key = meter_key(request) if request.url.path.startswith("/v1/") else None
+    if (REQUIRE_KEY and valid_key is None
+            and request.url.path.startswith("/v1/")
+            and not request.url.path.startswith("/v1/keys")):
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"detail": "Clé API requise : POST /v1/keys {email} "
+                                       "puis en-tête X-API-Key."}, status_code=401)
     response = await call_next(request)
     response.headers["X-Response-Time-Ms"] = f"{(time.perf_counter() - t0) * 1000:.1f}"
     if REQ_COUNTER is not None:
@@ -121,6 +179,7 @@ async def timing(request: Request, call_next):
             "method": request.method,
             "status": str(response.status_code),
             "country": client_country(request),
+            "keyed": valid_key is not None,
         })
     return response
 
@@ -136,13 +195,14 @@ def cursor():
 
 
 def feature(row) -> dict:
-    (code, nom, valid_from, valid_to, parents, children,
+    (code, nom, unit_type, country, valid_from, valid_to, parents, children,
      vintage, approx, geom) = row
     return {
         "type": "Feature",
         "geometry": json.loads(geom) if geom else None,
         "properties": {
             "code": code, "nom": nom,
+            "unit_type": unit_type, "country": country,
             "valid_from": valid_from.isoformat(),
             "valid_to": None if valid_to == FAR_FUTURE else valid_to.isoformat(),
             "parents": parents, "children": children,
@@ -152,7 +212,7 @@ def feature(row) -> dict:
     }
 
 
-COLS = ("code, nom, valid_from, valid_to, parents, children, "
+COLS = ("code, nom, unit_type, country, valid_from, valid_to, parents, children, "
         "geometry_vintage, geometry_approx, ST_AsGeoJSON(geom_simple, 6)")
 
 LANDING = """<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -205,6 +265,38 @@ def healthz():
     with cursor() as cur:
         cur.execute("SELECT count(*) FROM commune_version")
         return {"status": "ok", "versions": cur.fetchone()[0]}
+
+
+from pydantic import BaseModel, EmailStr  # noqa: E402
+
+
+class KeyRequest(BaseModel):
+    email: EmailStr
+    note: str | None = None
+
+
+@app.post("/v1/keys", status_code=201)
+def create_key(req: KeyRequest):
+    """Crée une clé API (gratuite — beta). À passer en en-tête X-API-Key."""
+    with cursor() as cur:
+        cur.execute("INSERT INTO api_key (email, note) VALUES (%s, %s) RETURNING key, created_at",
+                    (req.email, req.note))
+        key, created = cur.fetchone()
+        cur.connection.commit()
+    return {"key": str(key), "created_at": created.isoformat(),
+            "usage": f"/v1/keys/{key}/usage"}
+
+
+@app.get("/v1/keys/{key}/usage")
+def key_usage(key: str):
+    """Consommation des 30 derniers jours pour une clé."""
+    with cursor() as cur:
+        cur.execute(
+            "SELECT day, requests FROM api_usage "
+            "WHERE key = %s::uuid AND day > CURRENT_DATE - 30 ORDER BY day", (key,))
+        rows = cur.fetchall()
+    return {"key": key, "days": [{"day": d.isoformat(), "requests": n} for d, n in rows],
+            "total_30d": sum(n for _, n in rows)}
 
 
 @app.get("/v1/communes")
@@ -318,6 +410,84 @@ def nuts_at(
         rows = cur.fetchall()
     response.headers["Cache-Control"] = "public, max-age=3600"
     return {"type": "FeatureCollection", "features": [feature(r) for r in rows]}
+
+
+# Types « communaux » par pays : adaptateurs natifs + LAU Eurostat (largeur EU).
+MUNICIPAL_TYPES = ("commune", "gemeinde", "gemeente", "lau")
+
+
+@app.get("/v1/units")
+def unit_at(
+    response: Response,
+    at: date = Query(..., description="Date de validité (YYYY-MM-DD)"),
+    code: str | None = Query(None, max_length=16),
+    country: str | None = Query(None, min_length=2, max_length=2),
+    lat: float | None = Query(None, ge=-90, le=90),
+    lon: float | None = Query(None, ge=-180, le=180),
+    bbox: str | None = Query(None, pattern=r"^-?[0-9.]+,-?[0-9.]+,-?[0-9.]+,-?[0-9.]+$",
+                             description="minLon,minLat,maxLon,maxLat (≤ 6°×6°) → FeatureCollection"),
+):
+    """Unité administrative communale (tous pays) : par code (+country), par
+    point (lat/lon), ou par emprise (bbox) — commune FR, Gemeinde DE,
+    gemeente NL, LAU ailleurs."""
+    selectors = (code is not None) + (lat is not None and lon is not None) + (bbox is not None)
+    if selectors != 1:
+        raise HTTPException(422, "Fournir un critère : code= (+country=), lat=&lon=, ou bbox=.")
+    with cursor() as cur:
+        if bbox:
+            w, s, e, n = (float(v) for v in bbox.split(","))
+            if not (w < e and s < n) or (e - w) > 6 or (n - s) > 6:
+                raise HTTPException(422, "bbox invalide ou trop grande (max 6°×6°).")
+            sql = (f"SELECT {COLS} FROM commune_version "
+                   "WHERE unit_type = ANY(%s) AND valid_from <= %s AND valid_to > %s "
+                   "AND geom_simple && ST_MakeEnvelope(%s,%s,%s,%s,4326) ")
+            params = [list(MUNICIPAL_TYPES), at, at, w, s, e, n]
+            if country:
+                sql += "AND country = %s "
+                params.append(country.upper())
+            cur.execute(sql + "ORDER BY code LIMIT 3000", params)
+            rows = cur.fetchall()
+            response.headers["Cache-Control"] = "public, max-age=3600"
+            return {"type": "FeatureCollection", "features": [feature(r) for r in rows]}
+        if code:
+            sql = (f"SELECT {COLS} FROM commune_version "
+                   "WHERE unit_type = ANY(%s) AND code = %s "
+                   "AND valid_from <= %s AND valid_to > %s ")
+            params = [list(MUNICIPAL_TYPES), code, at, at]
+            if country:
+                sql += "AND country = %s "
+                params.append(country.upper())
+            cur.execute(sql + "ORDER BY valid_from DESC LIMIT 1", params)
+        else:
+            cur.execute(
+                f"SELECT {COLS} FROM commune_version "
+                "WHERE unit_type = ANY(%s) "
+                "AND valid_from <= %s AND valid_to > %s AND geom IS NOT NULL "
+                "AND ST_Contains(geom, ST_SetSRID(ST_Point(%s, %s), 4326)) "
+                "LIMIT 1", (list(MUNICIPAL_TYPES), at, at, lon, lat))
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Aucune unité valide à cette date pour cette requête.")
+    return feature(row)
+
+
+@app.get("/v1/units/{code}/history")
+def unit_history(code: str, country: str | None = Query(None), geometry: bool = Query(False)):
+    """Toutes les versions d'une unité communale (tous pays)."""
+    geom_col = "ST_AsGeoJSON(geom_simple, 6)" if geometry else "NULL"
+    sql = ("SELECT code, nom, valid_from, valid_to, parents, children, "
+           f"geometry_vintage, geometry_approx, {geom_col} "
+           "FROM commune_version WHERE unit_type = ANY(%s) AND code = %s ")
+    params = [list(MUNICIPAL_TYPES), code]
+    if country:
+        sql += "AND country = %s "
+        params.append(country.upper())
+    with cursor() as cur:
+        cur.execute(sql + "ORDER BY valid_from", params)
+        rows = cur.fetchall()
+    if not rows:
+        raise HTTPException(404, f"Code inconnu : {code}")
+    return {"code": code, "versions": [feature(r) for r in rows]}
 
 
 @app.get("/v1/nuts/{code}/history")
