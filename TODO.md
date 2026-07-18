@@ -54,7 +54,7 @@
 - [x] The money shot verified in data: dept 01 = 407 communes at 2018-06 → 393 at 2019-06, 01033 Bellegarde→Valserhône
 - [x] `make demo` serves it (compose service `demo`, port 8080 — **temporary VM preview http://<vm-ip>:8080**; production stays GitHub Pages per fixed decision)
 - [ ] Human: record the GIF/screenshot (press ▶, slide across 2019-01-01) → outreach kit
-- [ ] Publish to GitHub Pages at beta (repo must be public, or a separate public pages repo)
+- [x] Published to GitHub Pages ✅ 2026-07-18: public repo `confinia/confinia.github.io` → **https://confinia.github.io** (deploy via `make demo-publish`; core `demo/` stays the source of truth). Custom domain `time-slider.confinia.io`: **human first adds the DNS record at OVH** (CNAME `time-slider` → `confinia.github.io.`; the specific record overrides the wildcard A), **then** re-set the Pages cname (`gh api -X PUT repos/confinia/confinia.github.io/pages -f cname=time-slider.confinia.io`) — setting it before DNS broke the github.io URL with a redirect loop, reverted
 
 **Done when:** the slider demo runs end-to-end against the API. ✅ (visual check + GIF = human task)
 

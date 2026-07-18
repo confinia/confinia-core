@@ -25,6 +25,12 @@ db-shell:         ## psql dans la base
 demo:             ## sert la démo web MapLibre sur :8080 (aperçu ; prod = GitHub Pages)
 	$(COMPOSE) up -d demo
 
+demo-publish:     ## déploie demo/ vers le repo public confinia.github.io (GitHub Pages)
+	rm -rf /tmp/confinia-pages && git clone -q https://github.com/confinia/confinia.github.io /tmp/confinia-pages
+	cp demo/index.html /tmp/confinia-pages/index.html
+	cd /tmp/confinia-pages && git -c user.name=Confinia -c user.email=contact@confinia.io \
+	  commit -am "Deploy demo from confinia-core" && git push -q
+
 demo-data:        ## ingestion en mode démo (aucune donnée requise)
 	$(COMPOSE) run --rm --no-deps ingest /app/ingest_cog.py --geojson /data/out/demo.geojson
 
