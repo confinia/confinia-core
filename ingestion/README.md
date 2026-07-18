@@ -113,10 +113,19 @@ conteneur (règles dans `DEV.md`).
   création (20) ne tue pas la commune source ; une fusion (31/33) ne
   (re)démarre pas l'absorbeur.
 - Un (code, nom) peut avoir **plusieurs périodes** (rétablissements — Celles 15148).
+- **La ligne identité annule les débuts/fins croisés du même jour** : une
+  commune nouvelle qui garde code et nom du chef-lieu (Osmery 18173 en 2024,
+  Neufchâteau 88321 en 2025) traverse l'événement — la ligne croisée venue de
+  la commune absorbée ne doit pas réinitialiser son histoire.
+- **Début + fin le même jour sans passé = existence de durée nulle, ignorée**
+  (changement de département + fusion simultanés : Freigné 44225,
+  Pont-Farcy 50649 en 2018). Fin + re-début le même jour avec un passé =
+  continuité (aller-retour de nom).
 - Début inconnu (aucun événement entrant) : borné à `1943-01-01` — le fichier
   des mouvements est complet depuis 1943, ce qui rend les comptages corrects à
-  toute date avec un seul millésime COG chargé. Vérifié vs INSEE publié :
-  2015 : 36 617/36 658 · 2020 : 34 965/34 968 · 2025 : 34 877/34 875.
+  toute date avec un seul millésime COG chargé. **Vérifié vs INSEE publié :
+  2015 : 36 658 / 2020 : 34 968 / 2025 : 34 875 — exacts tous les trois**, et
+  diff nulle (0 manquante, 0 en trop) contre le snapshot complet COG 2019.
 
 ## Limites connues (à traiter ensuite)
 

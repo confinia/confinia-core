@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Confinia — communes through time</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css" rel="stylesheet">
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #10151d; color: #e8eaed;
+               font: 14px/1.45 system-ui, -apple-system, sans-serif; }
+  #map { position: absolute; inset: 0; }
+  header {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 2;
+    display: flex; flex-wrap: wrap; gap: .6rem 1.2rem; align-items: center;
+    padding: .7rem 1rem; background: rgba(10,14,20,.82); backdrop-filter: blur(6px);
+  }
+  header h1 { font-size: 1rem; margin: 0; font-weight: 600; letter-spacing: .02em; }
+  header h1 span { color: #7ab8ff; }
+  #controls { display: flex; gap: .8rem; align-items: center; flex: 1; min-width: 300px; }
+  #slider { flex: 1; accent-color: #7ab8ff; }
+  #date { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 7.2em; }
+  #count { opacity: .75; min-width: 9em; }
+  #dept { width: 3.2em; background: #1b2330; color: inherit; border: 1px solid #33405a;
+          border-radius: 4px; padding: .15rem .3rem; text-align: center; }
+  button { background: #1b2330; color: inherit; border: 1px solid #33405a;
+           border-radius: 4px; padding: .2rem .7rem; cursor: pointer; }
+  button:hover { border-color: #7ab8ff; }
+  #info {
+    position: absolute; left: 1rem; bottom: 2.4rem; z-index: 2; max-width: 21rem;
+    background: rgba(10,14,20,.85); border: 1px solid #26314a; border-radius: 6px;
+    padding: .6rem .8rem; visibility: hidden;
+  }
+  #info b { color: #7ab8ff; }
+  footer {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+    padding: .3rem 1rem; font-size: .75rem; opacity: .75;
+    background: rgba(10,14,20,.72);
+  }
+  footer a { color: #7ab8ff; text-decoration: none; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<header>
+  <h1><span>Confinia</span> · les frontières ont une histoire</h1>
+  <div id="controls">
+    <label>Dépt <input id="dept" value="01" maxlength="3" spellcheck="false"></label>
+    <button id="play" title="Faire défiler le temps">▶</button>
+    <input id="slider" type="range" min="0" step="1">
+    <span id="date"></span>
+    <span id="count"></span>
+  </div>
+</header>
+<div id="info"></div>
+<footer>
+  Données : INSEE COG · IGN Admin Express (Licence Ouverte 2.0) — géométries simplifiées ·
+  <a href="https://api.confinia.io/docs">API Confinia</a>
+</footer>
+<script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
+<script>
+"use strict";
+const API = new URLSearchParams(location.search).get("api") || "https://api.confinia.io";
+
+// Un pas par mois : la fusion Valserhône tombe au passage de 2019-01-01.
+const START = new Date(Date.UTC(2017, 0, 1)), END = new Date(Date.UTC(2026, 6, 1));
+const DATES = [];
+for (let d = new Date(START); d <= END; d.setUTCMonth(d.getUTCMonth() + 1))
+  DATES.push(d.toISOString().slice(0, 10));
+
+const slider = document.getElementById("slider");
+slider.max = DATES.length - 1;
+slider.value = DATES.indexOf("2018-06-01");
+
+// Couleur stable par code INSEE : une commune garde sa teinte dans le temps,
+// une fusion se VOIT (trois teintes deviennent une).
+function colorOf(code) {
+  let h = 0;
+  for (const c of code) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return `hsl(${h % 360} ${55 + h % 25}% ${46 + (h >> 3) % 14}%)`;
+}
+
+const map = new maplibregl.Map({
+  container: "map",
+  style: { version: 8, sources: {}, layers: [
+    { id: "bg", type: "background", paint: { "background-color": "#10151d" } } ] },
+  center: [5.7, 46.05], zoom: 9, attributionControl: false,
+});
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }));
+
+const cache = new Map();          // "dept|date" -> FeatureCollection
+async function fetchState(dept, date) {
+  const key = dept + "|" + date;
+  if (!cache.has(key)) {
+    const r = await fetch(`${API}/v1/communes?dept=${dept}&at=${date}`);
+    if (!r.ok) throw new Error(`API ${r.status}`);
+    const fc = await r.json();
+    for (const f of fc.features) f.properties._color = colorOf(f.properties.code);
+    cache.set(key, fc);
+  }
+  return cache.get(key);
+}
+
+let firstFit = true;
+function fitTo(fc) {
+  let [minX, minY, maxX, maxY] = [180, 90, -180, -90];
+  const scan = c => { if (typeof c[0] === "number") {
+      minX = Math.min(minX, c[0]); maxX = Math.max(maxX, c[0]);
+      minY = Math.min(minY, c[1]); maxY = Math.max(maxY, c[1]);
+    } else c.forEach(scan); };
+  fc.features.forEach(f => f.geometry && scan(f.geometry.coordinates));
+  if (minX < maxX) map.fitBounds([[minX, minY], [maxX, maxY]], { padding: 60, duration: 400 });
+}
+
+let pending = 0;
+async function render() {
+  const dept = document.getElementById("dept").value.trim();
+  const date = DATES[slider.value];
+  document.getElementById("date").textContent = date;
+  if (!/^([0-9]{2}[0-9]?|2[AB])$/.test(dept)) return;
+  const ticket = ++pending;
+  try {
+    const fc = await fetchState(dept, date);
+    if (ticket !== pending) return;              // une requête plus récente a gagné
+    map.getSource("communes").setData(fc);
+    document.getElementById("count").textContent = `${fc.features.length} communes`;
+    if (firstFit && fc.features.length) { fitTo(fc); firstFit = false; }
+  } catch (e) {
+    document.getElementById("count").textContent = "erreur API";
+  }
+}
+
+map.on("load", () => {
+  map.addSource("communes", { type: "geojson",
+    data: { type: "FeatureCollection", features: [] } });
+  map.addLayer({ id: "communes-fill", type: "fill", source: "communes",
+    paint: { "fill-color": ["get", "_color"], "fill-opacity": 0.82 } });
+  map.addLayer({ id: "communes-line", type: "line", source: "communes",
+    paint: { "line-color": "#0b0f16", "line-width": 0.8 } });
+  render();
+
+  const info = document.getElementById("info");
+  map.on("mousemove", "communes-fill", e => {
+    const p = e.features[0].properties;
+    info.innerHTML = `<b>${p.nom}</b> (${p.code})<br>` +
+      `valide : ${p.valid_from} → ${p.valid_to === "null" || !p.valid_to ? "aujourd’hui" : p.valid_to}<br>` +
+      `géométrie : édition ${p.geometry_vintage || "—"}${p.geometry_approx === "true" || p.geometry_approx === true ? " (approchée)" : ""}`;
+    info.style.visibility = "visible";
+    map.getCanvas().style.cursor = "pointer";
+  });
+  map.on("mouseleave", "communes-fill", () => {
+    info.style.visibility = "hidden";
+    map.getCanvas().style.cursor = "";
+  });
+});
+
+let timer = null;
+function debouncedRender() { clearTimeout(timer); timer = setTimeout(render, 120); }
+slider.addEventListener("input", debouncedRender);
+document.getElementById("dept").addEventListener("change", () => {
+  firstFit = true; cacheWarm(); debouncedRender();
+});
+
+// Lecture automatique — le « money shot » : trois communes fusionnent au 2019-01-01.
+let playing = null;
+document.getElementById("play").addEventListener("click", () => {
+  const btn = document.getElementById("play");
+  if (playing) { clearInterval(playing); playing = null; btn.textContent = "▶"; return; }
+  btn.textContent = "⏸";
+  playing = setInterval(() => {
+    slider.value = (+slider.value + 1) % DATES.length;
+    render();
+  }, 650);
+});
+
+// Préchauffe le cache autour de la fusion pour une lecture fluide.
+function cacheWarm() {
+  const dept = document.getElementById("dept").value.trim();
+  for (const d of ["2018-12-01", "2019-01-01", "2019-02-01"])
+    if (/^([0-9]{2}[0-9]?|2[AB])$/.test(dept)) fetchState(dept, d).catch(() => {});
+}
+cacheWarm();
+</script>
+</body>
+</html>

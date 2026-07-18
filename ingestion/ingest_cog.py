@@ -209,6 +209,25 @@ def build_versions(millesimes: list[int],
     child_links: dict[tuple[str, str], set] = {}     # (code, nom) -> {(date, code_ap)}
     parent_links: dict[tuple[str, str], set] = {}    # (code, nom) -> {(date, code_av)}
 
+    # Passe 1 — lignes identité (même code+nom COM des deux côtés) : la commune
+    # traverse l'événement. Elles ANNULENT tout début/fin croisé du même jour :
+    # une commune nouvelle qui garde code et nom du chef-lieu (Osmery 2024,
+    # Neufchâteau 2025…) ne doit pas voir son passé effacé par la ligne croisée
+    # venant de la commune absorbée.
+    identity: set[tuple[str, str, str]] = set()
+    for m in all_movements:
+        d = (m.get("DATE_EFF") or "").strip()
+        if len(d) != 10:
+            continue
+        if ((m.get("TYPECOM_AV") or "COM").strip() == "COM"
+                and (m.get("TYPECOM_AP") or "COM").strip() == "COM"):
+            code_av = (m.get("COM_AV") or "").strip()
+            code_ap = (m.get("COM_AP") or "").strip()
+            nom_av = (m.get("LIBELLE_AV") or m.get("NCCENR_AV") or "").strip()
+            nom_ap = (m.get("LIBELLE_AP") or m.get("NCCENR_AP") or "").strip()
+            if code_av and code_av == code_ap and nom_av == nom_ap:
+                identity.add((code_av, nom_av, d))
+
     for m in all_movements:
         d = (m.get("DATE_EFF") or "").strip()
         if len(d) != 10:
@@ -237,10 +256,13 @@ def build_versions(millesimes: list[int],
             if nom_ap:
                 starts_at.setdefault((code_ap, nom_ap), set()).add(d)
         else:
-            # Code différent : la sémantique dépend du type d'événement.
-            if code_av and nom_av and mod in ENDS_AV_CROSS:
+            # Code différent : la sémantique dépend du type d'événement — et une
+            # ligne identité du même jour l'emporte (la commune survit).
+            if (code_av and nom_av and mod in ENDS_AV_CROSS
+                    and (code_av, nom_av, d) not in identity):
                 ends_at.setdefault((code_av, nom_av), set()).add(d)
-            if code_ap and nom_ap and mod in STARTS_AP_CROSS:
+            if (code_ap and nom_ap and mod in STARTS_AP_CROSS
+                    and (code_ap, nom_ap, d) not in identity):
                 starts_at.setdefault((code_ap, nom_ap), set()).add(d)
         # liens parent/enfant datés, en ignorant les auto-références (même code+nom)
         if code_av and code_ap and (code_av, nom_av) != (code_ap, nom_ap):
@@ -261,29 +283,36 @@ def build_versions(millesimes: list[int],
     versions: list[CommuneVersion] = []
     for (code, nom) in sorted(keys):
         k = (code, nom)
-        # Chronologie des événements ; à date égale, la fin précède le début
-        # (fin + re-début le même jour = continuité de deux périodes).
-        events = sorted([(d, 0) for d in ends_at.get(k, ())]
-                        + [(d, 1) for d in starts_at.get(k, ())])
+        S, E = starts_at.get(k, set()), ends_at.get(k, set())
+        dates = sorted(S | E)
 
         periods: list[tuple[str, str]] = []   # (valid_from, valid_to)
         open_from: str | None = None
-        # Si le premier événement est une FIN, la version existait avant nos
-        # données : début inconnu, borné à COG_FLOOR.
-        if events and events[0][1] == 0:
+        # Premier événement = une FIN seule : la version existait avant nos
+        # données — début inconnu, borné à COG_FLOOR.
+        if dates and dates[0] in E and dates[0] not in S:
             open_from = COG_FLOOR
-        for d, kind in events:
-            if kind == 1:                      # début
-                if open_from is None:
+        for d in dates:
+            has_s, has_e = d in S, d in E
+            if open_from is not None:
+                if has_e:
+                    if d > open_from:
+                        periods.append((open_from, d))
+                    # fin + re-début le même jour = continuité (aller-retour de nom)
+                    open_from = d if has_s else None
+                # début seul alors que déjà ouvert : on garde le plus ancien
+            else:
+                if has_s and has_e:
+                    # début + fin le même jour sans passé : existence de durée
+                    # nulle, artefact de transition (Freigné 44225, Pont-Farcy
+                    # 50649 : changement de département + fusion simultanés).
+                    pass
+                elif has_s:
                     open_from = d
-                # un 2e début pendant une période ouverte : on garde le plus ancien
-            else:                              # fin
-                if open_from is not None and d > open_from:
-                    periods.append((open_from, d))
-                    open_from = None
+                # fin seule sans période ouverte : anomalie, ignorée
         if open_from is not None:
             periods.append((open_from, FAR_FUTURE))
-        if not events:
+        if not dates:
             # présent dans un snapshot, aucun événement : existe depuis toujours
             periods.append((COG_FLOOR, FAR_FUTURE))
 

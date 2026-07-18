@@ -22,7 +22,10 @@ db-down:
 db-shell:         ## psql dans la base
 	$(COMPOSE) exec db psql -U confinia -d confinia
 
-demo:             ## ingestion en mode démo (aucune donnée requise)
+demo:             ## sert la démo web MapLibre sur :8080 (aperçu ; prod = GitHub Pages)
+	$(COMPOSE) up -d demo
+
+demo-data:        ## ingestion en mode démo (aucune donnée requise)
 	$(COMPOSE) run --rm --no-deps ingest /app/ingest_cog.py --geojson /data/out/demo.geojson
 
 ingest:           ## COG INSEE -> PostGIS (données dans ./data/raw/insee)

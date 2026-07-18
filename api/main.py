@@ -21,7 +21,8 @@ from datetime import date
 
 import psycopg2
 import psycopg2.pool
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 
 FAR_FUTURE = date(9999, 1, 1)
 DSN = os.environ.get("PG_DSN", "postgresql://confinia:<dev-password-rotated>@db:5432/confinia")
@@ -53,6 +54,11 @@ app = FastAPI(
                 "Data: INSEE COG + IGN Admin Express (Licence Ouverte 2.0).",
     lifespan=lifespan,
 )
+
+
+# API publique en lecture seule : CORS ouvert (la démo tourne sur GitHub Pages).
+app.add_middleware(CORSMiddleware, allow_origins=["*"],
+                   allow_methods=["GET"], allow_headers=["*"])
 
 
 @app.middleware("http")
@@ -93,6 +99,50 @@ def feature(row) -> dict:
 COLS = ("code, nom, valid_from, valid_to, parents, children, "
         "geometry_vintage, geometry_approx, ST_AsGeoJSON(geom_simple, 6)")
 
+LANDING = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>Confinia API</title><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         background:#10151d; color:#e8eaed; font:16px/1.6 system-ui,-apple-system,sans-serif; }
+  main { max-width:44rem; padding:2rem; }
+  h1 { font-size:1.6rem; margin:0 0 .3rem; } h1 span { color:#7ab8ff; }
+  p.tag { margin:0 0 1.4rem; opacity:.85; }
+  pre { background:#0b0f16; border:1px solid #26314a; border-radius:8px;
+        padding:.9rem 1rem; overflow-x:auto; font-size:.85rem; }
+  a { color:#7ab8ff; text-decoration:none; } a:hover { text-decoration:underline; }
+  ul { padding-left:1.2rem; } footer { margin-top:1.6rem; font-size:.8rem; opacity:.7; }
+</style></head><body><main>
+<h1><span>Confinia</span> API</h1>
+<p class="tag">EU administrative boundaries with full historical versioning —
+any commune, as it existed at any date, as GeoJSON.</p>
+<p class="tag">Typical uses: joining a 2015 dataset (health, tax, elections…) to today's map
+without losing the ~1,800 communes that merged since; resolving which commune an address
+or GPS point belonged to <em>at the time of the event</em> (insurance claims, property
+history, epidemiology); keeping INSEE-coded time series consistent across COG vintages
+when codes get reused or renamed.</p>
+<pre>« Which commune was here on 2018-06-01? » — codes get reused, names change, communes merge:
+
+GET <a href="/v1/communes?code=01033&amp;at=2018-06-01">/v1/communes?code=01033&amp;at=2018-06-01</a>   → Bellegarde-sur-Valserine
+GET <a href="/v1/communes?code=01033&amp;at=2020-06-01">/v1/communes?code=01033&amp;at=2020-06-01</a>   → Valserhône (merged 2019)
+GET <a href="/v1/communes/01033/history">/v1/communes/01033/history</a>            → every version since 1943
+GET <a href="/v1/communes?lat=46.11&amp;lon=5.83&amp;at=2015-06-01">/v1/communes?lat=46.11&amp;lon=5.83&amp;at=2015-06-01</a>  → point-in-polygon
+GET <a href="/v1/communes?dept=01&amp;at=2019-06-01">/v1/communes?dept=01&amp;at=2019-06-01</a>   → a whole département (FeatureCollection)</pre>
+<ul>
+<li><a href="/docs">Interactive documentation (OpenAPI)</a></li>
+<li><a href="/healthz">Service health</a></li>
+</ul>
+<footer>France first (INSEE COG + IGN Admin Express, Licence Ouverte 2.0 —
+attribution « IGN — Admin Express »), DE/NL and Eurostat NUTS next.
+Early development — no authentication yet, be gentle.</footer>
+</main></body></html>"""
+
+
+@app.get("/", include_in_schema=False)
+def landing():
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(LANDING)
+
 
 @app.get("/healthz")
 def healthz():
@@ -103,16 +153,31 @@ def healthz():
 
 @app.get("/v1/communes")
 def commune_at(
+    response: Response,
     at: date = Query(..., description="Date de validité (YYYY-MM-DD)"),
     code: str | None = Query(None, min_length=5, max_length=5,
                              description="Code INSEE (ex: 01033)"),
     lat: float | None = Query(None, ge=-90, le=90),
     lon: float | None = Query(None, ge=-180, le=180),
+    dept: str | None = Query(None, min_length=2, max_length=3,
+                             pattern=r"^[0-9][0-9AB][0-9]?$",
+                             description="Département (ex: 01) → FeatureCollection"),
 ):
-    """La commune valide à la date donnée, par code INSEE ou par point (lat/lon)."""
-    if (code is None) == (lat is None or lon is None):
-        raise HTTPException(422, "Fournir soit code=, soit lat= et lon=.")
+    """Commune(s) valide(s) à la date donnée : par code INSEE, par point (lat/lon),
+    ou toutes celles d'un département (FeatureCollection, géométrie simplifiée)."""
+    selectors = (code is not None) + (lat is not None and lon is not None) + (dept is not None)
+    if selectors != 1:
+        raise HTTPException(422, "Fournir exactement un critère : code=, lat=&lon=, ou dept=.")
     with cursor() as cur:
+        if dept:
+            cur.execute(
+                f"SELECT {COLS} FROM commune_version "
+                "WHERE code LIKE %s AND valid_from <= %s AND valid_to > %s "
+                "ORDER BY code", (dept + "%", at, at))
+            rows = cur.fetchall()
+            # L'état d'un département à une date passée ne change plus : cacheable.
+            response.headers["Cache-Control"] = "public, max-age=3600"
+            return {"type": "FeatureCollection", "features": [feature(r) for r in rows]}
         if code:
             cur.execute(
                 f"SELECT {COLS} FROM commune_version "

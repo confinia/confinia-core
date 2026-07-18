@@ -2,6 +2,7 @@
 # DNS : enregistrement A wildcard *.confinia.io -> IP de la VM.
 
 api.confinia.io {
+	encode zstd gzip
 	reverse_proxy api:8000
 }
 

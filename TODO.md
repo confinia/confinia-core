@@ -34,8 +34,8 @@
 - [x] **Model v2** (needed for correct counts): multiple periods per (code, nom) — rétablissements no longer collide (Celles 15148); unknown starts floored to 1943-01-01 (movements are complete since 1943); **MOD-aware event semantics** — création (20) doesn't end the source (Marseille≠†1946), fusion (31/33) doesn't restart the absorber (Manosque≠*1975); date-ranged parents/children per period
 - [x] Load full France, all available vintages (2018 SHP, 2019 SHP, 2026 GeoParquet); indexes: GIST on geom + geom_simple, btree (code, valid_from, valid_to) + (valid_from, valid_to); raw + simplified geometry columns
 - [x] Sanity counts vs INSEE published: **2015: 36,617/36,658 (−41) · 2020: 34,965/34,968 (−3) · 2025: 34,877/34,875 (+2)**
-- [ ] Chase the 2015 residual (−41) — likely old edge-case movements; not blocking
-- [ ] More vintages later (INSEE COG 2019–2024 CSVs, IGN editions 2017/2020–2025) for cross-validation
+- [x] ~~Chase the 2015 residual (−41)~~ ✅ 2026-07-18 evening — two more movement-semantics bugs found via diff against COG 2019 snapshot: (1) **identity rows must cancel same-day cross-row starts/ends** (communes nouvelles keeping chef-lieu code+nom — Osmery, Neufchâteau — had their past erased); (2) **same-day start+end with no prior period = zero-length existence, discard** (dept-change + fusion same date: Freigné 44225, Pont-Farcy 50649). Result: **exact match on all three published counts** (36,658 / 34,968 / 34,875) and 0/0 diff vs the full COG 2019 snapshot (34,970)
+- [ ] More vintages later (INSEE COG 2019–2024 CSVs, IGN editions 2017/2020–2025) for cross-validation — note: post-2019 INSEE CSVs have lowercase headers + BOM (`commune_2019.csv` staged on the VM already; reader currently expects uppercase)
 
 **Done when:** ✅ `verify_ain.py` passes end-to-end on the VM (Bellegarde→Valserhône at 3 dates, 0.77% geometry gap).
 
@@ -49,12 +49,14 @@
 
 **Done when:** ✅ verified from the public internet 2026-07-18: `01033&at=2018-06-01` → Bellegarde-sur-Valserine; `at=2020-06-01` → Valserhône (parents 01033/01091/01205); `/history` shows Bellegarde 1943→1956→2019→Valserhône; point-in-polygon OK. Apex `confinia.io` cert pending DNS propagation of the new `@` record (caddy retries automatically; LE rate-limit clears 11:11 UTC).
 
-## Step 4 — MapLibre time-slider demo wired to the API
-- [ ] `demo/` page: MapLibre GL JS + date slider; fetches department GeoJSON from the API per selected date
-- [ ] The money shot: slide across 2019-01-01 over Ain → three communes visually merge into Valserhône
-- [ ] Works from `make demo` locally; screenshot/GIF saved (used by the outreach track — see `business/TODO.md`)
+## Step 4 — MapLibre time-slider demo wired to the API *(built 2026-07-18 evening)*
+- [x] `demo/index.html`: MapLibre GL JS + monthly date slider 2017→2026; fetches `?dept=XX&at=` FeatureCollection from the API (new endpoint, CORS open, gzip ~170 KB, `Cache-Control 1h`); stable color per INSEE code so mergers are visible; hover card (validity, vintage, approx); autoplay ▶ for GIF capture; dept switcher (whole France loaded)
+- [x] The money shot verified in data: dept 01 = 407 communes at 2018-06 → 393 at 2019-06, 01033 Bellegarde→Valserhône
+- [x] `make demo` serves it (compose service `demo`, port 8080 — **temporary VM preview http://<vm-ip>:8080**; production stays GitHub Pages per fixed decision)
+- [ ] Human: record the GIF/screenshot (press ▶, slide across 2019-01-01) → outreach kit
+- [ ] Publish to GitHub Pages at beta (repo must be public, or a separate public pages repo)
 
-**Done when:** the slider demo runs locally end-to-end against the API.
+**Done when:** the slider demo runs end-to-end against the API. ✅ (visual check + GIF = human task)
 
 ## Step 5 — Second country + NUTS (starts the "EU" in the pitch)
 - [ ] Eurostat GISCO NUTS (7 versions) ingestion — same temporal model, `level=nuts1|2|3`
