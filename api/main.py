@@ -251,6 +251,62 @@ def feature(row) -> dict:
 COLS = ("code, nom, unit_type, country, valid_from, valid_to, parents, children, "
         "geometry_vintage, geometry_approx, ST_AsGeoJSON(geom_simple, 6)")
 
+
+def hist_cols(geometry: bool) -> str:
+    """Colonnes des endpoints /history — même contrat que COLS, géométrie optionnelle."""
+    return COLS if geometry else COLS.replace("ST_AsGeoJSON(geom_simple, 6)", "NULL")
+
+
+def derive_events(versions: list[dict]) -> list[dict]:
+    """Chronologie des ÉVÉNEMENTS d'une unité, dérivée de ses versions :
+    renommages (avec les deux noms), fusions/absorptions, scissions, création,
+    disparition — chacun daté quand la date est connue."""
+    vs = [v["properties"] for v in versions]
+    if not vs:
+        return []
+    code = vs[0]["code"]
+    events: list[dict] = []
+    for i, p in enumerate(vs):
+        prev = vs[i - 1] if i > 0 else None
+        contiguous = prev is not None and prev["valid_to"] == p["valid_from"]
+        other_parents = sorted({c for c in (p["parents"] or []) if c != code})
+        if contiguous and prev["nom"] != p["nom"]:
+            events.append({"date": p["valid_from"], "type": "renamed",
+                           "detail": f"{prev['nom']} → {p['nom']}"})
+            if other_parents:
+                events.append({"date": None, "type": "absorbed",
+                               "detail": f"absorbed {', '.join(other_parents)} between "
+                                         f"{p['valid_from']} and {p['valid_to'] or 'today'}"})
+        elif other_parents and p["valid_from"] != "1943-01-01":
+            events.append({"date": p["valid_from"],
+                           "type": "merger" if code in (p["parents"] or []) or len(other_parents) > 1
+                                   else "created",
+                           "detail": f"formed from {', '.join(sorted(set(p['parents'])))}"})
+        elif other_parents:
+            events.append({"date": None, "type": "absorbed",
+                           "detail": f"absorbed {', '.join(other_parents)} between "
+                                     f"{p['valid_from']} and {p['valid_to'] or 'today'}"})
+        elif not contiguous and i > 0:
+            events.append({"date": p["valid_from"], "type": "reestablished",
+                           "detail": f"re-established as {p['nom']}"})
+        if p["valid_to"]:
+            nxt = vs[i + 1] if i + 1 < len(vs) else None
+            internal = nxt is not None and nxt["valid_from"] == p["valid_to"]
+            children = sorted(set(p["children"] or []))
+            others = [c for c in children if c != code]
+            if internal:
+                pass                                   # transition couverte au tour suivant
+            elif len(children) > 1:
+                events.append({"date": p["valid_to"], "type": "split",
+                               "detail": f"split into {', '.join(children)}"})
+            elif others:
+                events.append({"date": p["valid_to"], "type": "merged_into",
+                               "detail": f"merged into {others[0]}"})
+            else:
+                events.append({"date": p["valid_to"], "type": "ended",
+                               "detail": "no longer listed (no successor recorded)"})
+    return events
+
 LANDING = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>Confinia API</title><meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -404,17 +460,16 @@ def commune_at(
 @app.get("/v1/communes/{code}/history")
 def commune_history(code: str, geometry: bool = Query(False)):
     """Toutes les versions d'un code INSEE, avec liens parents/enfants."""
-    geom_col = "ST_AsGeoJSON(geom_simple, 6)" if geometry else "NULL"
     with cursor() as cur:
         cur.execute(
-            "SELECT code, nom, valid_from, valid_to, parents, children, "
-            f"geometry_vintage, geometry_approx, {geom_col} "
-            "FROM commune_version WHERE unit_type = 'commune' AND code = %s "
+            f"SELECT {hist_cols(geometry)} FROM commune_version "
+            "WHERE unit_type = 'commune' AND code = %s "
             "ORDER BY valid_from", (code,))
         rows = cur.fetchall()
     if not rows:
         raise HTTPException(404, f"Code INSEE inconnu : {code}")
-    return {"code": code, "versions": [feature(r) for r in rows]}
+    versions = [feature(r) for r in rows]
+    return {"code": code, "versions": versions, "events": derive_events(versions)}
 
 
 @app.get("/v1/departements")
@@ -584,10 +639,8 @@ def unit_at(
 @app.get("/v1/units/{code}/history")
 def unit_history(code: str, country: str | None = Query(None), geometry: bool = Query(False)):
     """Toutes les versions d'une unité communale (tous pays)."""
-    geom_col = "ST_AsGeoJSON(geom_simple, 6)" if geometry else "NULL"
-    sql = ("SELECT code, nom, valid_from, valid_to, parents, children, "
-           f"geometry_vintage, geometry_approx, {geom_col} "
-           "FROM commune_version WHERE unit_type = ANY(%s) AND code = %s ")
+    sql = (f"SELECT {hist_cols(geometry)} FROM commune_version "
+           "WHERE unit_type = ANY(%s) AND code = %s ")
     params = [list(MUNICIPAL_TYPES), code]
     if country:
         sql += "AND country = %s "
@@ -597,20 +650,20 @@ def unit_history(code: str, country: str | None = Query(None), geometry: bool = 
         rows = cur.fetchall()
     if not rows:
         raise HTTPException(404, f"Code inconnu : {code}")
-    return {"code": code, "versions": [feature(r) for r in rows]}
+    versions = [feature(r) for r in rows]
+    return {"code": code, "versions": versions, "events": derive_events(versions)}
 
 
 @app.get("/v1/nuts/{code}/history")
 def nuts_history(code: str, geometry: bool = Query(False)):
     """Toutes les versions d'un code NUTS."""
-    geom_col = "ST_AsGeoJSON(geom_simple, 6)" if geometry else "NULL"
     with cursor() as cur:
         cur.execute(
-            "SELECT code, nom, valid_from, valid_to, parents, children, "
-            f"geometry_vintage, geometry_approx, {geom_col} "
-            "FROM commune_version WHERE unit_type LIKE 'nuts%%' AND code = %s "
+            f"SELECT {hist_cols(geometry)} FROM commune_version "
+            "WHERE unit_type LIKE 'nuts%%' AND code = %s "
             "ORDER BY valid_from", (code.upper(),))
         rows = cur.fetchall()
     if not rows:
         raise HTTPException(404, f"Code NUTS inconnu : {code}")
-    return {"code": code.upper(), "versions": [feature(r) for r in rows]}
+    versions = [feature(r) for r in rows]
+    return {"code": code.upper(), "versions": versions, "events": derive_events(versions)}

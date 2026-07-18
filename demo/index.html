@@ -629,9 +629,15 @@ async function showHistory(code, country, currentName) {
         ${links ? `<br><span class="links">${links}</span>` : ""}
       </div>`;
     }).join("");
+    const evts = (d.events || []).length
+      ? `<div style="margin-top:.5rem;border-top:1px solid #26314a;padding-top:.4rem">
+           <b style="font-size:.85em">Events</b>` +
+        d.events.map(ev => `<div class="links">• ${ev.date ? `<b>${ev.date}</b> — ` : ""}${ev.detail}</div>`).join("") +
+        `</div>`
+      : "";
     el.innerHTML = `<span class="close" title="Close">✕</span>
       <h2><b>${currentName}</b> (${code}) · ${COUNTRY_NAMES[country] || country}</h2>
-      ${rows}
+      ${rows}${evts}
       <div class="tip">Click a period to travel to that time.</div>`;
     el.querySelector(".close").onclick = () => { el.style.display = "none"; };
     el.querySelectorAll(".v").forEach(n =>
