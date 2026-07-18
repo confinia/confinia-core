@@ -1,0 +1,10 @@
+# Confinia — routage public (VM OVH). HTTPS automatique via Let's Encrypt.
+# DNS : enregistrement A wildcard *.confinia.io -> IP de la VM.
+
+api.confinia.io {
+	reverse_proxy api:8000
+}
+
+confinia.io, www.confinia.io {
+	respond "Confinia — open-source EU boundary API with historical versioning. Beta soon. API: https://api.confinia.io/docs" 200
+}

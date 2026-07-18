@@ -47,18 +47,23 @@ python3 ingest_cog.py --millesimes 2015 2020 2025 --data-dir ./insee_files
 
 ```sql
 CREATE TABLE commune_version (
-    id          bigserial PRIMARY KEY,
-    code        text NOT NULL,          -- code INSEE
-    nom         text NOT NULL,          -- libellé
-    valid_from  date NOT NULL,          -- début de validité
-    valid_to    date NOT NULL,          -- fin (9999-01-01 = toujours valide)
-    parents     text[] DEFAULT '{}',    -- codes dont cette version est issue
-    children    text[] DEFAULT '{}',    -- codes qui la remplacent
-    geom        geometry(Geometry, 4326)
+    id               bigserial PRIMARY KEY,
+    code             text NOT NULL,          -- code INSEE
+    nom              text NOT NULL,          -- libellé
+    valid_from       date NOT NULL,          -- début de validité
+    valid_to         date NOT NULL,          -- fin (9999-01-01 = toujours valide)
+    parents          text[] DEFAULT '{}',    -- codes dont cette version est issue
+    children         text[] DEFAULT '{}',    -- codes qui la remplacent
+    geometry_vintage date,                   -- édition IGN utilisée
+    geometry_approx  boolean DEFAULT false,  -- héritée d'une édition voisine
+    geom             geometry(Geometry, 4326),   -- brute (requêtes spatiales)
+    geom_simple      geometry(Geometry, 4326)    -- simplifiée ~50 m (web)
 );
 ```
 
-Index créés : temporel `(valid_from, valid_to)`, `code`, et spatial GiST sur `geom`.
+Index créés : `(valid_from, valid_to)`, `(code, valid_from, valid_to)`, et
+GiST sur `geom` et `geom_simple`. Le chargement recrée la table (DROP+CREATE)
+dans une transaction : les requêtes voient l'ancien état jusqu'au commit.
 
 ## Les deux requêtes cibles (une fois en base)
 
@@ -87,9 +92,31 @@ code inoffensif), héritage du millésime le plus proche marqué
 (≤ 2024, reprojection Lambert-93 auto) et GeoParquet (≥ 2025). Catalogue des
 éditions 2017→2026 : `data.geopf.fr/telechargement/resource/ADMIN-EXPRESS-COG`.
 
+Sorties : `--geojson` / `--geojson-raw` (extraits, fixtures) et/ou **`--dsn`**
+(chargement PostGIS streaming, brute + simplifiée par version — c'est la voie
+de production, cible `load-fr` du `Makefile`). `--dsn` sans valeur lit
+`$PG_DSN` ; il n'est jamais implicite, pour qu'un extrait départemental
+(`join-01`) n'écrase pas la table pleine France.
+
 Test de non-régression sur la fusion Valserhône (dept 01) : `verify_ain.py` —
 voir les cibles `join-01` / `verify-01` du `Makefile` racine. Tout s'exécute en
 conteneur (règles dans `DEV.md`).
+
+## Sémantique des mouvements (acquise sur données réelles)
+
+- Filtrer sur `TYPECOM == COM` (les fusions émettent aussi des lignes COMD/COMA).
+- Ligne identité (même code+nom AV/AP) : la commune traverse l'événement — ni début ni fin.
+- Même code, nom différent : renommage — fin + début, quel que soit le MOD.
+- Code différent : **le MOD décide** — fin de l'AV pour {30, 31, 32, 33, 41, 50}
+  (suppression, fusions côté absorbé, changements de code) ; début de l'AP pour
+  {20, 21, 32, 41, 50} (création, rétablissement, commune nouvelle). Une
+  création (20) ne tue pas la commune source ; une fusion (31/33) ne
+  (re)démarre pas l'absorbeur.
+- Un (code, nom) peut avoir **plusieurs périodes** (rétablissements — Celles 15148).
+- Début inconnu (aucun événement entrant) : borné à `1943-01-01` — le fichier
+  des mouvements est complet depuis 1943, ce qui rend les comptages corrects à
+  toute date avec un seul millésime COG chargé. Vérifié vs INSEE publié :
+  2015 : 36 617/36 658 · 2020 : 34 965/34 968 · 2025 : 34 877/34 875.
 
 ## Limites connues (à traiter ensuite)
 

@@ -68,7 +68,21 @@ MOD_LABELS = {
     "50": "changement de code dû à un changement de département",
 }
 
+# Sémantique des lignes AV -> AP dont le code CHANGE (les lignes à code
+# identique sont traitées à part : identité ou renommage).
+#   - La version AV ne prend fin que si l'événement la fait disparaître :
+#     suppression, fusions (côté absorbé), changements de code. Une création
+#     (20) ou un rétablissement partiel (21) laissent la commune source vivre —
+#     c'est le bug "Marseille finit en 1946" (création de Plan-de-Cuques).
+#   - La version AP ne démarre que si l'événement la crée : création,
+#     rétablissement, commune nouvelle, changements de code. Une fusion simple
+#     ou une fusion-association ne (re)démarre pas l'absorbeur — c'est le bug
+#     "Manosque démarre en 1975" (absorption de communes associées).
+ENDS_AV_CROSS = {"30", "31", "32", "33", "41", "50"}
+STARTS_AP_CROSS = {"20", "21", "32", "41", "50"}
+
 FAR_FUTURE = "9999-01-01"  # convention pour "toujours valide"
+COG_FLOOR = "1943-01-01"   # borne basse de l'historique INSEE des mouvements
 
 
 # --------------------------------------------------------------------------
@@ -76,14 +90,21 @@ FAR_FUTURE = "9999-01-01"  # convention pour "toujours valide"
 # --------------------------------------------------------------------------
 @dataclass
 class CommuneVersion:
-    """Une version datée d'une commune : (code, nom) valide sur [valid_from, valid_to)."""
+    """Une version datée d'une commune : (code, nom) valide sur [valid_from, valid_to).
+
+    Un même (code, nom) peut produire plusieurs versions si la commune est
+    rétablie après une fusion (ex. Celles 15148, morte en 2016, rétablie en 2025).
+    """
     code: str
     nom: str
     valid_from: str            # ISO date
     valid_to: str              # ISO date ou FAR_FUTURE
     parents: list[str] = field(default_factory=list)   # codes dont elle est issue
     children: list[str] = field(default_factory=list)  # codes qui la remplacent
-    geometry: dict | None = None                        # GeoJSON geometry
+    geometry: dict | None = None                        # GeoJSON geometry (brute)
+    geometry_simple: dict | None = None                 # GeoJSON geometry (simplifiée web)
+    geometry_vintage: str | None = None                 # date du millésime IGN utilisé
+    geometry_approx: bool = False                       # héritée d'un millésime voisin
 
 
 # --------------------------------------------------------------------------
@@ -177,15 +198,16 @@ def build_versions(millesimes: list[int],
         return demo_versions()
 
     years = sorted(snapshots)
-    default_from = f"{years[0]}-01-01"
 
     # 2. Indexer les mouvements par (code, nom) de départ et d'arrivée.
     #    DATE_EFF est la source de vérité des transitions : c'est la vraie date
     #    à laquelle "commune avant" devient "commune après".
-    ends_at: dict[tuple[str, str], str] = {}    # (code, nom) -> date de fin (événement sortant)
-    starts_at: dict[tuple[str, str], str] = {}  # (code, nom) -> date de début (événement entrant)
-    child_links: dict[tuple[str, str], set] = {}
-    parent_links: dict[tuple[str, str], set] = {}
+    #    Un même (code, nom) peut commencer/finir plusieurs fois (rétablissements),
+    #    d'où des ENSEMBLES de dates, transformés en périodes à l'étape 3.
+    ends_at: dict[tuple[str, str], set[str]] = {}    # (code, nom) -> dates de fin
+    starts_at: dict[tuple[str, str], set[str]] = {}  # (code, nom) -> dates de début
+    child_links: dict[tuple[str, str], set] = {}     # (code, nom) -> {(date, code_ap)}
+    parent_links: dict[tuple[str, str], set] = {}    # (code, nom) -> {(date, code_av)}
 
     for m in all_movements:
         d = (m.get("DATE_EFF") or "").strip()
@@ -206,22 +228,30 @@ def build_versions(millesimes: list[int],
         # commence ni ne finit ici — ignorer, sinon on la tue à cette date.
         if code_av and code_av == code_ap and nom_av == nom_ap:
             continue
-        if code_av and nom_av:
-            k = (code_av, nom_av)
-            # la version "avant" prend fin à la date de l'événement (on garde la plus ancienne)
-            if k not in ends_at or d < ends_at[k]:
-                ends_at[k] = d
-        if code_ap and nom_ap:
-            k = (code_ap, nom_ap)
-            # la version "après" démarre à la date de l'événement (on garde la plus récente)
-            if k not in starts_at or d > starts_at[k]:
-                starts_at[k] = d
-        # liens parent/enfant, en ignorant les auto-références (même code+nom)
+        mod = (m.get("MOD") or "").strip()
+        if code_av and code_av == code_ap:
+            # Même code, nom différent : renommage (quel que soit le MOD) —
+            # l'ancienne version finit, la nouvelle commence.
+            if nom_av:
+                ends_at.setdefault((code_av, nom_av), set()).add(d)
+            if nom_ap:
+                starts_at.setdefault((code_ap, nom_ap), set()).add(d)
+        else:
+            # Code différent : la sémantique dépend du type d'événement.
+            if code_av and nom_av and mod in ENDS_AV_CROSS:
+                ends_at.setdefault((code_av, nom_av), set()).add(d)
+            if code_ap and nom_ap and mod in STARTS_AP_CROSS:
+                starts_at.setdefault((code_ap, nom_ap), set()).add(d)
+        # liens parent/enfant datés, en ignorant les auto-références (même code+nom)
         if code_av and code_ap and (code_av, nom_av) != (code_ap, nom_ap):
-            child_links.setdefault((code_av, nom_av), set()).add(code_ap)
-            parent_links.setdefault((code_ap, nom_ap), set()).add(code_av)
+            child_links.setdefault((code_av, nom_av), set()).add((d, code_ap))
+            parent_links.setdefault((code_ap, nom_ap), set()).add((d, code_av))
 
-    # 3. Construire une version par (code, nom) rencontré, dans les snapshots OU les mouvements
+    # 3. Construire les périodes de chaque (code, nom) rencontré dans les
+    #    snapshots OU les mouvements. Le fichier des mouvements est complet
+    #    depuis 1943 : un (code, nom) sans événement entrant existe donc depuis
+    #    (au moins) COG_FLOOR — c'est ce qui rend les comptages corrects à
+    #    n'importe quelle date, même avec un seul millésime COG chargé.
     keys: set[tuple[str, str]] = set()
     for y in years:
         for code, nom in snapshots[y].items():
@@ -230,30 +260,44 @@ def build_versions(millesimes: list[int],
 
     versions: list[CommuneVersion] = []
     for (code, nom) in sorted(keys):
-        start = starts_at.get((code, nom))      # date d'un événement entrant, ou None
-        end = ends_at.get((code, nom))          # date d'un événement sortant, ou None
+        k = (code, nom)
+        # Chronologie des événements ; à date égale, la fin précède le début
+        # (fin + re-début le même jour = continuité de deux périodes).
+        events = sorted([(d, 0) for d in ends_at.get(k, ())]
+                        + [(d, 1) for d in starts_at.get(k, ())])
 
-        # valid_to : date de l'événement de fin, sinon "toujours valide"
-        vt = end if end else FAR_FUTURE
+        periods: list[tuple[str, str]] = []   # (valid_from, valid_to)
+        open_from: str | None = None
+        # Si le premier événement est une FIN, la version existait avant nos
+        # données : début inconnu, borné à COG_FLOOR.
+        if events and events[0][1] == 0:
+            open_from = COG_FLOOR
+        for d, kind in events:
+            if kind == 1:                      # début
+                if open_from is None:
+                    open_from = d
+                # un 2e début pendant une période ouverte : on garde le plus ancien
+            else:                              # fin
+                if open_from is not None and d > open_from:
+                    periods.append((open_from, d))
+                    open_from = None
+        if open_from is not None:
+            periods.append((open_from, FAR_FUTURE))
+        if not events:
+            # présent dans un snapshot, aucun événement : existe depuis toujours
+            periods.append((COG_FLOOR, FAR_FUTURE))
 
-        # valid_from : date de l'événement de création si connue.
-        # Sinon on prend le 1er millésime chargé — SAUF si la version se termine
-        # avant ce millésime (commune disparue avant notre plus ancien COG) :
-        # dans ce cas on ne connaît pas la vraie date de début, on la borne juste
-        # avant la fin pour garder une période cohérente, et on le signale.
-        if start:
-            vf = start
-        elif vt != FAR_FUTURE and vt <= default_from:
-            # début réel inconnu (antérieur aux données chargées)
-            vf = "1943-01-01"   # borne basse conventionnelle du COG
-        else:
-            vf = default_from
-
-        versions.append(CommuneVersion(
-            code=code, nom=nom, valid_from=vf, valid_to=vt,
-            parents=sorted(parent_links.get((code, nom), set())),
-            children=sorted(child_links.get((code, nom), set())),
-        ))
+        for vf, vt in periods:
+            # Liens datés, rattachés à la période qu'ils concernent : un parent
+            # explique le début de la période OU une absorption en cours de vie
+            # (ex. Coupy -> Bellegarde en 1971, sans fin de version) ; un enfant,
+            # une sortie en cours de vie (création détachée) OU la fin.
+            parents = sorted({c for d, c in parent_links.get(k, ()) if vf <= d < vt})
+            children = sorted({c for d, c in child_links.get(k, ()) if vf < d <= vt})
+            versions.append(CommuneVersion(
+                code=code, nom=nom, valid_from=vf, valid_to=vt,
+                parents=parents, children=children,
+            ))
 
     return versions
 
@@ -296,28 +340,51 @@ def demo_versions() -> list[CommuneVersion]:
 SCHEMA_SQL = """
 CREATE EXTENSION IF NOT EXISTS postgis;
 
-CREATE TABLE IF NOT EXISTS commune_version (
-    id           bigserial PRIMARY KEY,
-    code         text        NOT NULL,
-    nom          text        NOT NULL,
-    valid_from   date        NOT NULL,
-    valid_to     date        NOT NULL,
-    parents      text[]      NOT NULL DEFAULT '{}',
-    children     text[]      NOT NULL DEFAULT '{}',
-    geom         geometry(Geometry, 4326)
+DROP TABLE IF EXISTS commune_version;
+CREATE TABLE commune_version (
+    id               bigserial PRIMARY KEY,
+    code             text        NOT NULL,
+    nom              text        NOT NULL,
+    valid_from       date        NOT NULL,
+    valid_to         date        NOT NULL,
+    parents          text[]      NOT NULL DEFAULT '{}',
+    children         text[]      NOT NULL DEFAULT '{}',
+    geometry_vintage date,
+    geometry_approx  boolean     NOT NULL DEFAULT false,
+    geom             geometry(Geometry, 4326),   -- brute (source de vérité, requêtes spatiales)
+    geom_simple      geometry(Geometry, 4326)    -- simplifiée ~50 m (servie au web)
 );
 
--- Index temporel : accélère "quelle commune à telle date"
-CREATE INDEX IF NOT EXISTS idx_cv_validity  ON commune_version (valid_from, valid_to);
-CREATE INDEX IF NOT EXISTS idx_cv_code      ON commune_version (code);
--- Index spatial : accélère "quelle commune contient ce point"
-CREATE INDEX IF NOT EXISTS idx_cv_geom      ON commune_version USING gist (geom);
+-- Index temporel : accélère "quelles communes à telle date"
+CREATE INDEX idx_cv_validity      ON commune_version (valid_from, valid_to);
+-- Index contrat API : "ce code à telle date" (TODO Step 2)
+CREATE INDEX idx_cv_code_validity ON commune_version (code, valid_from, valid_to);
+-- Index spatiaux : "quelle commune contient ce point"
+CREATE INDEX idx_cv_geom          ON commune_version USING gist (geom);
+CREATE INDEX idx_cv_geom_simple   ON commune_version USING gist (geom_simple);
 """
+
+INSERT_SQL = """
+    INSERT INTO commune_version
+      (code, nom, valid_from, valid_to, parents, children,
+       geometry_vintage, geometry_approx, geom, geom_simple)
+    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,
+        CASE WHEN %s IS NULL THEN NULL ELSE ST_SetSRID(ST_GeomFromGeoJSON(%s),4326) END,
+        CASE WHEN %s IS NULL THEN NULL ELSE ST_SetSRID(ST_GeomFromGeoJSON(%s),4326) END)
+"""
+
+
+def version_row(v: CommuneVersion) -> tuple:
+    raw = json.dumps(v.geometry) if v.geometry else None
+    simple = json.dumps(v.geometry_simple) if v.geometry_simple else None
+    return (v.code, v.nom, v.valid_from, v.valid_to, v.parents, v.children,
+            v.geometry_vintage, v.geometry_approx, raw, raw, simple, simple)
 
 
 def to_postgis(versions: list[CommuneVersion], dsn: str) -> bool:
     try:
         import psycopg2
+        from psycopg2.extras import execute_batch
     except ImportError:
         print("  [!] psycopg2 non installé -> impossible d'écrire dans PostGIS.")
         return False
@@ -329,17 +396,7 @@ def to_postgis(versions: list[CommuneVersion], dsn: str) -> bool:
 
     with conn, conn.cursor() as cur:
         cur.execute(SCHEMA_SQL)
-        cur.execute("TRUNCATE commune_version RESTART IDENTITY;")
-        for v in versions:
-            geom_json = json.dumps(v.geometry) if v.geometry else None
-            cur.execute("""
-                INSERT INTO commune_version
-                  (code, nom, valid_from, valid_to, parents, children, geom)
-                VALUES (%s,%s,%s,%s,%s,%s,
-                    CASE WHEN %s IS NULL THEN NULL
-                         ELSE ST_SetSRID(ST_GeomFromGeoJSON(%s),4326) END)
-            """, (v.code, v.nom, v.valid_from, v.valid_to,
-                  v.parents, v.children, geom_json, geom_json))
+        execute_batch(cur, INSERT_SQL, [version_row(v) for v in versions], page_size=200)
     conn.close()
     print(f"  [ok] {len(versions)} versions écrites dans PostGIS.")
     return True
@@ -370,10 +427,11 @@ def sanity_checks(versions: list[CommuneVersion]) -> None:
     # 1. pas de valid_to <= valid_from
     bad = [v for v in versions if v.valid_to <= v.valid_from]
     print(f"  périodes invalides (valid_to <= valid_from) : {len(bad)}")
-    # 2. requête ponctuelle "communes actives à une date"
-    for d in ["2015-06-01", "2019-06-01", "2025-06-01"]:
+    # 2. comptages vs chiffres publiés INSEE (France métro + DROM, au 1er janvier)
+    published = {"2015-01-02": 36658, "2020-01-02": 34968, "2025-01-02": 34875}
+    for d, expected in published.items():
         active = [v for v in versions if v.valid_from <= d < v.valid_to]
-        print(f"  actives au {d} : {len(active)}")
+        print(f"  actives au {d} : {len(active)} (INSEE publié : {expected})")
 
 
 # --------------------------------------------------------------------------

@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import os
 import sys
 from datetime import date
 from pathlib import Path
@@ -44,7 +45,8 @@ from shapely.ops import transform as shp_transform
 from pyproj import Transformer, CRS
 
 sys.path.insert(0, str(Path(__file__).parent))
-from ingest_cog import CommuneVersion, build_versions, FAR_FUTURE, to_geojson  # noqa: E402
+from ingest_cog import (CommuneVersion, build_versions, FAR_FUTURE,  # noqa: E402
+                        SCHEMA_SQL, INSERT_SQL, version_row)
 
 SIMPLIFY_TOLERANCE_DEG = 0.0005  # ~50 m : suffisant pour l'affichage web communal
 
@@ -163,6 +165,59 @@ def attach_geometries(versions: list[CommuneVersion],
 
 
 # --------------------------------------------------------------------------
+#  Chargement PostGIS (streaming, brute + simplifiée)
+# --------------------------------------------------------------------------
+def stream_to_postgis(versions: list[CommuneVersion],
+                      vintages: list[tuple[str, dict]],
+                      simplify_tol: float, dsn: str) -> bool:
+    """Charge les versions + géométries dans PostGIS par lots (mémoire bornée)."""
+    try:
+        import psycopg2
+        from psycopg2.extras import execute_batch
+    except ImportError:
+        print("  [!] psycopg2 non installé -> pas de chargement PostGIS.")
+        return False
+    try:
+        conn = psycopg2.connect(dsn)
+    except Exception as e:
+        print(f"  [!] Connexion PostGIS impossible ({e}).")
+        return False
+
+    by_date = dict(vintages)
+    missing = approx_n = 0
+    with conn, conn.cursor() as cur:
+        cur.execute(SCHEMA_SQL)
+        batch, total = [], 0
+        for v in versions:
+            picked = pick_vintage(v, vintages)
+            if picked:
+                ref_date, approx = picked
+                raw = by_date[ref_date][v.code]
+                v.geometry = mapping(raw)
+                v.geometry_simple = mapping(raw.simplify(simplify_tol, preserve_topology=True))
+                v.geometry_vintage = ref_date
+                v.geometry_approx = approx
+                approx_n += approx
+            else:
+                missing += 1
+            batch.append(version_row(v))
+            v.geometry = v.geometry_simple = None   # libère la mémoire au fil de l'eau
+            if len(batch) >= 200:
+                execute_batch(cur, INSERT_SQL, batch, page_size=50)
+                total += len(batch)
+                batch = []
+                if total % 5000 < 200:
+                    print(f"  ... {total} versions chargées")
+        if batch:
+            execute_batch(cur, INSERT_SQL, batch, page_size=50)
+            total += len(batch)
+    conn.close()
+    print(f"  [ok] {total} versions chargées dans PostGIS "
+          f"({approx_n} géométries approx, {missing} sans géométrie)")
+    return True
+
+
+# --------------------------------------------------------------------------
 #  Point d'entrée
 # --------------------------------------------------------------------------
 def parse_vintage_arg(s: str) -> tuple[str, str]:
@@ -182,10 +237,19 @@ def main():
                     help="Millésime GeoParquet : 2026-01-01=commune.parquet")
     ap.add_argument("--dept", default=None, help="Limiter la sortie à un département (ex: 01)")
     ap.add_argument("--simplify", type=float, default=SIMPLIFY_TOLERANCE_DEG)
-    ap.add_argument("--geojson", type=Path, default=Path("communes_temporel_geo.geojson"))
+    ap.add_argument("--geojson", type=Path, default=None,
+                    help="Sortie GeoJSON simplifiée (optionnel)")
     ap.add_argument("--geojson-raw", type=Path, default=None,
                     help="Sortie GeoJSON avec géométries brutes (optionnel)")
+    ap.add_argument("--dsn", nargs="?", const="ENV", default=None, metavar="DSN",
+                    help="charge versions + géométries dans PostGIS ; sans valeur, "
+                         "utilise $PG_DSN (jamais implicite : join-01 ne doit pas "
+                         "écraser la table pleine France)")
     args = ap.parse_args()
+    if args.dsn == "ENV":
+        args.dsn = os.environ.get("PG_DSN") or sys.exit("--dsn sans valeur mais $PG_DSN absent.")
+    if not args.geojson and not args.geojson_raw and not args.dsn:
+        sys.exit("Aucune sortie demandée (--geojson, --geojson-raw ou --dsn).")
 
     print("Chargement des millésimes de géométrie :")
     vintages: list[tuple[str, dict]] = []
@@ -204,19 +268,23 @@ def main():
         versions = [v for v in versions if v.code.startswith(args.dept)]
     print(f"Versions temporelles : {len(versions)}" + (f" (département {args.dept})" if args.dept else ""))
 
-    simple_feats, raw_feats = attach_geometries(versions, vintages, args.simplify)
+    if args.geojson or args.geojson_raw:
+        simple_feats, raw_feats = attach_geometries(versions, vintages, args.simplify)
+        with_geom = sum(1 for f in simple_feats if f["geometry"])
+        approx = sum(1 for f in simple_feats if f["properties"]["geometry_approx"])
+        print(f"Géométrie attachée : {with_geom}/{len(simple_feats)} (dont {approx} approx héritées)")
+        if args.geojson:
+            args.geojson.write_text(json.dumps(
+                {"type": "FeatureCollection", "features": simple_feats}, ensure_ascii=False), encoding="utf-8")
+            print(f"  [ok] simplifié -> {args.geojson}")
+        if args.geojson_raw:
+            args.geojson_raw.write_text(json.dumps(
+                {"type": "FeatureCollection", "features": raw_feats}, ensure_ascii=False), encoding="utf-8")
+            print(f"  [ok] brut      -> {args.geojson_raw}")
 
-    with_geom = sum(1 for f in simple_feats if f["geometry"])
-    approx = sum(1 for f in simple_feats if f["properties"]["geometry_approx"])
-    print(f"Géométrie attachée : {with_geom}/{len(simple_feats)} (dont {approx} approx héritées)")
-
-    args.geojson.write_text(json.dumps(
-        {"type": "FeatureCollection", "features": simple_feats}, ensure_ascii=False), encoding="utf-8")
-    print(f"  [ok] simplifié -> {args.geojson}")
-    if args.geojson_raw:
-        args.geojson_raw.write_text(json.dumps(
-            {"type": "FeatureCollection", "features": raw_feats}, ensure_ascii=False), encoding="utf-8")
-        print(f"  [ok] brut      -> {args.geojson_raw}")
+    if args.dsn:
+        if not stream_to_postgis(versions, vintages, args.simplify, args.dsn):
+            sys.exit(1)
 
 
 if __name__ == "__main__":

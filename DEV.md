@@ -2,76 +2,102 @@
 
 *(interne — relire avant tout passage du repo en public)*
 
+## Règle n°1 — l'environnement de dev, c'est la VM
+
+**Tous les processus (base, ingestion, API, proxy) tournent sur la VM OVH,
+jamais sur le poste macOS local.** Le poste local sert uniquement à éditer les
+fichiers (VS Code / Claude Code) et à les synchroniser vers la VM :
+
+```sh
+rsync -az --delete --exclude '.git/' --exclude 'business/' --exclude 'data/' \
+  --exclude '__pycache__/' --exclude '.DS_Store' --exclude '.venv/' \
+  ~/project/confinia/ <vm-ssh>:projects/confinia/
+```
+
+Raisons : bande passante datacenter (téléchargements IGN en secondes),
+x86_64 (les images PostGIS officielles n'existent pas en arm64), et le même
+environnement qu'en production.
+
 ## Règles
 
-1. **Jamais de `python` direct sur l'hôte.** Tout s'exécute en conteneur :
-   sur macOS via **Apple `container` + Socktainer** (socket compatible Docker),
-   sur la VM via **podman**. Le venv local `.venv/` n'existe que pour
-   l'outillage ponctuel d'exploration — pas pour les commandes documentées.
-2. **Préférer les commandes `docker compose`** (fichier `docker-compose.yml` à la
-   racine) : les mêmes commandes doivent fonctionner sur macOS (socktainer) et
-   sur la VM Debian (podman + podman-docker / podman-compose). Les cibles du
-   `Makefile` encapsulent les invocations courantes.
-3. Pas de BuildKit/buildx via compose — règle, à mettre dans le shell avant
-   toute commande compose (le Makefile les exporte déjà) :
-   ```sh
-   export DOCKER_BUILDKIT=0 COMPOSE_DOCKER_CLI_BUILD=0 COMPOSE_BAKE=false
-   ```
-   Si socktainer ne passe toujours pas, fallback :
-   `container build` / `container run` en direct — la forme compose reste la
-   référence documentée. (Si le build échoue avec une erreur XPC :
-   `container builder stop && container builder start`.)
-4. **Sur macOS, les commandes ponctuelles (`run --rm`) passent par
-   `container run` directement** (règle) : `docker compose run` via socktainer
-   échoue à résoudre l'image par son sha. Exemple :
-   `container run --rm -v ./data:/data confinia-ingest:latest /app/ingest_cog.py …`
-   Le `docker compose` complet (services + run) reste la voie normale sur la VM.
-5. **Déploiement :** la **démo web est servie en GitHub Pages** (github.io,
-   statique — elle appelle l'API publique) ; **seule l'API est déployée sur la
-   VM Confinia**. Rien d'autre ne tourne sur la VM (pas de démo, pas de site).
+1. **Jamais de `python` direct sur l'hôte** (VM comme poste local). Tout
+   s'exécute en conteneur — sur la VM via **podman + podman-compose**.
+2. **Les gros téléchargements de données se font directement depuis la VM**
+   (`wget` depuis data.geopf.fr, insee.fr…), jamais via le poste local puis
+   rsync — la VM est en datacenter, le poste sur une connexion résidentielle.
+3. Sur la VM, le service `ingest` est derrière un profil compose :
+   `podman-compose --profile tools run --rm ingest …` — ou les cibles du
+   `Makefile` avec `COMPOSE="podman-compose --profile tools"`.
+   Images en noms qualifiés (`docker.io/…`) : podman n'a pas d'alias courts.
+   Attention : **podman-compose n'interpole pas `${VAR:-défaut}`** dans les
+   valeurs d'environnement (mot de passe en dur de dev dans le compose,
+   à durcir avant la beta — TODO Step 6).
+4. **Déploiement :** la **démo web sera servie en GitHub Pages** (statique —
+   elle appelle l'API publique) ; **la VM sert l'API et le reverse proxy** :
+   - `db` — PostGIS, port 5432 en localhost uniquement ;
+   - `api` — FastAPI/uvicorn, port 8000 en localhost uniquement ;
+   - `caddy` — ports 80/443 publics, HTTPS automatique Let's Encrypt
+     (`deploy/Caddyfile`).
+5. (Historique macOS : Apple `container` + socktainer restent utilisables pour
+   un one-shot local — règles d'origine : BuildKit désactivé, `container run`
+   pour les commandes ponctuelles — mais ce n'est plus la voie documentée.)
 
 ## Environnements
 
-### Poste de dev (macOS)
+### VM OVH (dev + déploiement)
 
-- Apple `container` ≥ 1.1.0, socket Socktainer :
-  `DOCKER_HOST=unix:///opt/homebrew/var/run/socktainer/.socktainer/container.sock`
-- `docker` + `docker-compose` CLI Homebrew branchés sur ce socket.
+- **Debian 13, 8 CPU, 32 GB RAM, 1.8 TB** — VM dédiée OVH (compte personnel),
+  IP `<vm-ip>`, hostname `<vm-host>` (renommage prévu :
+  `<vm-host>`).
+- Accès : `ssh <vm-ssh>` (alias en place).
+- Runtime : podman 5.4 + podman-compose (linger activé — les conteneurs
+  survivent à la déconnexion ; `restart: unless-stopped` sur api/caddy).
+- Projet : **`~/projects/confinia/`** (miroir rsync du poste local).
+- **DNS : enregistrement A wildcard `*.confinia.io` → la VM** (zone OVH,
+  TTL 60) ; l'API est exposée sur `https://api.confinia.io` via caddy.
+- Legacy : l'ancienne stack monitoring (influxdb/telegraf/grafana/caddy,
+  conteneurs `docker-compose_*`) est **arrêtée** depuis 2026-07-18 —
+  conteneurs conservés, à supprimer quand on est sûr.
 
-### VM OVH (déploiement)
+### Poste local (macOS) — édition uniquement
 
-- **Debian, 8 CPU, 32 GB RAM** — VM dédiée OVH (compte personnel), IP `<vm-ip>`.
-- Accès : `ssh <vm-ssh>` (alias actuel, fonctionne).
-- **Renommage prévu :** l'alias ssh devient `<vm-ssh>` ;
-  nom OS/domaine : `debian@<vm-host>`.
-- Runtime cible : podman (+ `podman-docker` pour la compat `docker compose`).
-- **DNS : `confinia.io` pointera sur cette VM** (configuration en cours côté
-  registrar OVH) ; l'API y sera exposée (HTTPS à prévoir, cf. TODO Step 6).
-- Déploiement : `git clone` + `make db-up` + `make ingest` — mêmes commandes
-  qu'en local, c'est le but.
+- VS Code / Claude Code, git, rsync. Aucun service, aucune donnée de prod.
+- Le repo git est ici (`~/project/confinia`) ; la VM reçoit une copie rsync
+  (sans `.git/`, sans `business/`).
 
-## Arborescence locale
+## Arborescence
 
-Tout le projet vit sous `~/project/confinia/` (sessions VS Code / Claude Code
-ouvertes ici) :
+Poste local `~/project/confinia/` (sessions VS Code / Claude Code ouvertes ici) :
 
-- code du repo `confinia/confinia-core` à la racine ;
-- **`business/` — documents business privés** (PLAN, STORY, TODO, modèle
-  financier, interviews) : **gitignoré, ne doit jamais être commité** — le
-  repo passera public à la beta ;
+- code du repo `confinia/confinia-core` à la racine — dont `TODO.md`
+  (build track, interne : à relire avant passage public) ;
+- **`business/` — documents business privés** (PLAN, STORY, TODO business,
+  modèle financier, interviews) : **gitignoré, ne doit jamais être commité** —
+  le repo passera public à la beta ;
 - `data/` — données locales (gitignoré aussi).
 
-## Données locales
+VM `~/projects/confinia/` : même arborescence, sans `business/` ni `.git/`.
+
+## Données
 
 `./data/` (gitignoré, monté `/data` dans les conteneurs) :
 
 ```
 data/raw/insee/     commune_YYYY.csv, mvtcommune_YYYY.csv (COG INSEE)
 data/raw/aeYYYY/    éditions Admin Express (7z + extract/, ou .parquet)
-data/out/           GeoJSON produits
+data/out/           GeoJSON produits (fixtures de test dept 01, démo)
 ```
 
 Sources : INSEE COG (insee.fr), IGN Admin Express COG édition via
 `data.geopf.fr/telechargement/resource/ADMIN-EXPRESS-COG` (SHP ≤ 2024,
 GeoParquet/GPKG/FlatGeobuf ≥ 2025). Attribution : « IGN — Admin Express »,
-Licence Ouverte 2.0.
+Licence Ouverte 2.0. URLs directes utilisées :
+
+```
+…/ADMIN-EXPRESS-COG_1-1__SHP__FRA_2018-04-03/ADMIN-EXPRESS-COG_1-1__SHP__FRA_2018-04-03.7z
+…/ADMIN-EXPRESS-COG_2-0__SHP__FRA_2019-09-24/ADMIN-EXPRESS-COG_2-0__SHP__FRA_2019-09-24.7z
+```
+
+(2018 : n'extraire que `*_SHP_LAMB93_FR/*` — l'archive contient aussi 5 DROM
+dans des projections locales, et le glob `**/COMMUNE.shp` prend le premier
+match.)
