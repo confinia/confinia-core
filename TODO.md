@@ -88,13 +88,16 @@
 - [x] OTel Collector → Prometheus → **Grafana** compose services; provisioned datasource + "Confinia API" dashboard (req/s by route, p50/p95, statuses, countries, top routes). **https://grafana.confinia.io** (admin password in `deploy/secrets.env`, gitignored; sign-up disabled). Legacy monitoring containers + images purged (volumes kept, prune later)
 - [x] Callers by country: DB-IP Country Lite (CC BY 4.0 — **add attribution at Step 6**) in `data/geoip/`; only the country code is recorded, never the IP. **Gotcha fixed: rootlessport rewrites source IPs → caddy moved to host network** (real client IPs; backends joined via localhost ports)
 - [x] p95 measured (Step 3 leftover): server-side p50 <10 ms, worst of 20 = 38 ms — well under the 200 ms contract
-- [ ] Traces exporter (Tempo) later if needed; caddy JSON access logs as second source; per-API-key counters join at Step 6 (metering, plan 2.3); refresh the GeoIP mmdb monthly (cron or ansible-style task)
+- [ ] **Parked:** traces exporter (Tempo) if ever needed; caddy JSON access logs as second source. ~~Per-API-key counters~~ ✅ done (Step 6); ~~GeoIP refresh~~ ✅ done (systemd timer)
 
 ## Step 6 — Pre-beta hardening (before inviting anyone) *(started 2026-07-18)*
 - [x] API keys + per-key request counting ✅ — `POST /v1/keys {email}` → uuid key (`X-API-Key` header), daily `api_usage` counters, `GET /v1/keys/{key}/usage` self-service; `keyed` label in Grafana metrics. Keys optional until beta: **flip `REQUIRE_API_KEY=true` in compose when inviting** (fail-open metering, fail-closed once required)
 - [x] Deploy on EU host ✅ (OVH VM, `api.confinia.io`, HTTPS auto)
 - [x] Public page ✅ — pitch + quickstart + coverage + **attribution/licences** (INSEE · IGN Licence Ouverte 2.0 · © EuroGeographics NUTS/LAU · © GeoBasis-DE/BKG dl-de/by-2-0 · CBS/Kadaster CC BY 4.0 · DB-IP CC BY 4.0), served by caddy from `deploy/site/`. Live at **confinia.io** (apex DNS fixed + cert obtained 2026-07-19)
-- [ ] Rate limiting (caddy or slowapi) before Show HN-scale exposure; monthly GeoIP mmdb refresh cron
+- [x] Rate limiting ✅ 2026-07-18 — in-app per-IP (20/s, 400/min, internal exempt, Retry-After), verified live (parallel burst → 429s); load test (ab, c=20): **387 req/s, p50 44 ms, p95 100 ms**
+- [x] GeoIP mmdb monthly refresh ✅ — `deploy/refresh-geoip.sh` + systemd user timer on the VM (`Persistent=true`; no crontab on Debian 13) — next run 2026-08-03
+- [x] Sanitization ✅ 2026-07-19 — VM identifiers out of tracked files (→ `business/INFRA.md`) **and out of the full git history** (filter-branch → placeholders, verified on old commits); DB password rotated, all credentials via gitignored `deploy/secrets.env`
+- [x] Observability v2 ✅ — "Confinia Usage" Grafana dashboard (stat tiles, country & keyed trends, route split, **per-key metering via Postgres datasource**); Prometheus retention 180 d
 
 ## Later / parked
 - OSM change-tracking product (osm2pgsql #2144 evidence) — post-GO
