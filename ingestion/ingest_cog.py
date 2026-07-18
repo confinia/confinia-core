@@ -191,10 +191,21 @@ def build_versions(millesimes: list[int],
         d = (m.get("DATE_EFF") or "").strip()
         if len(d) != 10:
             continue
-        code_av = (m.get("COM_AV") or "").strip()
+        # Seules les communes de plein exercice (TYPECOM == COM) nous concernent.
+        # Une fusion produit AUSSI des lignes vers COMD/COMA (communes déléguées/
+        # associées) portant le même (code, nom) que la commune disparue — sans ce
+        # filtre, elles écrasent les dates de la vraie version (cas 01033 Bellegarde).
+        av_is_com = (m.get("TYPECOM_AV") or "COM").strip() == "COM"
+        ap_is_com = (m.get("TYPECOM_AP") or "COM").strip() == "COM"
+        code_av = (m.get("COM_AV") or "").strip() if av_is_com else ""
         nom_av = (m.get("LIBELLE_AV") or m.get("NCCENR_AV") or "").strip()
-        code_ap = (m.get("COM_AP") or "").strip()
+        code_ap = (m.get("COM_AP") or "").strip() if ap_is_com else ""
         nom_ap = (m.get("LIBELLE_AP") or m.get("NCCENR_AP") or "").strip()
+        # Ligne identité : la commune traverse l'événement inchangée (ex. la
+        # commune absorbante d'une fusion-association, MOD 33/34). Elle ne
+        # commence ni ne finit ici — ignorer, sinon on la tue à cette date.
+        if code_av and code_av == code_ap and nom_av == nom_ap:
+            continue
         if code_av and nom_av:
             k = (code_av, nom_av)
             # la version "avant" prend fin à la date de l'événement (on garde la plus ancienne)

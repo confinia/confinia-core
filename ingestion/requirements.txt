@@ -1,0 +1,6 @@
+pyshp>=2.3
+shapely>=2.0
+pyproj>=3.6
+py7zr>=0.21
+pyarrow>=16
+psycopg2-binary>=2.9

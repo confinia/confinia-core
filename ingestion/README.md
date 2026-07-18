@@ -77,6 +77,20 @@ SELECT nom, valid_from, valid_to, parents, children
 FROM commune_version WHERE code = '01033' ORDER BY valid_from;
 ```
 
+## Raccord géométrie IGN (`join_geometry.py`)
+
+Joint les polygones **Admin Express COG édition** (IGN, Licence Ouverte 2.0 —
+attribution « IGN — Admin Express ») au modèle temporel : appariement par code
+INSEE **dans la période de validité de chaque version** (rend le réemploi de
+code inoffensif), héritage du millésime le plus proche marqué
+`geometry_approx: true`, sorties brute + simplifiée (~50 m). Sources SHP
+(≤ 2024, reprojection Lambert-93 auto) et GeoParquet (≥ 2025). Catalogue des
+éditions 2017→2026 : `data.geopf.fr/telechargement/resource/ADMIN-EXPRESS-COG`.
+
+Test de non-régression sur la fusion Valserhône (dept 01) : `verify_ain.py` —
+voir les cibles `join-01` / `verify-01` du `Makefile` racine. Tout s'exécute en
+conteneur (règles dans `DEV.md`).
+
 ## Limites connues (à traiter ensuite)
 
 - **Géométrie** : le COG ne contient pas les polygones. Il faut joindre le

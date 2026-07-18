@@ -1,3 +1,7 @@
+# Documents business PRIVÉS (plan, modèle financier, interviews) — jamais dans
+# le repo : il passera public à la beta. Ne retirer sous aucun prétexte.
+business/
+
 # Python
 __pycache__/
 *.py[cod]

@@ -1,0 +1,44 @@
+# Confinia — stack locale et VM (même fichier, mêmes commandes).
+#   macOS  : docker compose ... (socktainer + Apple container)
+#   Debian : docker compose ... (podman + podman-docker) ou podman-compose
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: confinia
+      POSTGRES_USER: confinia
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-<dev-password-rotated>}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U confinia -d confinia"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Outil d'ingestion : lancé à la demande, jamais en service permanent.
+  #   docker compose run --rm ingest /app/ingest_cog.py --millesimes 2025 --data-dir /data/raw/insee
+  #   docker compose run --rm ingest /app/join_geometry.py --data-dir /data/raw/insee ...
+  ingest:
+    build: ./ingestion
+    image: confinia-ingest:latest
+    profiles: ["tools"]
+    environment:
+      PG_DSN: postgresql://confinia:${POSTGRES_PASSWORD:-<dev-password-rotated>}@db:5432/confinia
+    volumes:
+      - ./data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # api: (Step 3 — FastAPI, décommenter quand api/ existe)
+  #   build: ./api
+  #   ports: ["8000:8000"]
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+
+volumes:
+  pgdata:
