@@ -385,11 +385,28 @@ def nuts_at(
     level: int | None = Query(None, ge=0, le=3),
     country: str | None = Query(None, min_length=2, max_length=2,
                                 description="Code pays (ex: FR, DE, NL)"),
+    lat: float | None = Query(None, ge=-90, le=90),
+    lon: float | None = Query(None, ge=-180, le=180),
 ):
-    """Région(s) NUTS valide(s) à la date donnée : par code, ou par niveau (+ pays)."""
-    if (code is None) == (level is None):
-        raise HTTPException(422, "Fournir soit code=, soit level= (avec country= optionnel).")
+    """Région(s) NUTS valide(s) à la date donnée : par code, par niveau (+ pays),
+    ou par point (lat/lon + level) — « dans quelle province/canton suis-je ? »."""
+    point = lat is not None and lon is not None
+    if (code is None) == (level is None and not point):
+        raise HTTPException(422, "Fournir code=, level= (+country=), ou lat=&lon=&level=.")
     with cursor() as cur:
+        if point:
+            if level is None:
+                raise HTTPException(422, "lat/lon nécessite level=.")
+            cur.execute(
+                f"SELECT {COLS} FROM commune_version "
+                "WHERE unit_type = %s AND valid_from <= %s AND valid_to > %s "
+                "AND geom_simple IS NOT NULL "
+                "AND ST_Intersects(geom_simple, ST_SetSRID(ST_Point(%s, %s), 4326)) "
+                "LIMIT 1", (f"nuts{level}", at, at, lon, lat))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(404, "Aucune région NUTS ici à cette date.")
+            return feature(row)
         if code:
             cur.execute(
                 f"SELECT {COLS} FROM commune_version "
@@ -426,14 +443,52 @@ def unit_at(
     lon: float | None = Query(None, ge=-180, le=180),
     bbox: str | None = Query(None, pattern=r"^-?[0-9.]+,-?[0-9.]+,-?[0-9.]+,-?[0-9.]+$",
                              description="minLon,minLat,maxLon,maxLat (≤ 6°×6°) → FeatureCollection"),
+    region: str | None = Query(None, min_length=1, max_length=5, pattern=r"^[0-9A-Za-z]{1,5}$",
+                               description="Préfixe de code avec country= (ex: region=09&country=DE "
+                                           "→ toutes les Gemeinden de Bavière) → FeatureCollection"),
+    nuts: str | None = Query(None, min_length=3, max_length=5, pattern=r"^[0-9A-Za-z]{3,5}$",
+                             description="Code NUTS : toutes les unités communales dont le point "
+                                         "représentatif est dans cette région (ex: nuts=ITC4C → "
+                                         "province de Milan) → FeatureCollection"),
 ):
     """Unité administrative communale (tous pays) : par code (+country), par
-    point (lat/lon), ou par emprise (bbox) — commune FR, Gemeinde DE,
-    gemeente NL, LAU ailleurs."""
-    selectors = (code is not None) + (lat is not None and lon is not None) + (bbox is not None)
+    point (lat/lon), par emprise (bbox), ou par préfixe régional (region= +
+    country= — Land allemand, province…)."""
+    selectors = ((code is not None) + (lat is not None and lon is not None)
+                 + (bbox is not None) + (region is not None) + (nuts is not None))
     if selectors != 1:
-        raise HTTPException(422, "Fournir un critère : code= (+country=), lat=&lon=, ou bbox=.")
+        raise HTTPException(422, "Fournir un critère : code=, lat=&lon=, bbox=, "
+                                 "region=&country=, ou nuts=.")
+    if region and not country:
+        raise HTTPException(422, "region= nécessite country=.")
     with cursor() as cur:
+        if nuts:
+            # Appartenance spatiale : point représentatif de l'unité dans la
+            # région NUTS (partition propre, pas de doublons de frontière).
+            cur.execute(
+                "WITH region AS (SELECT geom_simple AS g FROM commune_version "
+                "  WHERE unit_type LIKE 'nuts%%' AND code = %s "
+                "  AND valid_from <= %s AND valid_to > %s "
+                "  ORDER BY valid_from DESC LIMIT 1) "
+                f"SELECT {COLS} FROM commune_version, region "
+                "WHERE unit_type = ANY(%s) AND valid_from <= %s AND valid_to > %s "
+                "AND geom_simple IS NOT NULL AND geom_simple && region.g "
+                "AND ST_Intersects(region.g, ST_PointOnSurface(geom_simple)) "
+                "ORDER BY code LIMIT 4000",
+                (nuts.upper(), at, at, list(MUNICIPAL_TYPES), at, at))
+            rows = cur.fetchall()
+            response.headers["Cache-Control"] = "public, max-age=3600"
+            return {"type": "FeatureCollection", "features": [feature(r) for r in rows]}
+        if region:
+            cur.execute(
+                f"SELECT {COLS} FROM commune_version "
+                "WHERE unit_type = ANY(%s) AND country = %s AND code LIKE %s "
+                "AND valid_from <= %s AND valid_to > %s "
+                "ORDER BY code LIMIT 4000",
+                (list(MUNICIPAL_TYPES), country.upper(), region + "%", at, at))
+            rows = cur.fetchall()
+            response.headers["Cache-Control"] = "public, max-age=3600"
+            return {"type": "FeatureCollection", "features": [feature(r) for r in rows]}
         if bbox:
             w, s, e, n = (float(v) for v in bbox.split(","))
             if not (w < e and s < n) or (e - w) > 6 or (n - s) > 6:
