@@ -12,26 +12,37 @@
   #map { position: absolute; inset: 0; }
   header {
     position: absolute; top: 0; left: 0; right: 0; z-index: 2;
-    display: flex; flex-wrap: wrap; gap: .6rem 1.2rem; align-items: center;
-    padding: .7rem 1rem; background: rgba(10,14,20,.82); backdrop-filter: blur(6px);
+    display: flex; flex-wrap: wrap; gap: .5rem 1.1rem; align-items: center;
+    padding: .6rem 1rem; background: rgba(10,14,20,.84); backdrop-filter: blur(6px);
   }
   header h1 { font-size: 1rem; margin: 0; font-weight: 600; letter-spacing: .02em; }
   header h1 span { color: #7ab8ff; }
-  #controls { display: flex; gap: .8rem; align-items: center; flex: 1; min-width: 300px; }
-  #slider { flex: 1; accent-color: #7ab8ff; }
-  #date { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 7.2em; }
-  #count { opacity: .75; min-width: 9em; }
-  #dept { width: 3.2em; background: #1b2330; color: inherit; border: 1px solid #33405a;
-          border-radius: 4px; padding: .15rem .3rem; text-align: center; }
-  button { background: #1b2330; color: inherit; border: 1px solid #33405a;
-           border-radius: 4px; padding: .2rem .7rem; cursor: pointer; }
-  button:hover { border-color: #7ab8ff; }
+  #controls { display: flex; gap: .7rem; align-items: center; flex: 1; min-width: 320px; }
+  #sliderbox { flex: 1; display: flex; flex-direction: column; gap: .1rem; min-width: 160px; }
+  #slider { width: 100%; accent-color: #7ab8ff; margin: 0; }
+  #ticks { display: flex; justify-content: space-between; font-size: .68rem;
+           opacity: .6; font-variant-numeric: tabular-nums; padding: 0 2px; }
+  #datebox { display: flex; flex-direction: column; align-items: center; gap: .1rem; }
+  #datefr { font-weight: 600; white-space: nowrap; }
+  #count { opacity: .75; white-space: nowrap; }
+  input, button { background: #1b2330; color: inherit; border: 1px solid #33405a;
+                  border-radius: 4px; padding: .2rem .4rem; font: inherit; }
+  #dept { width: 3em; text-align: center; }
+  #month { color-scheme: dark; }
+  button { cursor: pointer; padding: .2rem .7rem; }
+  button:hover, input:hover { border-color: #7ab8ff; }
+  #hint { font-size: .72rem; opacity: .6; width: 100%; }
   #info {
     position: absolute; left: 1rem; bottom: 2.4rem; z-index: 2; max-width: 21rem;
     background: rgba(10,14,20,.85); border: 1px solid #26314a; border-radius: 6px;
     padding: .6rem .8rem; visibility: hidden;
   }
   #info b { color: #7ab8ff; }
+  #flash {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    z-index: 3; background: rgba(10,14,20,.92); border: 1px solid #33405a;
+    border-radius: 8px; padding: .8rem 1.2rem; visibility: hidden;
+  }
   footer {
     position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
     padding: .3rem 1rem; font-size: .75rem; opacity: .75;
@@ -45,14 +56,24 @@
 <header>
   <h1><span>Confinia</span> · les frontières ont une histoire</h1>
   <div id="controls">
-    <label>Dépt <input id="dept" value="01" maxlength="3" spellcheck="false"></label>
-    <button id="play" title="Faire défiler le temps">▶</button>
-    <input id="slider" type="range" min="0" step="1">
-    <span id="date"></span>
+    <label>Dépt <input id="dept" type="text" value="01" maxlength="3" spellcheck="false"></label>
+    <button id="play" type="button" title="Faire défiler le temps">▶</button>
+    <div id="sliderbox">
+      <input id="slider" type="range" min="0" step="1">
+      <div id="ticks"></div>
+    </div>
+    <div id="datebox">
+      <span id="datefr"></span>
+      <input id="month" type="month" title="Choisir un mois précis">
+    </div>
     <span id="count"></span>
   </div>
+  <div id="hint">🖱 molette / boutons en bas à droite : zoom · clic sur la carte : bascule vers le
+    département cliqué (France uniquement) · les dates sont des dates civiles de validité
+    (l'état affiché est celui du 1ᵉʳ jour du mois choisi)</div>
 </header>
 <div id="info"></div>
+<div id="flash"></div>
 <footer>
   Données : INSEE COG · IGN Admin Express (Licence Ouverte 2.0) — géométries simplifiées ·
   <a href="https://api.confinia.io/docs">API Confinia</a>
@@ -62,15 +83,26 @@
 "use strict";
 const API = new URLSearchParams(location.search).get("api") || "https://api.confinia.io";
 
-// Un pas par mois : la fusion Valserhône tombe au passage de 2019-01-01.
+// Un pas par mois — chaque état affiché est la situation au 1er du mois (date
+// civile de validité, sans fuseau : le modèle est en dates, pas en instants).
 const START = new Date(Date.UTC(2017, 0, 1)), END = new Date(Date.UTC(2026, 6, 1));
 const DATES = [];
 for (let d = new Date(START); d <= END; d.setUTCMonth(d.getUTCMonth() + 1))
   DATES.push(d.toISOString().slice(0, 10));
 
-const slider = document.getElementById("slider");
+const $ = id => document.getElementById(id);
+const slider = $("slider"), month = $("month");
 slider.max = DATES.length - 1;
 slider.value = DATES.indexOf("2018-06-01");
+month.min = DATES[0].slice(0, 7);
+month.max = DATES[DATES.length - 1].slice(0, 7);
+
+// Graduations d'années sous la frise.
+for (let y = 2017; y <= 2026; y++) {
+  const s = document.createElement("span");
+  s.textContent = y;
+  $("ticks").appendChild(s);
+}
 
 // Couleur stable par code INSEE : une commune garde sa teinte dans le temps,
 // une fusion se VOIT (trois teintes deviennent une).
@@ -80,13 +112,16 @@ function colorOf(code) {
   return `hsl(${h % 360} ${55 + h % 25}% ${46 + (h >> 3) % 14}%)`;
 }
 
+const deptOf = code => code.startsWith("97") ? code.slice(0, 3) : code.slice(0, 2);
+const DEPT_RE = /^([0-9]{2}[0-9]?|2[AB])$/;
+
 const map = new maplibregl.Map({
   container: "map",
   style: { version: 8, sources: {}, layers: [
     { id: "bg", type: "background", paint: { "background-color": "#10151d" } } ] },
-  center: [5.7, 46.05], zoom: 9, attributionControl: false,
+  center: [5.7, 46.05], zoom: 9, maxZoom: 15, attributionControl: false,
 });
-map.addControl(new maplibregl.NavigationControl({ showCompass: false }));
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
 
 const cache = new Map();          // "dept|date" -> FeatureCollection
 async function fetchState(dept, date) {
@@ -112,22 +147,34 @@ function fitTo(fc) {
   if (minX < maxX) map.fitBounds([[minX, minY], [maxX, maxY]], { padding: 60, duration: 400 });
 }
 
+const FR_DATE = new Intl.DateTimeFormat("fr-FR",
+  { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+
 let pending = 0;
 async function render() {
-  const dept = document.getElementById("dept").value.trim();
+  const dept = $("dept").value.trim();
   const date = DATES[slider.value];
-  document.getElementById("date").textContent = date;
-  if (!/^([0-9]{2}[0-9]?|2[AB])$/.test(dept)) return;
+  $("datefr").textContent = "au " + FR_DATE.format(new Date(date + "T00:00:00Z"));
+  if (month.value !== date.slice(0, 7)) month.value = date.slice(0, 7);
+  if (!DEPT_RE.test(dept)) return;
   const ticket = ++pending;
   try {
     const fc = await fetchState(dept, date);
     if (ticket !== pending) return;              // une requête plus récente a gagné
     map.getSource("communes").setData(fc);
-    document.getElementById("count").textContent = `${fc.features.length} communes`;
+    $("count").textContent = `${fc.features.length} communes`;
     if (firstFit && fc.features.length) { fitTo(fc); firstFit = false; }
   } catch (e) {
-    document.getElementById("count").textContent = "erreur API";
+    $("count").textContent = "erreur API";
   }
+}
+
+function flash(msg) {
+  const f = $("flash");
+  f.textContent = msg;
+  f.style.visibility = "visible";
+  clearTimeout(f._t);
+  f._t = setTimeout(() => { f.style.visibility = "hidden"; }, 2200);
 }
 
 map.on("load", () => {
@@ -139,7 +186,7 @@ map.on("load", () => {
     paint: { "line-color": "#0b0f16", "line-width": 0.8 } });
   render();
 
-  const info = document.getElementById("info");
+  const info = $("info");
   map.on("mousemove", "communes-fill", e => {
     const p = e.features[0].properties;
     info.innerHTML = `<b>${p.nom}</b> (${p.code})<br>` +
@@ -152,19 +199,43 @@ map.on("load", () => {
     info.style.visibility = "hidden";
     map.getCanvas().style.cursor = "";
   });
+
+  // Clic n'importe où : point-dans-polygone côté API → bascule de département.
+  map.on("click", async e => {
+    const { lng, lat } = e.lngLat;
+    const date = DATES[slider.value];
+    try {
+      const r = await fetch(`${API}/v1/communes?lat=${lat.toFixed(5)}&lon=${lng.toFixed(5)}&at=${date}`);
+      if (r.status === 404) { flash("Hors de France — données françaises uniquement pour l’instant."); return; }
+      if (!r.ok) throw new Error();
+      const f = await r.json();
+      const dept = deptOf(f.properties.code);
+      if (dept !== $("dept").value.trim()) {
+        $("dept").value = dept;
+        firstFit = true;
+        cacheWarm();
+        render();
+        flash(`Département ${dept} — ${f.properties.nom}`);
+      }
+    } catch { flash("Requête impossible — réessayez."); }
+  });
 });
 
 let timer = null;
 function debouncedRender() { clearTimeout(timer); timer = setTimeout(render, 120); }
 slider.addEventListener("input", debouncedRender);
-document.getElementById("dept").addEventListener("change", () => {
+month.addEventListener("change", () => {
+  const i = DATES.findIndex(d => d.slice(0, 7) === month.value);
+  if (i >= 0) { slider.value = i; render(); }
+});
+$("dept").addEventListener("change", () => {
   firstFit = true; cacheWarm(); debouncedRender();
 });
 
 // Lecture automatique — le « money shot » : trois communes fusionnent au 2019-01-01.
 let playing = null;
-document.getElementById("play").addEventListener("click", () => {
-  const btn = document.getElementById("play");
+$("play").addEventListener("click", () => {
+  const btn = $("play");
   if (playing) { clearInterval(playing); playing = null; btn.textContent = "▶"; return; }
   btn.textContent = "⏸";
   playing = setInterval(() => {
@@ -175,9 +246,9 @@ document.getElementById("play").addEventListener("click", () => {
 
 // Préchauffe le cache autour de la fusion pour une lecture fluide.
 function cacheWarm() {
-  const dept = document.getElementById("dept").value.trim();
+  const dept = $("dept").value.trim();
   for (const d of ["2018-12-01", "2019-01-01", "2019-02-01"])
-    if (/^([0-9]{2}[0-9]?|2[AB])$/.test(dept)) fetchState(dept, d).catch(() => {});
+    if (DEPT_RE.test(dept)) fetchState(dept, d).catch(() => {});
 }
 cacheWarm();
 </script>
