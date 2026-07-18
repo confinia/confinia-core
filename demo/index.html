@@ -44,6 +44,22 @@
     z-index: 3; background: rgba(10,14,20,.92); border: 1px solid #33405a;
     border-radius: 8px; padding: .8rem 1.2rem; visibility: hidden;
   }
+  #histo {
+    position: absolute; right: 1rem; top: 6rem; z-index: 2; width: 22rem;
+    max-height: 60vh; overflow-y: auto; background: rgba(10,14,20,.92);
+    border: 1px solid #33405a; border-radius: 8px; padding: .8rem 1rem;
+    display: none;
+  }
+  #histo h2 { margin: 0 0 .5rem; font-size: 1rem; }
+  #histo h2 b { color: #7ab8ff; }
+  #histo .close { float: right; cursor: pointer; opacity: .7; padding: 0 .3rem; }
+  #histo .close:hover { opacity: 1; }
+  #histo .v { padding: .35rem .4rem; border-radius: 5px; cursor: pointer;
+              border-left: 3px solid transparent; }
+  #histo .v:hover { background: #1b2330; border-left-color: #7ab8ff; }
+  #histo .v .dates { font-variant-numeric: tabular-nums; opacity: .8; font-size: .85em; }
+  #histo .v .links { font-size: .8em; opacity: .65; }
+  #histo .tip { font-size: .75em; opacity: .55; margin-top: .4rem; }
   footer {
     position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
     padding: .3rem 1rem; font-size: .75rem; opacity: .75;
@@ -72,13 +88,14 @@
     </div>
     <span id="count"></span>
   </div>
-  <div id="hint">🖱 scroll / buttons bottom-right: zoom · <b>click anywhere in Europe</b> —
-    the local "department" opens whole (French département, German Land, Italian province,
-    Swiss canton…) · dates are civil validity dates (state as of the 1st of the chosen month)
-    · the URL remembers the view — share it</div>
+  <div id="hint">🖱 scroll / buttons bottom-right: zoom · <b>click a colored commune → its full
+    history</b> (click a period to time-travel) · <b>click grey areas</b> — the local
+    "department" opens whole (département, Land, province, canton…) · civil validity dates
+    (state as of the 1st of the chosen month) · the URL remembers the view</div>
 </header>
 <div id="info"></div>
 <div id="flash"></div>
+<div id="histo"></div>
 <footer>
   Data: INSEE COG · IGN Admin Express (Licence Ouverte 2.0) · © EuroGeographics (NUTS/LAU) ·
   © GeoBasis-DE / BKG (dl-de/by-2-0) · CBS/Kadaster (CC BY 4.0) — simplified geometries ·
@@ -518,8 +535,16 @@ map.on("load", () => {
     map.getCanvas().style.cursor = "";
   });
 
-  // Clic n'importe où en Europe : point-dans-polygone côté API (tous pays).
+  // Clic sur une commune AFFICHÉE : son histoire complète (panneau).
+  // Clic ailleurs (zone grise) : bascule de département/région/pays.
   map.on("click", async e => {
+    const hits = map.queryRenderedFeatures(e.point, { layers: ["communes-fill"] });
+    if (hits.length) {
+      const p = hits[0].properties;
+      showHistory(p.code, p.country || "FR", p.nom);
+      return;
+    }
+    $("histo").style.display = "none";
     const { lng, lat } = e.lngLat;
     const date = DATES[slider.value];
     try {
@@ -571,6 +596,51 @@ map.on("load", () => {
   // En mode « area », recharger quand la vue bouge.
   map.on("moveend", () => { if (mode === "area") debouncedRender(); });
 });
+
+// Panneau « histoire d'une commune » : toutes les versions ; cliquer une
+// période déplace le curseur temporel à cette époque.
+function jumpTo(dateStr) {
+  let i = DATES.findIndex(d => d >= dateStr);
+  if (i < 0) i = DATES.length - 1;
+  slider.value = i;
+  render();
+}
+
+async function showHistory(code, country, currentName) {
+  const el = $("histo");
+  el.style.display = "block";
+  el.innerHTML = `<h2><b>${currentName}</b> (${code})</h2>loading…`;
+  try {
+    const url = country === "FR"
+      ? `${API}/v1/communes/${code}/history`
+      : `${API}/v1/units/${encodeURIComponent(code)}/history?country=${country}`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    const rows = d.versions.map(v => {
+      const p = v.properties;
+      const links = [
+        p.parents?.length ? `from ${p.parents.join(", ")}` : "",
+        p.children?.length ? `→ ${p.children.join(", ")}` : "",
+      ].filter(Boolean).join(" · ");
+      return `<div class="v" data-vf="${p.valid_from}">
+        <b>${p.nom}</b><br>
+        <span class="dates">${p.valid_from} → ${p.valid_to || "today"}</span>
+        ${links ? `<br><span class="links">${links}</span>` : ""}
+      </div>`;
+    }).join("");
+    el.innerHTML = `<span class="close" title="Close">✕</span>
+      <h2><b>${currentName}</b> (${code}) · ${COUNTRY_NAMES[country] || country}</h2>
+      ${rows}
+      <div class="tip">Click a period to travel to that time.</div>`;
+    el.querySelector(".close").onclick = () => { el.style.display = "none"; };
+    el.querySelectorAll(".v").forEach(n =>
+      n.addEventListener("click", () => jumpTo(n.dataset.vf)));
+  } catch {
+    el.innerHTML = `<span class="close">✕</span><h2>${currentName} (${code})</h2>history unavailable`;
+    el.querySelector(".close").onclick = () => { el.style.display = "none"; };
+  }
+}
 
 let timer = null;
 function debouncedRender() { clearTimeout(timer); timer = setTimeout(render, 120); }
