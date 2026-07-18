@@ -1,0 +1,89 @@
+{
+  "title": "Confinia Usage",
+  "uid": "confinia-usage",
+  "timezone": "browser",
+  "refresh": "1m",
+  "time": { "from": "now-7d", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Requêtes (24 h)",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "sum(increase(confinia_requests_total[24h]))", "instant": true }]
+    },
+    {
+      "id": 2, "type": "stat", "title": "Requêtes (1 h)",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "sum(increase(confinia_requests_total[1h]))", "instant": true }]
+    },
+    {
+      "id": 3, "type": "stat", "title": "Pays actifs (24 h)",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "count(sum by (country) (increase(confinia_requests_total[24h])) > 0)", "instant": true }]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Taux d'erreur 5xx (24 h)",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 2 } },
+      "targets": [{ "expr": "100 * sum(increase(confinia_requests_total{status=~\"5..\"}[24h])) / sum(increase(confinia_requests_total[24h]))", "instant": true }]
+    },
+    {
+      "id": 5, "type": "stat", "title": "Rate-limited 429 (24 h)",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "sum(increase(confinia_requests_total{status=\"429\"}[24h])) or vector(0)", "instant": true }]
+    },
+    {
+      "id": 6, "type": "stat", "title": "p95 (5 m)",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0 } },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_duration_milliseconds_bucket[5m])))", "instant": true }]
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "Requêtes / s par pays d'appel",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [{ "expr": "sum by (country) (rate(confinia_requests_total[15m]))", "legendFormat": "{{country}}" }]
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "Avec clé vs anonyme",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [{ "expr": "sum by (keyed) (rate(confinia_requests_total[15m]))", "legendFormat": "keyed={{keyed}}" }]
+    },
+    {
+      "id": 12, "type": "timeseries", "title": "Requêtes / s par route (produit : communes vs units vs nuts)",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "targets": [{ "expr": "sum by (route) (rate(confinia_requests_total{route=~\"/v1/.*\"}[15m]))", "legendFormat": "{{route}}" }]
+    },
+    {
+      "id": 13, "type": "table", "title": "Top pays (7 j)",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "targets": [{ "expr": "topk(15, sum by (country) (increase(confinia_requests_total[7d])))", "format": "table", "instant": true }]
+    },
+    {
+      "id": 20, "type": "table", "title": "Top clés API (30 j) — metering",
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "confinia-pg" },
+      "targets": [{
+        "rawSql": "SELECT k.email, coalesce(k.note,'') AS note, sum(u.requests) AS requests, max(u.day) AS last_seen FROM api_usage u JOIN api_key k USING (key) WHERE u.day > current_date - 30 GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 20",
+        "format": "table", "rawQuery": true
+      }]
+    },
+    {
+      "id": 21, "type": "barchart", "title": "Requêtes avec clé, par jour (30 j)",
+      "gridPos": { "x": 12, "y": 20, "w": 8, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "confinia-pg" },
+      "targets": [{
+        "rawSql": "SELECT day AS time, sum(requests) AS requests FROM api_usage WHERE day > current_date - 30 GROUP BY day ORDER BY day",
+        "format": "time_series", "rawQuery": true
+      }]
+    },
+    {
+      "id": 22, "type": "stat", "title": "Clés actives",
+      "gridPos": { "x": 20, "y": 20, "w": 4, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "confinia-pg" },
+      "targets": [{
+        "rawSql": "SELECT count(*) FROM api_key WHERE active",
+        "format": "table", "rawQuery": true
+      }]
+    }
+  ],
+  "schemaVersion": 39
+}

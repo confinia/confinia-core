@@ -5,3 +5,17 @@ datasources:
     access: proxy
     url: http://prometheus:9090
     isDefault: true
+  # Métrique produit : usage par clé API (tables api_key / api_usage).
+  # Identifiants injectés par deploy/secrets.env (env du conteneur grafana).
+  - name: Postgres
+    uid: confinia-pg
+    type: postgres
+    access: proxy
+    url: db:5432
+    user: $POSTGRES_USER
+    jsonData:
+      database: confinia
+      sslmode: disable
+      postgresVersion: 1600
+    secureJsonData:
+      password: $POSTGRES_PASSWORD

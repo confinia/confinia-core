@@ -138,13 +138,17 @@ def read_csv_from_source(src: str | None, local: Path | None, encoding="utf-8") 
                 return []
             raw = z.read(name)
 
-    text = raw.decode(encoding, errors="replace")
+    # utf-8-sig : les CSV INSEE ≥ 2020 arrivent avec un BOM
+    text = raw.decode("utf-8-sig" if encoding == "utf-8" else encoding, errors="replace")
     # l'INSEE utilise la virgule ; on laisse le sniffer trancher au besoin
     delimiter = ","
     first_line = text.splitlines()[0] if text else ""
     if first_line.count(";") > first_line.count(","):
         delimiter = ";"
-    return list(csv.DictReader(io.StringIO(text), delimiter=delimiter))
+    # En-têtes normalisés en MAJUSCULES : les millésimes ≥ 2020 sont en minuscules
+    # (typecom, com, libelle…), le code attend TYPECOM/COM/LIBELLE.
+    return [{(k or "").upper().strip(): v for k, v in row.items()}
+            for row in csv.DictReader(io.StringIO(text), delimiter=delimiter)]
 
 
 # --------------------------------------------------------------------------

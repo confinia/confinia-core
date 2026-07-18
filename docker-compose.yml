@@ -4,13 +4,10 @@
 services:
   db:
     image: docker.io/postgis/postgis:16-3.4
-    environment:
-      POSTGRES_DB: confinia
-      POSTGRES_USER: confinia
-      # Mot de passe de dev : la base n'écoute qu'en localhost/réseau compose.
-      # À durcir avant la beta (TODO Step 6) — podman-compose n'interpole pas
-      # ${VAR:-default}, donc pas de valeur par défaut dynamique ici.
-      POSTGRES_PASSWORD: <dev-password-rotated>
+    # Identifiants dans deploy/secrets.env (gitignoré) — podman-compose
+    # n'interpole pas ${VAR:-default}, env_file est la voie sûre.
+    env_file:
+      - ./deploy/secrets.env
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -28,8 +25,8 @@ services:
     build: ./ingestion
     image: confinia-ingest:latest
     profiles: ["tools"]
-    environment:
-      PG_DSN: postgresql://confinia:<dev-password-rotated>@db:5432/confinia
+    env_file:
+      - ./deploy/secrets.env
     volumes:
       - ./data:/data
     depends_on:
@@ -39,8 +36,9 @@ services:
   api:
     build: ./api
     image: confinia-api:latest
+    env_file:
+      - ./deploy/secrets.env
     environment:
-      PG_DSN: postgresql://confinia:<dev-password-rotated>@db:5432/confinia
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     volumes:
       - ./data/geoip:/geoip:ro   # dbip-country-lite.mmdb (pays d'appel, jamais l'IP)
@@ -81,6 +79,10 @@ services:
 
   prometheus:
     image: docker.io/prom/prometheus:latest
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=180d"   # tendances d'usage longues
     volumes:
       - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prom_data:/prometheus

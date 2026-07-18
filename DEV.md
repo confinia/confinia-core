@@ -11,7 +11,7 @@ fichiers (VS Code) et à les synchroniser vers la VM :
 ```sh
 rsync -az --delete --exclude '.git/' --exclude 'business/' --exclude 'data/' \
   --exclude '__pycache__/' --exclude '.DS_Store' --exclude '.venv/' \
-  ~/project/confinia/ <vm-ssh>:projects/confinia/
+  ~/project/confinia/ <vm>:projects/confinia/    # alias ssh : business/INFRA.md
 ```
 
 Raisons : bande passante datacenter (téléchargements IGN en secondes),
@@ -30,8 +30,9 @@ environnement qu'en production.
    `Makefile` avec `COMPOSE="podman-compose --profile tools"`.
    Images en noms qualifiés (`docker.io/…`) : podman n'a pas d'alias courts.
    Attention : **podman-compose n'interpole pas `${VAR:-défaut}`** dans les
-   valeurs d'environnement (mot de passe en dur de dev dans le compose,
-   à durcir avant la beta — TODO Step 6).
+   valeurs d'environnement — les identifiants passent par `env_file:
+   deploy/secrets.env` (gitignoré). Et **`build --no-cache` obligatoire pour
+   l'api** : le cache de couches podman rate les COPY modifiés.
 4. **Déploiement :** la **démo web sera servie en GitHub Pages** (statique —
    elle appelle l'API publique) ; **la VM sert l'API et le reverse proxy** :
    - `db` — PostGIS, port 5432 en localhost uniquement ;
@@ -46,15 +47,13 @@ environnement qu'en production.
 
 ### VM OVH (dev + déploiement)
 
-- **Debian 13, 8 CPU, 32 GB RAM, 1.8 TB** — VM dédiée OVH (compte personnel),
-  IP `<vm-ip>`, hostname `<vm-host>` (renommage prévu :
-  `<vm-host>`).
-- Accès : `ssh <vm-ssh>` (alias en place).
+- **Debian 13, 8 CPU, 32 GB RAM, 1.8 TB** — VM dédiée OVH (compte personnel).
+  **IP, hostname et alias ssh : voir `business/INFRA.md` (privé, jamais commité).**
 - Runtime : podman 5.4 + podman-compose (linger activé — les conteneurs
   survivent à la déconnexion ; `restart: unless-stopped` sur api/caddy).
 - Projet : **`~/projects/confinia/`** (miroir rsync du poste local).
-- **DNS : enregistrement A wildcard `*.confinia.io` → la VM** (zone OVH,
-  TTL 60) ; l'API est exposée sur `https://api.confinia.io` via caddy.
+- **DNS : wildcard `*.confinia.io` + apex → la VM** (zone OVH) ; l'API est
+  exposée sur `https://api.confinia.io` via caddy.
 - Legacy : l'ancienne stack monitoring (influxdb/telegraf/grafana/caddy,
   conteneurs `docker-compose_*`) est **arrêtée** depuis 2026-07-18 —
   conteneurs conservés, à supprimer quand on est sûr.

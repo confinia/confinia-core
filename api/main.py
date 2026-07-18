@@ -25,7 +25,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 FAR_FUTURE = date(9999, 1, 1)
-DSN = os.environ.get("PG_DSN", "postgresql://confinia:<dev-password-rotated>@db:5432/confinia")
+DSN = os.environ["PG_DSN"]     # fourni par deploy/secrets.env (gitignoré) via compose
 
 pool: psycopg2.pool.SimpleConnectionPool | None = None
 
@@ -137,6 +137,31 @@ def client_country(request: Request) -> str:
         return "??"
 
 
+# ---------------------------------------------------------------------------
+#  Limitation de débit (Step 6) : par IP, en mémoire, deux fenêtres fixes.
+#  Généreuse pour un usage normal, bloque les rafales de scraping — par worker
+#  uvicorn (2 workers => limites effectives ~doublées, assumé).
+# ---------------------------------------------------------------------------
+RATE_PER_SEC, RATE_PER_MIN = 20, 400
+_rate: dict[str, list] = {}          # ip -> [sec_window, sec_n, min_window, min_n]
+
+
+def rate_limited(ip: str) -> bool:
+    now = int(time.time())
+    if len(_rate) > 20000:            # borne mémoire : purge les fenêtres mortes
+        for k in [k for k, v in _rate.items() if v[2] < now - 60]:
+            del _rate[k]
+    w = _rate.setdefault(ip, [now, 0, now - now % 60, 0])
+    if w[0] != now:
+        w[0], w[1] = now, 0
+    m = now - now % 60
+    if w[2] != m:
+        w[2], w[3] = m, 0
+    w[1] += 1
+    w[3] += 1
+    return w[1] > RATE_PER_SEC or w[3] > RATE_PER_MIN
+
+
 def meter_key(request: Request) -> str | None:
     """Valide la clé API éventuelle et compte l'usage du jour. Fail-open."""
     key = request.headers.get("x-api-key") or request.query_params.get("api_key")
@@ -163,6 +188,17 @@ def meter_key(request: Request) -> str | None:
 @app.middleware("http")
 async def timing(request: Request, call_next):
     t0 = time.perf_counter()
+    ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \
+        or (request.client.host if request.client else "")
+    # Trafic interne (VM, réseau compose) non limité — le public passe par caddy
+    # et arrive avec son IP réelle en X-Forwarded-For.
+    internal = ip.startswith(("10.", "127.", "192.168.")) or not ip
+    if not internal and request.url.path.startswith("/v1/") and rate_limited(ip):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            {"detail": f"Trop de requêtes (limites : {RATE_PER_SEC}/s, {RATE_PER_MIN}/min). "
+                       "Besoin de plus ? contact@confinia.io"},
+            status_code=429, headers={"Retry-After": "10"})
     valid_key = meter_key(request) if request.url.path.startswith("/v1/") else None
     if (REQUIRE_KEY and valid_key is None
             and request.url.path.startswith("/v1/")

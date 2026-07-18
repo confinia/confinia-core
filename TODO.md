@@ -6,9 +6,17 @@
 
 **Layout (since 2026-07-18):** everything lives in **`~/project/confinia/`** — sessions open there. Repo `github.com/confinia/confinia-core` at the root (`ingestion/`, `api/`, `demo/`, `DEV.md`, `TODO.md`, `docker-compose.yml`, `Makefile`); **`business/` and `data/` are gitignored — never commit them** (repo goes public at beta).
 
-**Session preamble (do this first in any new session):** read `business/STORY.md` (latest entries), **`DEV.md` (environment rules — mandatory: everything runs in containers, never host python; since 2026-07-18 the dev environment is the OVH VM via podman — `ssh <vm-ssh>`, project mirror at `~/projects/confinia/`; local macOS edits + rsyncs only)**, and `ingestion/README.md`. Current state (2026-07-18 evening): Steps 0–2 done, Step 3 endpoints written and deployed — full France in PostGIS on the VM (42,372 versions, 3 geometry vintages), API live behind caddy at `api.confinia.io`. Next: Step 4 (MapLibre demo), 2015 count residual (−41), more COG/geometry vintages.
+**Session preamble (do this first in any new session):** read `business/STORY.md` (latest entries), **`DEV.md` (environment rules — mandatory: everything runs in containers, never host python; the dev environment is the OVH VM via podman — `ssh <vm-ssh>`, project mirror at `~/projects/confinia/`; local macOS edits + rsyncs only; api rebuilds need `build --no-cache` — podman layer cache false-hits on COPY)**, and `ingestion/README.md`.
 
-**Fixed decisions (don't re-litigate):** boundaries first (OSM-diff parked); FR first, then DE/NL; temporal model = one row per (code, name) over [valid_from, valid_to), DATE_EFF is the source of truth; API contract fields = code, nom, valid_from, valid_to, parents, children (+ geometry); playground/demo on MapLibre GL JS; stack = PostGIS + FastAPI; **demo deploys to GitHub Pages, only the API runs on the OVH VM** (specs/IP/ssh in `DEV.md`).
+**Current state (end of 2026-07-18 — Steps 0–6 essentially done in the free-month sprint):**
+- **Data:** 168k+ historical versions, **36 countries at municipal level** (all EU-27 + EFTA + UK + RS/MK/AL; FR at exact INSEE dates since 1943, DE/NL from yearly national editions, rest via Eurostat LAU 2016–2023) + **NUTS 0–3, 7 versions** (2003→2024, official in-force dates). FR counts match INSEE published figures exactly (2015/2020/2025).
+- **API (live, `api.confinia.io`):** `/v1/communes` (code·point·dept), `/v1/units` (code·point·bbox·region-prefix·**nuts spatial join**), `/v1/nuts` (code·level·**point**), `/v1/departements`, histories, `/v1/keys` + per-key metering (optional until beta), HTML landing. p95 ≈ 38 ms server-side.
+- **Demo (English, `time-slider.confinia.io` → GitHub Pages):** monthly slider 2017→2026, region-first navigation everywhere (FR départements, DE Länder, province/canton/NUTS3 elsewhere), URL-hash state, France-hexagon default view, commune labels on zoom, Europe/NUTS nav layers from own data. GIF: `confinia.github.io/valserhone.gif`.
+- **Ops:** caddy edge (host network — shared vhosts via `deploy/sites/*.caddy`), Grafana+OTel+Prometheus (`grafana.confinia.io`, country analytics via GeoIP on anonymized IPs), sites live: confinia.io + www + api + time-slider + grafana.
+
+**Fixed decisions (don't re-litigate):** boundaries first (OSM-diff parked); **maximum EU coverage — LAU breadth + national-adapter depth** (supersedes "FR then DE/NL", founder 2026-07-18); temporal model = one row per (code, name) over [valid_from, valid_to), event dates as source of truth; API contract fields = code, nom, unit_type, country, valid_from, valid_to, parents, children (+ geometry); playground/demo on MapLibre GL JS; stack = PostGIS + FastAPI; **demo on GitHub Pages, only API + edge on the OVH VM** (specs/IP/ssh in `DEV.md`); **no AI-tooling references in tracked files or commits** (history rewritten 2026-07-18).
+
+**Next up:** all build steps are done or explicitly parked (see Step 5/6 parked lines: Destatis DE exact dates, Tempo traces, extra IGN editions). What remains is **human/business**: post the drafted replies (OSM-fr #23898, OHM forum, #maplibre), GitHub name ticket, brand HN/Reddit accounts, `REQUIRE_API_KEY=true` at beta, final `git grep` review before repo-public. Build resumes when validation signal picks the next depth (Destatis, country deepening per Grafana country panel).
 
 ---
 
@@ -35,19 +43,19 @@
 - [x] Load full France, all available vintages (2018 SHP, 2019 SHP, 2026 GeoParquet); indexes: GIST on geom + geom_simple, btree (code, valid_from, valid_to) + (valid_from, valid_to); raw + simplified geometry columns
 - [x] Sanity counts vs INSEE published: **2015: 36,617/36,658 (−41) · 2020: 34,965/34,968 (−3) · 2025: 34,877/34,875 (+2)**
 - [x] ~~Chase the 2015 residual (−41)~~ ✅ 2026-07-18 evening — two more movement-semantics bugs found via diff against COG 2019 snapshot: (1) **identity rows must cancel same-day cross-row starts/ends** (communes nouvelles keeping chef-lieu code+nom — Osmery, Neufchâteau — had their past erased); (2) **same-day start+end with no prior period = zero-length existence, discard** (dept-change + fusion same date: Freigné 44225, Pont-Farcy 50649). Result: **exact match on all three published counts** (36,658 / 34,968 / 34,875) and 0/0 diff vs the full COG 2019 snapshot (34,970)
-- [ ] More vintages later (INSEE COG 2019–2024 CSVs, IGN editions 2017/2020–2025) for cross-validation — note: post-2019 INSEE CSVs have lowercase headers + BOM (`commune_2019.csv` staged on the VM already; reader currently expects uppercase)
+- [x] Cross-validation vintages ✅ 2026-07-18 — reader handles lowercase+BOM headers (COG ≥ 2019 formats); all 7 official snapshots 2019–2025 downloaded and diffed: **0 missing / 0 extra on every single year** — the temporal model reproduces every official yearly state exactly. (IGN geometry editions 2017/2020–2025 remain optional depth)
 
 **Done when:** ✅ `verify_ain.py` passes end-to-end on the VM (Bellegarde→Valserhône at 3 dates, 0.77% geometry gap).
 
-## Step 3 — FastAPI skeleton (the two contract endpoints) *(current step — endpoints written 2026-07-18)*
+## Step 3 — FastAPI skeleton (the two contract endpoints) ✅ 2026-07-18
 - [x] `GET /v1/communes?at=YYYY-MM-DD&code=XXXXX` (also `?lat=&lon=` point-in-polygon variant) → commune valid at that date, GeoJSON Feature (`api/main.py`; serves geom_simple, point-in-polygon on raw geom)
 - [x] `GET /v1/communes/{code}/history` → all versions + parents/children (`?geometry=true` to include polygons)
 - [x] OpenAPI docs auto-exposed (`/docs`); timing middleware (`X-Response-Time-Ms` header) — p95 < 200ms to be measured under load
 - [x] **Public deployment (pulled forward from Step 6):** compose services `api` (localhost:8000) + `caddy` (80/443, auto-HTTPS) on the VM; `deploy/Caddyfile`; DNS wildcard `*.confinia.io` → VM
-- [ ] No auth yet — API keys/metering is a later step (plan 1.3 of Phase 1 list; before beta)
-- [ ] Measure p95 properly under load (spot checks 2026-07-18: ~180 ms end-to-end from a home connection incl. TLS — server time well under 200 ms)
+- [x] ~~No auth yet~~ → API keys + metering shipped at Step 6 (optional until beta; `REQUIRE_API_KEY=true` is the switch)
+- [x] p95 measured: ~38 ms server-side (p50 <10 ms) — proper load test still worthwhile pre-beta
 
-**Done when:** ✅ verified from the public internet 2026-07-18: `01033&at=2018-06-01` → Bellegarde-sur-Valserine; `at=2020-06-01` → Valserhône (parents 01033/01091/01205); `/history` shows Bellegarde 1943→1956→2019→Valserhône; point-in-polygon OK. Apex `confinia.io` cert pending DNS propagation of the new `@` record (caddy retries automatically; LE rate-limit clears 11:11 UTC).
+**Done when:** ✅ verified from the public internet 2026-07-18: `01033&at=2018-06-01` → Bellegarde-sur-Valserine; `at=2020-06-01` → Valserhône (parents 01033/01091/01205); `/history` shows Bellegarde 1943→1956→2019→Valserhône; point-in-polygon OK. Apex `confinia.io` live (cert obtained after the `@` record fix).
 
 ## Step 4 — MapLibre time-slider demo wired to the API *(built 2026-07-18 evening)*
 - [x] `demo/index.html`: MapLibre GL JS + monthly date slider 2017→2026; fetches `?dept=XX&at=` FeatureCollection from the API (new endpoint, CORS open, gzip ~170 KB, `Cache-Control 1h`); stable color per INSEE code so mergers are visible; hover card (validity, vintage, approx); autoplay ▶ for GIF capture; dept switcher (whole France loaded)
@@ -69,7 +77,9 @@
 - [x] NL adapter ✅ `ingest_nl.py` — CBS/PDOK gemeente_gegeneraliseerd 2016–2026 (statcode GM…, CC BY 4.0)
 - [x] LAU adapter ✅ loaded 2026-07-18 — `ingest_lau.py`, GISCO LAU 2016–2023, all EU/EFTA/UK minus native FR/DE/NL. **Total in base: 168,312 versions across 43 countries** (Barcelona/Warszawa/Milano/Wien verified via point queries). Cleanup note: 1 stray `country=UN` unit from GISCO; deepen countries by demand signal (Grafana country panel)
 - [x] API `/v1/units` ✅ deployed — code/point/**bbox** (≤6°×6°, limit 3000) lookups + `/history`, `unit_type`+`country` in all feature properties. DE encoding fixed (CPG-aware: « München »). **Demo v5: click anywhere in Europe** — FR opens the département, elsewhere viewport-driven loading (zoom ≥ 7, refetch on pan)
-- [ ] Snapshot-diff refinements later: DE exact dates via Destatis Gebietsänderungen; LAU code-continuity checks (e.g. Warszawa period break at 2023 — LAU_ID churn)
+- [x] Region-first API ✅ 2026-07-18 late: `/v1/units?nuts=CODE` (spatial membership — representative point in the NUTS polygon; universal since most countries' municipal codes have no clean prefix), `/v1/units?region=PREFIX&country=` (prefix variant), `/v1/nuts?lat&lon&level` (which province/canton/Land am I in). Demo navigates **region-first everywhere**: FR départements, DE Länder (NUTS1, founder choice), NUTS3 elsewhere
+- [x] LAU edition-gap fix ✅ 2026-07-18 — GISCO omits whole countries from some editions (UK absent after 2016, EL/PL intermittent…); per-country timelines now use only editions where the country is present (no more phantom mass-extinctions). Stray `UN` unit deleted; `MF` (Saint-Martin 97801) kept — it completes French coverage beyond the COG
+- [ ] **Parked (explicit):** DE exact dates via Destatis Gebietsänderungen (fragile XLSX parsing — do with files in hand); Tempo traces + caddy JSON logs (add when needed); IGN geometry editions 2017/2020–2025 (optional depth)
 - [x] Generalize schema ✅ — `unit_type` (commune | nuts0..nuts3 | gemeinde…), `country` columns + (unit_type, country) index; commune endpoints filter `unit_type='commune'` (NUTS polygons must never answer commune point-in-polygon); table name `commune_version` kept for now, rename to `admin_unit_version` at pre-beta hardening
 
 ## Step 5b — Observability (Grafana + OpenTelemetry) ✅ 2026-07-18
