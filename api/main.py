@@ -237,20 +237,39 @@ without losing the ~1,800 communes that merged since; resolving which commune an
 or GPS point belonged to <em>at the time of the event</em> (insurance claims, property
 history, epidemiology); keeping INSEE-coded time series consistent across COG vintages
 when codes get reused or renamed.</p>
-<pre>« Which commune was here on 2018-06-01? » — codes get reused, names change, communes merge:
+<pre>« Which commune was here on 2018-06-01? » — codes get reused, names change, municipalities merge:
 
 GET <a href="/v1/communes?code=01033&amp;at=2018-06-01">/v1/communes?code=01033&amp;at=2018-06-01</a>   → Bellegarde-sur-Valserine
 GET <a href="/v1/communes?code=01033&amp;at=2020-06-01">/v1/communes?code=01033&amp;at=2020-06-01</a>   → Valserhône (merged 2019)
 GET <a href="/v1/communes/01033/history">/v1/communes/01033/history</a>            → every version since 1943
-GET <a href="/v1/communes?lat=46.11&amp;lon=5.83&amp;at=2015-06-01">/v1/communes?lat=46.11&amp;lon=5.83&amp;at=2015-06-01</a>  → point-in-polygon
-GET <a href="/v1/communes?dept=01&amp;at=2019-06-01">/v1/communes?dept=01&amp;at=2019-06-01</a>   → a whole département (FeatureCollection)</pre>
+GET <a href="/v1/communes?dept=01&amp;at=2019-06-01">/v1/communes?dept=01&amp;at=2019-06-01</a>   → a whole département (FeatureCollection)
+
+Any European municipality — 36 countries (EU-27 + EFTA + UK + candidates):
+
+GET <a href="/v1/units?lat=52.52&amp;lon=13.405&amp;at=2020-06-01">/v1/units?lat=52.52&amp;lon=13.405&amp;at=2020-06-01</a>  → Berlin (point, any country)
+GET <a href="/v1/units?nuts=ITC4C&amp;at=2020-06-01">/v1/units?nuts=ITC4C&amp;at=2020-06-01</a>    → all comuni of the Milano province
+GET <a href="/v1/units?nuts=DE2&amp;at=2019-06-01">/v1/units?nuts=DE2&amp;at=2019-06-01</a>      → all Gemeinden of Bavaria
+GET <a href="/v1/units/GM0363/history">/v1/units/GM0363/history</a>              → Amsterdam through time
+
+NUTS regions, 7 versions (2003→2024) — e.g. the 2016 French région reform
+(the 13 new régions became NUTS 1; the 22 old ones survive as NUTS 2 — the
+kind of divergence that silently breaks time series):
+
+GET <a href="/v1/nuts?level=1&amp;country=FR&amp;at=2015-06-01">/v1/nuts?level=1&amp;country=FR&amp;at=2015-06-01</a>  → 9 ZEAT super-regions (pre-reform NUTS 1)
+GET <a href="/v1/nuts?level=1&amp;country=FR&amp;at=2018-06-01">/v1/nuts?level=1&amp;country=FR&amp;at=2018-06-01</a>  → the 13 post-2016 régions (+ DROM)
+GET <a href="/v1/nuts?lat=45.46&amp;lon=9.19&amp;level=3&amp;at=2020-06-01">/v1/nuts?lat=45.46&amp;lon=9.19&amp;level=3&amp;at=2020-06-01</a>  → which province am I in?</pre>
 <ul>
+<li><a href="https://time-slider.confinia.io">Live demo — boundaries through time (MapLibre)</a></li>
 <li><a href="/docs">Interactive documentation (OpenAPI)</a></li>
 <li><a href="/healthz">Service health</a></li>
 </ul>
-<footer>France first (INSEE COG + IGN Admin Express, Licence Ouverte 2.0 —
-attribution « IGN — Admin Express »), DE/NL and Eurostat NUTS next.
-Early development — no authentication yet, be gentle.</footer>
+<footer>168k historical versions · France at exact INSEE event dates since 1943,
+Germany &amp; Netherlands from yearly national editions, the rest of Europe via
+Eurostat LAU/NUTS. Free during development — no key required yet
+(<code>POST /v1/keys {"email": …}</code> to get one for the beta).
+Attribution: INSEE · IGN Licence Ouverte 2.0 · © EuroGeographics ·
+© GeoBasis-DE / BKG dl-de/by-2-0 · CBS/Kadaster CC BY 4.0 —
+details at <a href="https://confinia.io">confinia.io</a>.</footer>
 </main></body></html>"""
 
 
