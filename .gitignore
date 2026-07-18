@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Data files — source downloads and generated outputs stay out of git
+data/
+*.geojson
+*.gpkg
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.7z
+*.zip
+*.csv
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Local env
+.env
