@@ -405,11 +405,15 @@ CREATE INDEX idx_cv_geom_simple   ON commune_version USING gist (geom_simple);
 # communes actuelles par département, matérialisée en fin de chargement.
 DEPT_GEOM_SQL = """
 DROP MATERIALIZED VIEW IF EXISTS departement_geom;
+-- Union des géométries BRUTES : les frontières partagées IGN se dissolvent
+-- proprement (l'union des simplifiées engendre des milliers d'artefacts que
+-- la simplification topologique ne peut plus retirer — payload 13 Mo).
+-- Simplifié une fois ici pour que l'API serve léger.
 CREATE MATERIALIZED VIEW departement_geom AS
 SELECT CASE WHEN code LIKE '97%' THEN left(code, 3) ELSE left(code, 2) END AS dept,
-       ST_Multi(ST_Union(geom_simple)) AS geom
+       ST_Multi(ST_SimplifyPreserveTopology(ST_Union(geom), 0.002)) AS geom
 FROM commune_version
-WHERE valid_to = '9999-01-01' AND geom_simple IS NOT NULL
+WHERE unit_type = 'commune' AND valid_to = '9999-01-01' AND geom IS NOT NULL
 GROUP BY 1;
 """
 

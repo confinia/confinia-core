@@ -218,9 +218,7 @@ def commune_history(code: str, geometry: bool = Query(False)):
 def departements(response: Response):
     """Contours départementaux actuels (couche de navigation, union des communes)."""
     with cursor() as cur:
-        cur.execute(
-            "SELECT dept, ST_AsGeoJSON(ST_SimplifyPreserveTopology(geom, 0.002), 5) "
-            "FROM departement_geom ORDER BY dept")
+        cur.execute("SELECT dept, ST_AsGeoJSON(geom, 5) FROM departement_geom ORDER BY dept")
         rows = cur.fetchall()
     if not rows:
         raise HTTPException(503, "Contours non matérialisés — relancer le chargement.")
