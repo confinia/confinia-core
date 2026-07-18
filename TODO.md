@@ -1,10 +1,10 @@
 # Confinia — Build-track TODO (dev)
 
-*(interne — relire avant tout passage du repo en public, comme `DEV.md`)*
+*(fichier de travail — le repo est PUBLIC depuis le 2026-07-19 : n'y écrire que du technique, le sensible va dans `business/`)*
 
 **Purpose:** bootstrap file for fresh working sessions on the **build track** (code). Work top-down; check items off; log outcomes in `business/STORY.md` after each session. Business/validation tasks live in **`business/TODO.md`** — keep the two tracks separate.
 
-**Layout (since 2026-07-18):** everything lives in **`~/project/confinia/`** — sessions open there. Repo `github.com/confinia/confinia-core` at the root (`ingestion/`, `api/`, `demo/`, `DEV.md`, `TODO.md`, `docker-compose.yml`, `Makefile`); **`business/` and `data/` are gitignored — never commit them** (repo goes public at beta).
+**Layout (since 2026-07-18):** everything lives in **`~/project/confinia/`** — sessions open there. Repo `github.com/confinia/confinia-core` at the root (`ingestion/`, `api/`, `demo/`, `DEV.md`, `TODO.md`, `docker-compose.yml`, `Makefile`); **`business/` and `data/` are gitignored — never commit them** (the repo IS public since 2026-07-19).
 
 **Session preamble (do this first in any new session):** read `business/STORY.md` (latest entries), **`DEV.md` (environment rules — mandatory: everything runs in containers, never host python; the dev environment is the project VM via podman (access details: `business/INFRA.md`, private), project mirror at `~/projects/confinia/`; local macOS edits + rsyncs only; api rebuilds need `build --no-cache` — podman layer cache false-hits on COPY)**, and `ingestion/README.md`.
 
@@ -16,12 +16,12 @@
 
 **Fixed decisions (don't re-litigate):** boundaries first (OSM-diff parked); **maximum EU coverage — LAU breadth + national-adapter depth** (supersedes "FR then DE/NL", founder 2026-07-18); temporal model = one row per (code, name) over [valid_from, valid_to), event dates as source of truth; API contract fields = code, nom, unit_type, country, valid_from, valid_to, parents, children (+ geometry); playground/demo on MapLibre GL JS; stack = PostGIS + FastAPI; **demo on GitHub Pages, only API + edge on the OVH VM** (specs/IP/ssh in `DEV.md`); **no AI-tooling references in tracked files or commits** (history rewritten 2026-07-18).
 
-**Next up:** all build steps are done or explicitly parked (see Step 5/6 parked lines: Destatis DE exact dates, Tempo traces, extra IGN editions). What remains is **human/business**: post the drafted replies (OSM-fr #23898, OHM forum, #maplibre), GitHub name ticket, brand HN/Reddit accounts, `REQUIRE_API_KEY=true` at beta, final `git grep` review before repo-public. Build resumes when validation signal picks the next depth (Destatis, country deepening per Grafana country panel).
+**Next up:** all build steps are done or explicitly parked (see Step 5/6 parked lines: Destatis DE exact dates, Tempo traces, extra IGN editions). What remains is **human/business**: post the drafted replies (OSM-fr #23898, OHM forum, #maplibre), GitHub name ticket, brand HN/Reddit accounts, `REQUIRE_API_KEY` stays off through launch (decided); repo went public 2026-07-19 (history scrubbed). Build resumes when validation signal picks the next depth (Destatis, country deepening per Grafana country panel).
 
 ---
 
 ## Step 0 — Repo under the `confinia` GitHub org ✅ 2026-07-18
-- [x] Repo created as **`confinia/confinia-core`** (private; the name `confinia/confinia` is retired on GitHub — freeing it is a business task, see `business/TODO.md`). Apache-2.0 LICENSE from day one
+- [x] Repo created as **`confinia/confinia-core`** — **PUBLIC since 2026-07-19**, Apache-2.0 (the name `confinia/confinia` is retired on GitHub — freeing it is a business task, see `business/TODO.md`)
 - [x] Moved `src/ingest_cog.py` + `ingest_README.md` → `ingestion/`; layout `ingestion/`, `api/`, `demo/`, `README.md`; local clone at `~/project/confinia`
 - [x] Commits authored as `Confinia <contact@confinia.io>` (repo-local git config)
 
