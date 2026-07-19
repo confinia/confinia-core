@@ -292,6 +292,9 @@ async function addEuropeLayer() {
       paint: { "fill-color": "#141a25", "fill-opacity": 0.45 } }, "communes-fill");
     map.addLayer({ id: "countries-line", type: "line", source: "countries",
       paint: { "line-color": "#26314a", "line-width": 1 } }, "communes-fill");
+    map.addLayer({ id: "countries-fill-hi", type: "line", source: "countries",
+      filter: ["==", ["get", "code"], " "],
+      paint: { "line-color": "#7ab8ff", "line-width": 1.8 } }, "communes-fill");
     map.addLayer({ id: "country-names", type: "symbol", source: "country-labels",
       maxzoom: 7,
       layout: { "text-field": ["get", "label"], "text-font": ["Open Sans Semibold"],
@@ -353,6 +356,10 @@ async function addDeptLayer() {
       paint: { "fill-color": "#1a2332", "fill-opacity": 0.5 } }, "communes-fill");
     map.addLayer({ id: "depts-line", type: "line", source: "depts",
       paint: { "line-color": "#3a4a66", "line-width": 1 } }, "communes-fill");
+    // Surlignage au survol : rend évident qu'un département gris est cliquable.
+    map.addLayer({ id: "depts-fill-hi", type: "line", source: "depts",
+      filter: ["==", ["get", "dept"], " "],
+      paint: { "line-color": "#7ab8ff", "line-width": 2.2 } }, "communes-fill");
     // Au-dessus de tout : noms des départements.
     map.addLayer({ id: "dept-names", type: "symbol", source: "dept-labels",
       layout: { "text-field": ["get", "label"], "text-font": ["Open Sans Semibold"],
@@ -561,6 +568,25 @@ map.on("load", () => {
     info.style.visibility = "hidden";
     map.getCanvas().style.cursor = "";
   });
+
+  // Zones grises cliquables : curseur « main » + surlignage du département/pays
+  // survolé, pour que leur interactivité soit évidente (retour utilisateur).
+  function greyHover(layer, prop) {
+    const hi = layer + "-hi";
+    map.on("mousemove", layer, e => {
+      map.getCanvas().style.cursor = "pointer";
+      const onCommune = map.getLayer("communes-fill") &&
+        map.queryRenderedFeatures(e.point, { layers: ["communes-fill"] }).length;
+      const v = onCommune ? " " : (e.features[0].properties[prop] ?? " ");
+      if (map.getLayer(hi)) map.setFilter(hi, ["==", ["get", prop], v]);
+    });
+    map.on("mouseleave", layer, () => {
+      map.getCanvas().style.cursor = "";
+      if (map.getLayer(hi)) map.setFilter(hi, ["==", ["get", prop], " "]);
+    });
+  }
+  greyHover("depts-fill", "dept");
+  greyHover("countries-fill", "code");
 
   // Clic sur une commune AFFICHÉE : son histoire complète (panneau).
   // Clic ailleurs (zone grise) : bascule de département/région/pays.
