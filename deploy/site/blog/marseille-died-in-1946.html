@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Marseille died in 1946 — the INSEE code-reuse trap | Confinia</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="What happens when you build a temporal model of French communes from official data: seven real bugs, from Marseille ceasing to exist to communes rising from the dead — and how we got to an exact match with every official INSEE snapshot.">
+<link rel="canonical" href="https://confinia.io/blog/marseille-died-in-1946.html">
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #10151d; color: #e8eaed;
+         font: 17px/1.7 system-ui, -apple-system, sans-serif; }
+  main { max-width: 44rem; margin: 0 auto; padding: 3rem 1.5rem; }
+  a { color: #7ab8ff; text-decoration: none; } a:hover { text-decoration: underline; }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin: .4rem 0 .2rem; }
+  h2 { font-size: 1.25rem; margin: 2.2rem 0 .6rem; color: #9fb3d1; }
+  .meta { opacity: .65; font-size: .9rem; margin-bottom: 1.6rem; }
+  pre { background: #0b0f16; border: 1px solid #26314a; border-radius: 8px;
+        padding: .9rem 1rem; overflow-x: auto; font-size: .82rem; line-height: 1.55; }
+  code { background: #0b0f16; border-radius: 4px; padding: .1em .35em; font-size: .88em; }
+  pre code { background: none; padding: 0; }
+  blockquote { border-left: 3px solid #33405a; margin: 1rem 0; padding: .2rem 1rem;
+               opacity: .9; font-style: italic; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  th, td { border: 1px solid #26314a; padding: .4rem .6rem; text-align: left; }
+  th { color: #9fb3d1; }
+  img { max-width: 100%; border-radius: 8px; border: 1px solid #26314a; }
+  .footer { margin-top: 3rem; border-top: 1px solid #26314a; padding-top: 1.2rem;
+            font-size: .88rem; opacity: .8; }
+  .home { font-size: .9rem; }
+</style>
+</head>
+<body><main>
+<p class="home"><a href="/">← confinia.io</a></p>
+<h1>Marseille died in 1946 — the INSEE code-reuse trap</h1>
+<p class="meta">Confinia · July 2026 · the war stories behind an open-source temporal boundary API</p>
+
+<p>France's second-largest city ceased to exist on 18 October 1946. At least, that's
+what my database said.</p>
+
+<p>I was building what sounded like a simple thing: a temporal model of French
+administrative boundaries. Every commune as a series of versions — <code>(code, name)</code>
+valid over <code>[valid_from, valid_to)</code> — so you can ask the map a question nobody
+serves an answer to: <em>"which commune was here, on this date?"</em></p>
+
+<p>It matters more than it sounds. Since 2015, roughly <strong>1,800 French communes
+have disappeared</strong> into mergers (36,658 → 34,875). Any dataset keyed by INSEE
+code — health, tax, elections, real estate — silently breaks when joined to today's map.
+And the failure mode is vicious, because <strong>INSEE reuses codes</strong>: code
+<code>01033</code> meant <em>Bellegarde-sur-Valserine</em> until January 2019, and means
+<em>Valserhône</em> — a different, larger territory — since. Same key, different truth,
+no error message.</p>
+
+<h2>The data is beautiful. The semantics are a minefield.</h2>
+
+<p>INSEE publishes two files that make the reconstruction possible: the yearly
+<em>COG</em> (the list of communes on January 1st) and <code>mvtcommune</code> — every
+administrative <strong>event</strong> since 1943, with its effective date. Renames,
+mergers, splits, resurrections. Each row says: on date <code>D</code>, unit
+<code>AV</code> (avant) became unit <code>AP</code> (après), with an event type
+<code>MOD</code>:</p>
+
+<pre><code>MOD  meaning
+10   renamed
+20   created (carved out of existing communes)
+21   re-established (a merged commune comes back)
+30   abolished
+31   simple merger
+32   "commune nouvelle" (the post-2015 merger wave)
+33   fusion-association
+41   code change (chef-lieu transfer)
+50   code change (department change)</code></pre>
+
+<p>My first model treated every <code>AV</code> row as a death and every <code>AP</code>
+row as a birth. Elegant. Wrong in seven distinct ways — and every one of them was
+discovered the same way: by counting.</p>
+
+<h2>The bugs, in the order the data confessed them</h2>
+
+<p><strong>1. Mergers emit ghost rows.</strong> A fusion also produces rows for the
+resulting <em>communes déléguées</em> — carrying the <em>same code and name</em> as the
+dead commune, but with a different <code>TYPECOM</code>. Without filtering on
+<code>TYPECOM == COM</code>, the delegated-commune row overwrote the real one's dates
+and erased pre-merger Bellegarde entirely.</p>
+
+<p><strong>2. The absorber traverses.</strong> A merger includes an "identity row" —
+same code, same name on both sides — for the commune that absorbs the others. It isn't
+dying or being born; it's passing through. Treat it like an end+start and every absorbing
+commune gets chopped at every merger it survived.</p>
+
+<p><strong>3. Marseille died in 1946.</strong> The headline bug. <code>MOD 20</code>
+(<em>création</em>) means a new commune was carved out of existing ones — Plan-de-Cuques,
+in this case, carved out of Marseille on 1946-10-18. My model read the
+<code>AV = Marseille</code> row as Marseille's death certificate. The source commune of a
+création <em>continues to exist</em>. Whether an <code>AV</code> row ends a commune
+depends on the event type — always for abolitions and mergers, never for créations.</p>
+
+<p><strong>4. Manosque was born in 1975.</strong> The mirror image: when Manosque
+absorbed neighbors in a fusion-association, the cross rows pointed <em>at</em> Manosque —
+and my model gave the thousand-year-old town a birthdate of 1975-01-01. An
+<code>AP</code> row only <em>starts</em> a commune for créations, re-establishments and
+commune-nouvelle formations — not for the absorbing side of a merger.</p>
+
+<p><strong>5. The dead rise.</strong> Celles (Cantal) merged away in 2016 — and was
+re-established in 2025. One <code>(code, name)</code> pair, two disjoint validity
+periods. The model must allow resurrection, or it either loses the past or corrupts the
+present.</p>
+
+<p><strong>6. The commune nouvelle that keeps its name erases its own past.</strong>
+The subtlest one. When Osmery absorbed Lugny-Bourbonnais in 2024, the new merged commune
+kept the code <em>and the name</em> "Osmery":</p>
+
+<pre><code>MOD  DATE_EFF    AV                          AP
+32   2024-01-01  18131 Lugny-Bourbonnais  →  18173 Osmery
+32   2024-01-01  18173 Osmery             →  18173 Osmery   (identity)</code></pre>
+
+<p>The cross row says "something became Osmery on 2024-01-01" — and the naive reading
+<em>restarts</em> Osmery there, deleting eighty years of history. The identity row is the
+tell: when present, it must <em>cancel</em> the same-day start. Neufchâteau, Saillans,
+Cussey-sur-Lison — the entire post-2015 merger wave is full of these.</p>
+
+<p><strong>7. The commune that existed for zero days.</strong> On 2018-01-01, Freigné
+changed department (code <code>49144</code> → <code>44225</code>) <em>and</em> merged
+into Vallons-de-l'Erdre — the same day. Read naively, code 44225 is born in the morning
+and lives forever; in truth it existed for zero days as an independent commune. Same-day
+start+end with no prior history is a transition artifact: discard.</p>
+
+<h2>Counting as a debugging method</h2>
+
+<p>None of these bugs threw an exception. All of them were found the same way: INSEE
+<em>publishes</em> how many communes France has on each January 1st. So after every
+change, the model was asked to count.</p>
+
+<table>
+<tr><th>Model iteration</th><th>2015 (36,658)</th><th>2020 (34,968)</th><th>2025 (34,875)</th></tr>
+<tr><td>naive events</td><td>−178</td><td>−136</td><td>−131</td></tr>
+<tr><td>+ MOD-aware semantics</td><td>−41</td><td>−3</td><td>+2</td></tr>
+<tr><td>+ identity cancellation, zero-length discard</td><td><strong>exact</strong></td><td><strong>exact</strong></td><td><strong>exact</strong></td></tr>
+</table>
+
+<p>Then the stronger test: download all seven official yearly snapshots (2019–2025) and
+diff every one against the model — which is built from a <em>single</em> 2025 file plus
+the event history. Result: <strong>zero missing, zero extra, every single year.</strong>
+One present-day file and a complete event log reproduce seven consecutive official states
+of the French commune landscape. That's the property that makes event-based temporal
+modeling worth the pain: dates are the source of truth, snapshots become mere
+checksums.</p>
+
+<h2>What it looks like when it works</h2>
+
+<p><img src="/blog/valserhone.gif" alt="Time-slider animation: three communes of the Ain merging into Valserhône as the date crosses January 2019" width="900"></p>
+
+<p>Ask the API about code <code>01033</code> and you get a different, correct answer for
+every era — including the full event narrative:</p>
+
+<pre><code>curl "https://api.confinia.io/v1/communes?code=01033&amp;at=2018-06-01"
+  → Bellegarde-sur-Valserine
+
+curl "https://api.confinia.io/v1/communes?code=01033&amp;at=2020-06-01"
+  → Valserhône  (parents: 01033, 01091, 01205)
+
+curl "https://api.confinia.io/v1/communes/01033/history"
+  → Bellegarde (1943→1956) → Bellegarde-sur-Valserine (1956→2019,
+    absorbed Arlod &amp; Coupy along the way) → Valserhône (2019→today)</code></pre>
+
+<p>And it generalizes: the same temporal model now holds <strong>~165,000 historical
+versions across 36 European countries</strong> — Germany and the Netherlands from yearly
+national editions, the rest of the EU via Eurostat's LAU files (which have their own
+traps: whole countries silently missing from single editions — Poland's 2023 file
+contains 14 of its ~2,480 gminy), plus every NUTS version back to 2003, where the 2016
+French région reform hides in plain sight: the 13 new régions became NUTS&nbsp;1, while
+the 22 old ones survive as NUTS&nbsp;2 for statistical continuity. Time series break on
+that divergence <em>constantly</em>.</p>
+
+<h2>Takeaways for anyone touching administrative data</h2>
+
+<p><strong>Never trust an identifier to mean the same thing twice.</strong> Codes are
+reused. A join on INSEE code without a date is a bug that hasn't fired yet.
+<strong>Events beat snapshots</strong> — effective dates are truth; yearly files are
+checksums. <strong>Semantics live in the event type</strong>, not in the row shape — the
+same "A became B" row means death, birth, or nothing, depending on <code>MOD</code>.
+And <strong>validate against numbers someone else published</strong> — every bug above
+was invisible until a count disagreed with INSEE.</p>
+
+<div class="footer">
+<p><strong>Try it:</strong> <a href="https://time-slider.confinia.io">the time-slider demo</a>
+(click any commune for its dated history) ·
+<a href="https://api.confinia.io">the API</a> (free, no key during beta) ·
+<a href="https://github.com/confinia/confinia-core">the open-source core</a> (Apache-2.0).</p>
+<p>Data: INSEE COG · IGN Admin Express (Licence Ouverte 2.0, modified) ·
+© EuroGeographics (NUTS/LAU) · © GeoBasis-DE/BKG (dl-de/by-2-0) · CBS/Kadaster (CC BY 4.0).</p>
+<p><a href="/blog/">More from the Confinia journal →</a></p>
+</div>
+</main></body></html>
