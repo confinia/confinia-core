@@ -33,6 +33,16 @@
   button { cursor: pointer; padding: .2rem .7rem; }
   button:hover, input:hover { border-color: #7ab8ff; }
   #hint { font-size: .72rem; opacity: .6; width: 100%; }
+  /* Mobile : bandeau minimal — marque + curseur + date. On masque le baratin. */
+  @media (max-width: 640px) {
+    header { padding: .45rem .6rem; gap: .4rem .6rem; }
+    header h1 { font-size: .9rem; }
+    .tagline, #hint, #ticks, #deptname { display: none; }
+    #controls { min-width: 0; width: 100%; gap: .5rem; }
+    #sliderbox { min-width: 120px; }
+    #datebox { flex-direction: row; gap: .3rem; align-items: center; }
+    footer { font-size: .68rem; padding: .25rem .6rem; }
+  }
   #info {
     position: absolute; left: 1rem; bottom: 2.4rem; z-index: 2; max-width: 21rem;
     background: rgba(10,14,20,.85); border: 1px solid #26314a; border-radius: 6px;
@@ -73,7 +83,7 @@
 <body>
 <div id="map"></div>
 <header>
-  <h1><span>Confinia</span> · boundaries have a history</h1>
+  <h1><span>Confinia</span><span class="tagline"> · boundaries have a history</span></h1>
   <div id="controls">
     <label>Dept <input id="dept" type="text" value="01" maxlength="3" spellcheck="false"></label>
     <span id="deptname"></span>
@@ -99,6 +109,7 @@
 <footer>
   Data: INSEE COG · IGN Admin Express (Licence Ouverte 2.0) · © EuroGeographics (NUTS/LAU) ·
   © GeoBasis-DE / BKG (dl-de/by-2-0) · CBS/Kadaster (CC BY 4.0) — simplified geometries ·
+  basemap © OpenStreetMap contributors © CARTO ·
   <a href="https://api.confinia.io/docs">Confinia API</a>
 </footer>
 <script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
@@ -181,10 +192,26 @@ if (H.at) {
 
 const map = new maplibregl.Map({
   container: "map",
-  style: { version: 8, sources: {},
+  style: { version: 8,
     glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+    // Fond de carte réaliste (relief, eau, villes voisines) : tuiles Carto « dark »,
+    // sans clé, assorties au thème sombre. Nos couches vectorielles passent au-dessus.
+    sources: {
+      basemap: {
+        type: "raster", tileSize: 256,
+        tiles: [
+          "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+          "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+          "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+          "https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+        ],
+        attribution: "© OpenStreetMap contributors © CARTO",
+      },
+    },
     layers: [
-      { id: "bg", type: "background", paint: { "background-color": "#10151d" } } ] },
+      { id: "bg", type: "background", paint: { "background-color": "#0b0f16" } },
+      { id: "basemap", type: "raster", source: "basemap",
+        paint: { "raster-opacity": 0.9 } } ] },
   // Défaut : l'hexagone entier ; sinon la vue mémorisée dans l'URL.
   center: H.c ? [H.c[1], H.c[0]] : [2.45, 46.6],
   zoom: isFinite(H.z) ? H.z : 5.3,
@@ -262,7 +289,7 @@ async function addEuropeLayer() {
     map.addSource("countries", { type: "geojson", data: fc });
     map.addSource("country-labels", { type: "geojson", data: labels });
     map.addLayer({ id: "countries-fill", type: "fill", source: "countries",
-      paint: { "fill-color": "#141a25", "fill-opacity": 1 } }, "communes-fill");
+      paint: { "fill-color": "#141a25", "fill-opacity": 0.45 } }, "communes-fill");
     map.addLayer({ id: "countries-line", type: "line", source: "countries",
       paint: { "line-color": "#26314a", "line-width": 1 } }, "communes-fill");
     map.addLayer({ id: "country-names", type: "symbol", source: "country-labels",
@@ -323,7 +350,7 @@ async function addDeptLayer() {
     map.addSource("dept-labels", { type: "geojson", data: labels });
     // Sous les communes : silhouette de la France cliquable.
     map.addLayer({ id: "depts-fill", type: "fill", source: "depts",
-      paint: { "fill-color": "#1a2332", "fill-opacity": 1 } }, "communes-fill");
+      paint: { "fill-color": "#1a2332", "fill-opacity": 0.5 } }, "communes-fill");
     map.addLayer({ id: "depts-line", type: "line", source: "depts",
       paint: { "line-color": "#3a4a66", "line-width": 1 } }, "communes-fill");
     // Au-dessus de tout : noms des départements.

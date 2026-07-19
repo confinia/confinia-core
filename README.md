@@ -4,7 +4,7 @@
 
 > Boundaries change: communes merge, districts are redrawn, codes get reused. Confinia models every administrative unit as versions valid over `[valid_from, valid_to)`, with parent/child links across mergers and splits — so `code=01033&at=2018-06-01` returns Bellegarde-sur-Valserine, and the same code a year later returns Valserhône.
 
-Status: **early development** (private). France first (INSEE COG + IGN Admin Express), then DE/NL and Eurostat NUTS.
+Status: **public beta**. France at exact INSEE event dates (COG + IGN Admin Express), Germany & the Netherlands from national yearly editions, and the rest of Europe via Eurostat LAU + NUTS — 43 countries, ~168k historical versions.
 
 ## Layout
 
@@ -12,7 +12,7 @@ Status: **early development** (private). France first (INSEE COG + IGN Admin Exp
 |---|---|
 | [`ingestion/`](ingestion/) | INSEE COG → temporal model + IGN geometry join → PostGIS (see its [README](ingestion/README.md)) |
 | [`api/`](api/) | FastAPI service — the query endpoints |
-| [`demo/`](demo/) | MapLibre GL JS time-slider playground (not started; will deploy to GitHub Pages) |
+| [`demo/`](demo/) | MapLibre GL JS time-slider playground — live at [time-slider.confinia.io](https://time-slider.confinia.io) |
 | [`deploy/`](deploy/) | Caddyfile — public HTTPS routing on the VM |
 
 ## Using the API
@@ -38,7 +38,24 @@ Full history of a code — every version with parent/child links (add `&geometry
 curl "https://api.confinia.io/v1/communes/01033/history"
 ```
 
-Feature properties: `code`, `nom`, `valid_from`, `valid_to` (`null` = still valid), `parents`, `children`, `geometry_vintage` (IGN edition used), `geometry_approx` (`true` when inherited from the nearest edition). Served geometry is simplified (~50 m); point-in-polygon queries use the raw geometry server-side. No authentication during development; API keys + metering land before the beta.
+Feature properties: `code`, `nom`, `valid_from`, `valid_to` (`null` = still valid), `parents`, `children`, `geometry_vintage` (IGN edition used), `geometry_approx` (`true` when inherited from the nearest edition). Served geometry is simplified (~50 m); point-in-polygon queries use the raw geometry server-side.
+
+### Authentication
+
+The API is **open and keyless during the current beta** — the calls above work as-is, subject only to per-IP rate limiting (20 req/s, 400 req/min) to keep the service healthy.
+
+An API-key tier lands before general availability. When it does, mint a key and send it on every request:
+
+```bash
+curl -X POST "https://api.confinia.io/v1/keys" \
+     -H "content-type: application/json" \
+     -d '{"email": "you@example.org"}'         # → {"key": "cfn_…"}
+
+curl "https://api.confinia.io/v1/communes?code=01033&at=2020-06-01" \
+     -H "X-API-Key: cfn_…"
+```
+
+Keys are metered per request (visible in the account dashboard). A generous free allowance stays keyless; keys unlock higher limits and usage history. Existing keyless calls keep working through the beta — the restriction is additive, not a breaking change.
 
 ## Developing
 
