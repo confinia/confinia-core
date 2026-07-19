@@ -46,15 +46,21 @@
   #coach .x:hover { opacity: 1; }
   @keyframes coachIn { from { opacity: 0; transform: translate(-50%, 10px); }
                        to   { opacity: 1; transform: translate(-50%, 0); } }
-  /* Mobile : bandeau minimal — marque + curseur + date. On masque le baratin. */
+  /* Mobile : bandeau minimal — marque + curseur + date. On masque le baratin.
+     Le sélecteur de mois affiche déjà la date : « as of … » est un doublon ici. */
   @media (max-width: 640px) {
     header { padding: .45rem .6rem; gap: .4rem .6rem; }
     header h1 { font-size: .9rem; }
-    .tagline, #hint, #ticks, #deptname { display: none; }
-    #controls { min-width: 0; width: 100%; gap: .5rem; }
-    #sliderbox { min-width: 120px; }
+    .tagline, #hint, #ticks, #deptname, #datefr { display: none; }
+    /* flex:1 (base) impose flex-basis:0 — il faut 100% ici pour passer à la
+       ligne sous la marque, et wrap pour que le compteur replie au besoin. */
+    #controls { flex: 1 1 100%; min-width: 0; flex-wrap: wrap; gap: .5rem; }
+    #sliderbox { min-width: 110px; }
     #datebox { flex-direction: row; gap: .3rem; align-items: center; }
-    footer { font-size: .68rem; padding: .25rem .6rem; }
+    /* Attributions sur UNE ligne défilable : le footer reste bas, et le
+       bouton « − » du zoom (remonté de 2.2rem) n'est plus recouvert. */
+    footer { font-size: .68rem; padding: .3rem .6rem; white-space: nowrap;
+             overflow-x: auto; }
     #coach { font-size: .75rem; padding: .4rem .7rem; bottom: 3.6rem;
              max-width: 90vw; }
   }
