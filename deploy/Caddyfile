@@ -1,9 +1,22 @@
 # Confinia — routage public (VM OVH). HTTPS automatique via Let's Encrypt.
 # DNS : enregistrement A wildcard *.confinia.io -> IP de la VM.
 
+# Filtre anti-scanners : coupe net (abort = connexion fermée, aucune réponse)
+# les sondes de bots (fichiers de secrets, dépôts .git, kits WordPress/PHP…).
+# Placé DANS un `route` avant le backend : la requête n'atteint jamais FastAPI,
+# donc elle ne pollue pas l'observabilité (OTel/Prometheus/Grafana).
+# NB : n'attrape PAS /.well-known (ACME) — les motifs sont énumérés, pas /.* global.
+(block_scanners) {
+	@scanner path /.env /.env* /.git /.git* /.aws /.aws* /.svn* /.hg* /.ssh* /.npmrc /.dockercfg /.docker* /.DS_Store /.vscode* /.idea* /.bash_history *.php *.php* /stripe /stripe/* /wp-admin* /wp-login* /wp-content* /wp-includes* /xmlrpc.php /vendor/* /aws-ses.json /aws-config.js /assets/js/auth.js /assets/js/message.js /assets/js/qr_modal.js /credentials* /config.json* //*
+	abort @scanner
+}
+
 api.confinia.io {
 	encode zstd gzip
-	reverse_proxy 127.0.0.1:8000
+	route {
+		import block_scanners
+		reverse_proxy 127.0.0.1:8000
+	}
 }
 
 # La démo vit sur GitHub Pages ; le wildcard DNS amène ce nom ici, caddy
@@ -22,7 +35,10 @@ grafana.confinia.io {
 confinia.io, www.confinia.io {
 	encode zstd gzip
 	root * /srv/site
-	file_server
+	route {
+		import block_scanners
+		file_server
+	}
 }
 
 # Vhosts des autres projets hébergés sur la VM (un fichier par projet,
