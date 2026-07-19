@@ -77,6 +77,24 @@ services:
       - ./deploy/otel-collector.yaml:/etc/otelcol/config.yaml:ro
     restart: unless-stopped
 
+  # Métriques système de la VM (CPU, RAM, disque, réseau, IO) pour Grafana.
+  # Réseau hôte (comme caddy) : node_exporter voit les vraies interfaces et le
+  # host joint 9100 ; ufw ne laisse pas entrer 9100 depuis l'extérieur.
+  node-exporter:
+    image: docker.io/prom/node-exporter:latest
+    network_mode: host
+    pid: host
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/rootfs"
+      - "--web.listen-address=:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    restart: unless-stopped
+
   prometheus:
     image: docker.io/prom/prometheus:latest
     command:

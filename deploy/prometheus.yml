@@ -8,3 +8,8 @@ scrape_configs:
   - job_name: prometheus
     static_configs:
       - targets: ["localhost:9090"]
+  # node_exporter tourne en réseau hôte ; host.containers.internal = l'hôte
+  # vu depuis le réseau podman (fallback : IP de la passerelle du réseau).
+  - job_name: node
+    static_configs:
+      - targets: ["host.containers.internal:9100"]
