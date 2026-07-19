@@ -133,6 +133,12 @@
 "use strict";
 const API = new URLSearchParams(location.search).get("api") || "https://api.confinia.io";
 
+// Remontée d'activité UI (anonyme) : nom d'événement seul, fire-and-forget.
+// Le pays est déduit côté serveur (GeoIP) ; aucune IP n'est stockée.
+function beacon(e) {
+  try { fetch(`${API}/beacon?e=${e}`, { mode: "no-cors", keepalive: true }); } catch {}
+}
+
 // Un pas par mois — chaque état affiché est la situation au 1er du mois (date
 // civile de validité, sans fuseau : le modèle est en dates, pas en instants).
 const START = new Date(Date.UTC(2017, 0, 1)), END = new Date(Date.UTC(2026, 6, 1));
@@ -580,6 +586,7 @@ map.on("load", () => {
   // puis régions NUTS 3 — chaque couche se pose au-dessus de la précédente.
   addEuropeLayer().then(addDeptLayer).then(addRegionLayer);
   render();
+  beacon("load");
 
   const info = $("info");
   map.on("mousemove", "communes-fill", e => {
@@ -643,6 +650,7 @@ map.on("load", () => {
           cacheWarm();
           render();
           flash(`Département ${dept} — ${f.properties.nom}`);
+          beacon("dept_switch");
         }
       } else {
         // La région NUTS entière, comme un département (Land, province, canton…).
@@ -659,11 +667,13 @@ map.on("load", () => {
             firstFit = true;
             render();
             flash(`${regionName} — ${f.properties.nom}`);
+            beacon("region_switch");
           }
         } else {
           // Secours : chargement selon la vue.
           if (mode !== "area" || areaCountry !== country) clearCommunes();
           mode = "area"; areaCountry = country; regionCode = null;
+        beacon("country_switch");
           flash(`${f.properties.nom} · ${COUNTRY_NAMES[country] || country}`);
           if (map.getZoom() < 8) map.easeTo({ center: [lng, lat], zoom: 8.6, duration: 700 });
           else render();
@@ -683,11 +693,13 @@ function jumpTo(dateStr) {
   if (i < 0) i = DATES.length - 1;
   slider.value = i;
   render();
+  beacon("timetravel");
 }
 
 async function showHistory(code, country, currentName) {
   const el = $("histo");
   el.style.display = "block";
+  beacon("commune_history");
   el.innerHTML = `<h2><b>${currentName}</b> (${code})</h2>loading…`;
   try {
     const url = country === "FR"
@@ -746,6 +758,7 @@ $("play").addEventListener("click", () => {
   const btn = $("play");
   if (playing) { clearInterval(playing); playing = null; btn.textContent = "▶"; return; }
   btn.textContent = "⏸";
+  beacon("play");
   playing = setInterval(() => {
     slider.value = (+slider.value + 1) % DATES.length;
     render();

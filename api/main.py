@@ -94,6 +94,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"],
 #  anonymisée — on ne stocke jamais l'IP, seulement le code pays.
 # ---------------------------------------------------------------------------
 REQ_COUNTER = None
+FE_COUNTER = None            # événements UI de la démo (frontend), via /beacon
 OTLP = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")   # ex: http://otel-collector:4318
 if OTLP:
     try:
@@ -110,6 +111,8 @@ if OTLP:
             metric_readers=[reader]))
         REQ_COUNTER = otel_metrics.get_meter("confinia").create_counter(
             "confinia.requests", description="Requêtes API par route/statut/pays")
+        FE_COUNTER = otel_metrics.get_meter("confinia").create_counter(
+            "confinia.frontend.events", description="Événements UI de la démo (frontend)")
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
         from opentelemetry.instrumentation.psycopg2 import Psycopg2Instrumentor
         FastAPIInstrumentor.instrument_app(app)
@@ -135,6 +138,17 @@ def client_country(request: Request) -> str:
         return (rec or {}).get("country", {}).get("iso_code", "??")
     except Exception:
         return "??"
+
+
+def client_kind(request: Request) -> str:
+    """D'où vient l'appel : démo (time-slider), site vitrine, ou API directe.
+    Déduit de Origin/Referer — cardinalité bornée, aucune donnée personnelle."""
+    ref = request.headers.get("origin") or request.headers.get("referer") or ""
+    if "confinia.github.io" in ref or "time-slider.confinia.io" in ref:
+        return "demo"
+    if "confinia.io" in ref:            # landing/blog (après le test démo ci-dessus)
+        return "site"
+    return "direct"
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +229,7 @@ async def timing(request: Request, call_next):
             "method": request.method,
             "status": str(response.status_code),
             "country": client_country(request),
+            "client": client_kind(request),
             "keyed": valid_key is not None,
         })
     return response
@@ -376,6 +391,20 @@ def healthz():
     with cursor() as cur:
         cur.execute("SELECT count(*) FROM commune_version")
         return {"status": "ok", "versions": cur.fetchone()[0]}
+
+
+# Événements UI de la démo. Hors /v1/ (jamais soumis à clé), fire-and-forget
+# côté navigateur (fetch keepalive). Liste blanche => cardinalité bornée ;
+# on ne stocke que le nom d'événement + le code pays (GeoIP), jamais d'IP.
+FE_EVENTS = {"load", "play", "commune_history", "dept_switch",
+             "region_switch", "country_switch", "timetravel", "share"}
+
+
+@app.get("/beacon", include_in_schema=False)
+def beacon(request: Request, e: str = ""):
+    if FE_COUNTER is not None and e in FE_EVENTS:
+        FE_COUNTER.add(1, {"event": e, "country": client_country(request)})
+    return Response(status_code=204)
 
 
 from pydantic import BaseModel, EmailStr  # noqa: E402
