@@ -8,8 +8,9 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-echo "== validation (conteneur éphémère, vrais fichiers)"
+echo "== validation (conteneur éphémère, vrais fichiers, même env que la prod)"
 podman run --rm \
+	--env-file deploy/secrets.env \
 	-v ./deploy/caddy:/etc/caddy:ro \
 	-v ./deploy/sites:/etc/caddy/sites:ro \
 	docker.io/library/caddy:2 caddy validate --config /etc/caddy/Caddyfile

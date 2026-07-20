@@ -41,15 +41,15 @@ pool: psycopg2.pool.SimpleConnectionPool | None = None
 
 
 KEYS_SQL = """
-CREATE TABLE IF NOT EXISTS api_key (
+CREATE TABLE IF NOT EXISTS public.api_key (
     key        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     email      text NOT NULL,
     note       text,
     created_at timestamptz NOT NULL DEFAULT now(),
     active     boolean NOT NULL DEFAULT true
 );
-CREATE TABLE IF NOT EXISTS api_usage (
-    key      uuid NOT NULL REFERENCES api_key(key),
+CREATE TABLE IF NOT EXISTS public.api_usage (
+    key      uuid NOT NULL REFERENCES public.api_key(key),
     day      date NOT NULL,
     requests bigint NOT NULL DEFAULT 0,
     PRIMARY KEY (key, day)
@@ -57,13 +57,13 @@ CREATE TABLE IF NOT EXISTS api_usage (
 -- Visiteurs uniques par jour/pays. Jamais d'IP : client_hash est un condensé
 -- salé (secret d'env + jour UTC), irréversible et illisible d'un jour à l'autre.
 -- UNLOGGED : donnée d'observabilité, perdable sans regret. Purge à 45 jours.
-CREATE UNLOGGED TABLE IF NOT EXISTS visitor_daily (
+CREATE UNLOGGED TABLE IF NOT EXISTS public.visitor_daily (
     day         date  NOT NULL,
     country     text  NOT NULL,
     client_hash bytea NOT NULL,
     PRIMARY KEY (day, client_hash)
 );
-DELETE FROM visitor_daily WHERE day < CURRENT_DATE - 45;
+DELETE FROM public.visitor_daily WHERE day < CURRENT_DATE - 45;
 """
 
 # Clés facultatives pendant le développement ; passer REQUIRE_API_KEY=true
@@ -201,7 +201,7 @@ def note_visitor(ip: str, country: str) -> None:
         try:
             with conn, conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO visitor_daily (day, country, client_hash) "
+                    "INSERT INTO public.visitor_daily (day, country, client_hash) "
                     "VALUES (CURRENT_DATE, %s, %s) ON CONFLICT DO NOTHING",
                     (country, h))
         finally:
@@ -266,12 +266,12 @@ def meter_key(request: Request) -> str | None:
         conn = pool.getconn()
         try:
             with conn, conn.cursor() as cur:
-                cur.execute("SELECT active FROM api_key WHERE key = %s::uuid", (key,))
+                cur.execute("SELECT active FROM public.api_key WHERE key = %s::uuid", (key,))
                 row = cur.fetchone()
                 if not row or not row[0]:
                     return None
                 cur.execute(
-                    "INSERT INTO api_usage (key, day, requests) VALUES (%s::uuid, CURRENT_DATE, 1) "
+                    "INSERT INTO public.api_usage (key, day, requests) VALUES (%s::uuid, CURRENT_DATE, 1) "
                     "ON CONFLICT (key, day) DO UPDATE SET requests = api_usage.requests + 1", (key,))
                 return key
         finally:
@@ -475,7 +475,7 @@ def attributions():
     """Registre des sources : licence, attribution et conditions par source."""
     with cursor() as cur:
         cur.execute("SELECT source, license, attribution, commercial_use, source_url "
-                    "FROM data_source ORDER BY source")
+                    "FROM public.data_source ORDER BY source")
         return {"sources": [
             {"source": s, "license": li, "attribution": a,
              "commercial_use": c, "url": u}
@@ -665,7 +665,7 @@ def nuts_at(
 
 
 # Types « communaux » par pays : adaptateurs natifs + LAU Eurostat (largeur EU).
-MUNICIPAL_TYPES = ("commune", "gemeinde", "gemeente", "lau")
+MUNICIPAL_TYPES = ("commune", "gemeinde", "gemeente", "lau", "lad")
 
 
 @app.get("/v1/units")
