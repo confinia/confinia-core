@@ -131,3 +131,29 @@
 - [ ] Leçon podman-compose (2 incidents) : `run`/`up` recréent la db et arrachent
   ses dépendants dès que le hash de secrets.env bouge : TOUJOURS `--no-deps` sur
   toute commande compose ciblée (fait dans deploy-api.sh ; penser aux runs ingest).
+
+## Chantier EDGE en couches (spécifié 2026-07-20, à faire en session dédiée)
+
+Architecture cible validée par le fondateur :
+
+1. **Compose « platform » dédié** (nouveau projet VM, hors repo confinia) :
+   - **caddy amont** : seul propriétaire de 80/443 et des certificats ;
+     config minimale : un bloc de routage par application (par hostname).
+     Il route vers le caddy HTTP local de chaque app.
+   - **observabilité PLATEFORME** : node_exporter + prometheus plateforme +
+     **grafana.confinia.io = uniquement la VM** (dashboard « Confinia VM »
+     et futurs dashboards infra/edge). Rien d'applicatif.
+2. **Un caddy par application** (dans le compose de chaque app, HTTP simple
+   sur un port localhost, rechargeable sans toucher les voisins) :
+   - confinia : www.confinia.io (site), /api/ (API), /grafana (le grafana
+     APPLICATIF : dashboards Confinia API / Usage / sécurité, prometheus +
+     otel-collector restent dans le compose confinia) ;
+   - autres apps : <app>.confinia.io/* vers leur propre caddy.
+3. **Compatibilité ascendante NON NÉGOCIABLE** : api.confinia.io,
+   time-slider.confinia.io, staging.confinia.io, staging.api.confinia.io
+   restent servis (routés par l'amont) : ils sont imprimés dans les posts
+   OHM, le backlink OpenCage, le README et la release GitHub. Le schéma par
+   chemins s'AJOUTE, il ne remplace pas.
+4. Migration : plan écrit, témoin de disponibilité armé (sonde 300 ms),
+   bascule 80/443 en une fois, coordination overwatch (leur vhost + leur
+   outillage de reload visent leur propre caddy ensuite).
