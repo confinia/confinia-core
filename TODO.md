@@ -109,3 +109,25 @@
 - OSM change-tracking product (osm2pgsql #2144 evidence) — post-GO
 - Historical geocoding ("address → commune as of date X")
 - SDK wrappers (Python/JS), Show HN — plan Month 4
+
+## Chantiers data ouverts le 2026-07-20 (v0.2.0+)
+
+- [x] Registre des sources (`ingestion/sources.sql`) : `data_source` + colonne `source`,
+  backfill 165 730 lignes, endpoint `/v1/attributions`. Le filtrage commercial par
+  tier devient un WHERE le jour venu.
+- [x] TRF-GIS (Gay, CC BY 4.0) : communes FR 1870-1940 à résolution annuelle
+  (`ingestion/ingest_trf.py`), 42 377 versions, contrôles 4/4 exacts, soudure au
+  plancher INSEE 1943. Dates exactes pré-1943 : attendre EHESS (relance 29/07).
+- [x] ONS CHD (OGL v3) : UK local authorities depuis 2009 aux dates légales
+  (`ingestion/ingest_ons.py`), 471 versions, 361 vivantes (compte exact),
+  liens prédécesseurs/successeurs (réforme Cumbria 2023 vérifiée).
+- [ ] **Réconciliation UK** : les lignes eurostat-lau UK (édition 2016 figée) disent
+  « vivant aujourd'hui » là où le CHD dit « aboli 2023 ». Faire du CHD la colonne
+  vertébrale temporelle UK et joindre les géométries LAU par code GSS ; retirer
+  ou re-sourcer les lignes LAU UK en conflit.
+- [ ] Géométries UK par édition (ONS Open Geography, contours LAD annuels).
+- [ ] TRF : niveaux supra (cantons/arrondissements/départements annuels 1870-1940,
+  shapefiles inclus) : munitions OHM (admin_level 6/7) pour le fil #762.
+- [ ] Leçon podman-compose (2 incidents) : `run`/`up` recréent la db et arrachent
+  ses dépendants dès que le hash de secrets.env bouge : TOUJOURS `--no-deps` sur
+  toute commande compose ciblée (fait dans deploy-api.sh ; penser aux runs ingest).
