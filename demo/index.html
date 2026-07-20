@@ -25,12 +25,14 @@
   #datebox { display: flex; flex-direction: column; align-items: center; gap: .1rem; }
   #datefr { font-weight: 600; white-space: nowrap; }
   #count { opacity: .75; white-space: nowrap; }
-  /* Mode comparaison : bouton ⇄ + second sélecteur de mois (date de référence). */
+  /* Mode comparaison : bouton bien visible + second sélecteur (date de référence). */
   #month2 { display: none; color-scheme: dark; }
+  #diffbtn { font-weight: 600; padding: .25rem .8rem; }
   body.diffing #month2 { display: inline-block; }
-  body.diffing #diffbtn { border-color: #7ab8ff; color: #7ab8ff; }
+  body.diffing #diffbtn { border-color: #7ab8ff; color: #7ab8ff;
+                          background: rgba(122,184,255,.16); }
   #difflegend {
-    position: absolute; left: 1rem; top: 6.2rem; z-index: 2; display: none;
+    position: absolute; left: 1rem; top: 7.4rem; z-index: 2; display: none;
     background: rgba(10,14,20,.88); border: 1px solid #26314a; border-radius: 6px;
     padding: .45rem .7rem; font-size: .78rem; line-height: 1.7;
   }
@@ -77,8 +79,14 @@
        bouton « − » du zoom (remonté de 2.2rem) n'est plus recouvert. */
     footer { font-size: .68rem; padding: .3rem .6rem; white-space: nowrap;
              overflow-x: auto; }
-    #coach { font-size: .75rem; padding: .4rem .7rem; bottom: 3.6rem;
+    #coach { font-size: .75rem; padding: .4rem .7rem; bottom: 5.8rem;
              max-width: 90vw; }
+    /* Légende du diff : bandeau compact en bas, une-deux lignes. */
+    #difflegend { top: auto; bottom: 2.6rem; left: .6rem; right: 3.4rem;
+                  font-size: .68rem; padding: .3rem .5rem; line-height: 1.6; }
+    #difflegend br { display: none; }
+    #difflegend .dot { margin-left: .7em; }
+    #difflegend .dim { display: none; }
   }
   #info {
     position: absolute; left: 1rem; bottom: 2.4rem; z-index: 2; max-width: 21rem;
@@ -133,7 +141,7 @@
       <span id="datefr"></span>
       <span>
         <input id="month" type="month" title="Pick a specific month">
-        <button id="diffbtn" type="button" title="Compare with another date">⇄</button>
+        <button id="diffbtn" type="button" title="Compare with another date">⇄ Compare</button>
         <input id="month2" type="month" title="Comparison date">
       </span>
     </div>
@@ -182,7 +190,9 @@ for (let d = new Date(START); d <= END; d.setUTCMonth(d.getUTCMonth() + 1))
 const $ = id => document.getElementById(id);
 const slider = $("slider"), month = $("month"), month2 = $("month2");
 slider.max = DATES.length - 1;
-slider.value = DATES.indexOf("2018-06-01");
+// Défaut : juin 2019 comparé à juin 2018 — la vague de fusions de janvier 2019
+// (Valserhône…) saute aux yeux dès l'arrivée. Un hash d'URL garde la priorité.
+slider.value = DATES.indexOf("2019-06-01");
 month.min = DATES[0].slice(0, 7);
 month.max = DATES[DATES.length - 1].slice(0, 7);
 month2.min = month.min;
@@ -251,13 +261,22 @@ if (H.at) {
   const i = DATES.findIndex(d => d.slice(0, 7) === H.at);
   if (i >= 0) slider.value = i;
 }
-// Comparaison mémorisée dans l'URL (#…&vs=YYYY-MM) : vue partageable.
+// Comparaison mémorisée dans l'URL (#…&vs=YYYY-MM : vue partageable), et
+// ACTIVE PAR DÉFAUT sur une arrivée sans hash (2019-06 vs 2018-06). Un lien
+// partagé sans `vs` reste fidèle à ce que son auteur voyait : diff coupé.
 const H_vs = new URLSearchParams(location.hash.slice(1)).get("vs");
 if (H_vs && DATES.some(d => d.slice(0, 7) === H_vs)) {
   diffOn = true;
   month2.value = H_vs;
-  document.body.classList.add("diffing");
+} else if (location.hash.length <= 1) {
+  diffOn = true;
+  month2.value = "2018-06";
 }
+function syncDiffBtn() {
+  document.body.classList.toggle("diffing", diffOn);
+  $("diffbtn").textContent = diffOn ? "⇄" : "⇄ Compare";
+}
+syncDiffBtn();
 
 const map = new maplibregl.Map({
   container: "map",
@@ -871,7 +890,7 @@ month.addEventListener("change", () => {
 // Mode comparaison : bouton ⇄ + date de référence. Défaut : un an avant A.
 $("diffbtn").addEventListener("click", () => {
   diffOn = !diffOn;
-  document.body.classList.toggle("diffing", diffOn);
+  syncDiffBtn();
   if (diffOn) {
     if (!month2.value) {
       const a = new Date(DATES[slider.value] + "T00:00:00Z");
