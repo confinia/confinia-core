@@ -157,3 +157,30 @@ Architecture cible validée par le fondateur :
 4. Migration : plan écrit, témoin de disponibilité armé (sonde 300 ms),
    bascule 80/443 en une fois, coordination overwatch (leur vhost + leur
    outillage de reload visent leur propre caddy ensuite).
+
+## Chantier STACKS bleu/vert complets (spécifié 2026-07-20, session dédiée)
+
+Architecture cible validée par le fondateur, principe directeur : **la base géo
+est un ARTEFACT DE BUILD, reconstruite par DOUBLE INGESTION, jamais copiée**
+(une corruption ne peut pas se propager entre couleurs).
+
+1. Deux projets compose complets : `confinia-blue` et `confinia-green`
+   (API + PostGIS géo chacun, volumes séparés, ports par couleur).
+   podman-compose d'une couleur ne peut pas toucher l'autre.
+2. Bases géo par couleur, peuplées UNIQUEMENT par les pipelines d'ingestion
+   (mêmes fichiers data/raw/, mêmes scripts versionnés). Jamais de copie
+   inter-couleurs, jamais de réplication continue (refusée : la corruption
+   logique se répliquerait). Divergence entre couleurs = bug de script
+   détecté par les contrôles de comptes.
+3. Cycle : stage (ingestion sur le passif + validation staging) -> promote
+   (bascule caddy ; l'ancien actif reste intact = rollback complet) ->
+   resync (rejouer l'ingestion sur le nouveau passif après observation).
+4. Tables opérationnelles (api_key, api_usage, visitor_daily, data_source) :
+   PAS des artefacts dérivés -> mini-Postgres « ops » dans la couche de
+   services partagés (avec le monitoring applicatif), dump quotidien.
+   L'API parle à deux DSN : géo (couleur) + ops (partagé).
+   [alternative rejetée : copier ces tables à la bascule]
+5. Ceinture-bretelles : dump quotidien des deux mondes vers un volume dédié ;
+   object storage hors VM à prévoir au durcissement pré-beta (la VM reste un
+   point unique de défaillance).
+6. Migration avec témoin 300 ms armé, hors sessions VM parallèles du fondateur.
