@@ -852,8 +852,12 @@ map.on("load", () => {
       if (h.length) {
         const p = h[0].properties;
         flash(`${p.nom} · ${p.valid_from || "1870"} → ${p.valid_to || ""}`);
+        return;
       }
-      return;
+      // Clic dans le vide : on laisse la bascule de contexte opérer
+      // ci-dessous, avec une date de NAVIGATION moderne (à 1881, rien n'a
+      // de géométrie pour un point-lookup ; le contexte choisi s'affiche
+      // ensuite à la date historique du curseur).
     }
     // Les fantômes du mode comparaison sont cliquables comme les communes.
     const hits = map.queryRenderedFeatures(e.point,
@@ -865,7 +869,10 @@ map.on("load", () => {
     }
     $("histo").style.display = "none";
     const { lng, lat } = e.lngLat;
-    const date = DATES[slider.value];
+    const realDate = DATES[slider.value];
+    // Les lookups de bascule utilisent une date moderne quand le curseur est
+    // dans l'ère sans géométries communales ; l'affichage reste à realDate.
+    const date = realDate < HIST_CUTOFF ? NAV_AT : realDate;
     try {
       const r = await fetch(`${API}/v1/units?lat=${lat.toFixed(5)}&lon=${lng.toFixed(5)}&at=${date}`);
       if (r.status === 404) { flash("No known unit here at this date (sea? outside coverage?)."); return; }
