@@ -1,72 +1,8 @@
-# Confinia — stack locale et VM (même fichier, mêmes commandes).
-#   macOS  : docker compose ... (socktainer + Apple container)
-#   Debian : docker compose ... (podman + podman-docker) ou podman-compose
+# Confinia — SERVICES PARTAGÉS (VM) : edge applicatif, observabilité
+# applicative, état opérationnel, aperçu démo. Les stacks bleu/vert (API +
+# base géo par couleur) vivent dans deploy/stack/docker-compose-<couleur>.yml
+# et se pilotent par deploy/stacks.sh + deploy/deploy-api.sh.
 services:
-  db:
-    image: docker.io/postgis/postgis:16-3.4
-    # Identifiants dans deploy/secrets.env (gitignoré) — podman-compose
-    # n'interpole pas ${VAR:-default}, env_file est la voie sûre.
-    env_file:
-      - ./deploy/secrets.env
-    ports:
-      - "127.0.0.1:5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U confinia -d confinia"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
-  # Outil d'ingestion : lancé à la demande, jamais en service permanent.
-  #   docker compose run --rm ingest /app/ingest_cog.py --millesimes 2025 --data-dir /data/raw/insee
-  #   docker compose run --rm ingest /app/join_geometry.py --data-dir /data/raw/insee ...
-  ingest:
-    build: ./ingestion
-    image: confinia-ingest:latest
-    profiles: ["tools"]
-    env_file:
-      - ./deploy/secrets.env
-    volumes:
-      - ./data:/data
-    depends_on:
-      db:
-        condition: service_healthy
-
-  # API en bleu/vert : `api` (bleu, 8000) + `api-b` (vert, 8001), même image.
-  # Caddy équilibre les deux avec health checks ; deploy/deploy-api.sh fait le
-  # déploiement roulant (rebuild -> vert -> bleu) sans coupure de service.
-  api:
-    build: ./api
-    image: confinia-api:latest
-    env_file:
-      - ./deploy/secrets.env
-    environment:
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-    volumes:
-      - ./data/geoip:/geoip:ro   # dbip-country-lite.mmdb (pays d'appel, jamais l'IP)
-    ports:
-      - "127.0.0.1:8000:8000"   # accès local/ssh ; le public passe par caddy
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: unless-stopped
-
-  api-b:
-    image: confinia-api:latest    # pas de build : l'image est construite par `api`
-    env_file:
-      - ./deploy/secrets.env
-    environment:
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-    volumes:
-      - ./data/geoip:/geoip:ro
-    ports:
-      - "127.0.0.1:8001:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: unless-stopped
-
   # Caddy APPLICATIF confinia : HTTP simple sur 127.0.0.1:8085, derrière le
   # caddy AMONT de la plateforme (~/projects/platform), qui possède 80/443 et
   # les certificats. Réseau hôte : il voit les X-Forwarded-* de l'amont et
@@ -168,6 +104,8 @@ services:
     profiles: ["tools"]
 
 volumes:
+  # pgdata : volume de l'ANCIENNE base géo unique, conservé par prudence
+  # après le passage aux stacks couleur (2026-07-20) ; suppression quand sûr.
   pgdata:
   opsdata:
   caddy_data:

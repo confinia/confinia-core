@@ -1,18 +1,23 @@
 #!/bin/bash
-# Déploiement API bleu/vert, sans coupure, avec validation humaine optionnelle.
-# À lancer SUR LA VM, après rsync. Usage :
-#   ./deploy/deploy-api.sh            # full : stage + promote (roulant direct)
-#   ./deploy/deploy-api.sh stage      # build + bascule le VERT seul ; le public
-#                                     # reste sur le BLEU (ancienne version).
-#                                     # Tester : https://staging.api.confinia.io
-#   ./deploy/deploy-api.sh promote    # bascule le BLEU sur la version validée
-#   ./deploy/deploy-api.sh rollback   # rebascule VERT puis BLEU sur :previous
-#   SKIP_BUILD=1 …                    # saute le build (re-bascule pure)
-#
-# Caddy (health checks actifs + passifs, lb_policy first) fait la continuité :
-# vérifié sonde à 300 ms, 0 requête perdue pendant les bascules.
+# Déploiement API par STACKS COULEUR (bleu/vert complets, indépendants).
+# À lancer SUR LA VM, après rsync :
+#   ./deploy/deploy-api.sh stage      # build + l'API de la couleur PASSIVE
+#                                     # passe sur la nouvelle version ; la
+#                                     # valider sur https://staging.api.confinia.io
+#                                     # (le staging vise toujours le passif)
+#   ./deploy/deploy-api.sh promote    # la couleur passive devient ACTIVE
+#                                     # (bascule caddy via deploy/stacks.sh)
+#   ./deploy/deploy-api.sh rollback   # re-bascule vers l'autre couleur
+#   ./deploy/deploy-api.sh full       # stage + promote (défaut)
+#   SKIP_BUILD=1 …                    # re-bascule sans rebuild
+# Les DONNÉES suivent leur propre cycle : double ingestion sur la couleur
+# passive (deploy/stacks.sh build <couleur>) puis promote. Jamais de copie.
 set -eu
 cd "$(dirname "$0")/.."
+
+active() { cat ~/confinia-edge-state/ACTIVE_COLOR 2>/dev/null || echo green; }
+other()  { if [ "$1" = blue ]; then echo green; else echo blue; fi; }
+port_of() { if [ "$1" = blue ]; then echo 8000; else echo 8001; fi; }
 
 wait_ok() {
 	for _ in $(seq 1 60); do
@@ -23,58 +28,31 @@ wait_ok() {
 	return 1
 }
 
-# Les bascules n'utilisent PAS podman-compose : même avec --no-deps il
-# retraite la db (depends_on + hash de config sur secrets.env partagé) et peut
-# supprimer les deux instances d'un coup. podman pur, options répliquées du
-# compose (réseau confinia_default : la résolution de `db` et `otel-collector`
-# vient des alias de leurs conteneurs sur ce réseau).
-recreate() {	# $1 = service (api | api-b)   $2 = port hôte   $3 = image
-	podman rm -f "confinia_$1_1" >/dev/null 2>&1 || true
-	podman run -d --name "confinia_$1_1" \
-		--network confinia_default \
-		--env-file deploy/secrets.env \
-		-e OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 \
-		-v "$(pwd)/data/geoip:/geoip:ro" \
-		-p "127.0.0.1:$2:8000" \
-		--restart unless-stopped \
-		"$3" >/dev/null
-}
-
 stage() {
+	A=$(active); P=$(other "$A")
 	if [ "${SKIP_BUILD:-0}" != "1" ]; then
-		# L'image courante devient :previous (cible du rollback), puis build.
 		podman tag localhost/confinia-api:latest localhost/confinia-api:previous 2>/dev/null || true
-		cp VERSION api/VERSION      # la version voyage dans l'image (pas de .git sur la VM)
+		cp VERSION api/VERSION
 		echo "== build (no-cache) $(cat VERSION)"
-		podman-compose build --no-cache api
+		podman build --no-cache -q -t localhost/confinia-api:latest ./api >/dev/null
 	fi
-	echo "== VERT (8001) passe sur la nouvelle image ; le public reste sur le BLEU"
-	recreate api-b 8001 localhost/confinia-api:latest
-	wait_ok 8001
-	echo "OK : à valider sur https://staging.api.confinia.io puis ./deploy/deploy-api.sh promote"
+	echo "== l'API $P (passive, $(port_of "$P")) passe sur la nouvelle version ; le public reste sur $A"
+	podman rm -f "confinia-${P}_api_1" >/dev/null 2>&1 || true
+	podman-compose -p "confinia-$P" -f "$PWD/deploy/stack/docker-compose-$P.yml" \
+		--profile serve up -d api >/dev/null 2>&1
+	wait_ok "$(port_of "$P")"
+	echo "OK : valider sur https://staging.api.confinia.io puis ./deploy/deploy-api.sh promote"
 }
 
 promote() {
-	echo "== BLEU (8000) passe sur l'image courante (le VERT sert pendant la bascule)"
-	recreate api 8000 localhost/confinia-api:latest
-	wait_ok 8000
-	echo "OK : le public est entièrement sur la nouvelle version."
-}
-
-rollback() {
-	echo "== ROLLBACK sur :previous (VERT puis BLEU)"
-	recreate api-b 8001 localhost/confinia-api:previous
-	wait_ok 8001
-	recreate api 8000 localhost/confinia-api:previous
-	wait_ok 8000
-	podman tag localhost/confinia-api:previous localhost/confinia-api:latest
-	echo "OK : retour à la version précédente."
+	A=$(active); P=$(other "$A")
+	./deploy/stacks.sh promote "$P"
 }
 
 case "${1:-full}" in
 	stage)    stage ;;
 	promote)  promote ;;
-	rollback) rollback ;;
+	rollback) promote ;;      # symétrique : re-bascule vers l'autre couleur
 	full)     stage; promote ;;
 	*) echo "usage: $0 [stage|promote|rollback|full]" >&2; exit 2 ;;
 esac
