@@ -61,6 +61,10 @@ environnement qu'en production.
 5. (Historique macOS : Apple `container` + socktainer restent utilisables pour
    un one-shot local — règles d'origine : BuildKit désactivé, `container run`
    pour les commandes ponctuelles — mais ce n'est plus la voie documentée.)
+6. **Tout changement de front (démo, site) est vérifié en rendu MOBILE
+   (~440 px) ET desktop avant publication** — capture playwright depuis la VM
+   (conteneur `mcr.microsoft.com/playwright/python`, démo servie sur :8080).
+   Règle fondateur du 2026-07-20 : le rendu mobile doit être irréprochable.
 
 ## Environnements
 
