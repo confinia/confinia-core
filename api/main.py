@@ -470,6 +470,18 @@ def landing():
     return HTMLResponse(LANDING)
 
 
+@app.get("/v1/attributions")
+def attributions():
+    """Registre des sources : licence, attribution et conditions par source."""
+    with cursor() as cur:
+        cur.execute("SELECT source, license, attribution, commercial_use, source_url "
+                    "FROM data_source ORDER BY source")
+        return {"sources": [
+            {"source": s, "license": li, "attribution": a,
+             "commercial_use": c, "url": u}
+            for s, li, a, c, u in cur.fetchall()]}
+
+
 @app.get("/healthz")
 def healthz():
     with cursor() as cur:
