@@ -1,16 +1,19 @@
-# Confinia — routage public (VM OVH). HTTPS automatique via Let's Encrypt.
-# DNS : enregistrement A wildcard *.confinia.io -> IP de la VM.
+# Caddy APPLICATIF confinia : HTTP simple sur 127.0.0.1:8085, derrière le
+# caddy AMONT de la plateforme (~/projects/platform sur la VM), qui possède
+# 80/443 et les certificats et route les hostnames confinia vers ici.
+# Reload sans coupure : ./deploy/deploy-edge.sh (validation éphémère + reload).
+{
+	http_port 8085
+	auto_https off
+}
 
 # Filtre anti-scanners : coupe net (abort = connexion fermée, aucune réponse)
 # les sondes de bots (fichiers de secrets, dépôts .git, kits WordPress/PHP…).
-# Placé DANS un `route` avant le backend : la requête n'atteint jamais FastAPI,
-# donc elle ne pollue pas l'observabilité (OTel/Prometheus/Grafana).
-# NB : n'attrape PAS /.well-known (ACME) — les motifs sont énumérés, pas /.* global.
 # BOUCLE D'ENRICHISSEMENT : le panneau Grafana « 404 par chemin » (dashboard
 # Confinia API, rangée Sécurité) liste ce qui passe encore ; on verse ici les
 # nouveaux motifs au fil de l'eau. Jamais : /robots.txt /sitemap.xml
 # /favicon.ico (crawlers légitimes), ni de motif large cassant /openapi.json
-# ou les assets du site (le snippet est partagé api + site).
+# ou les assets du site.
 (block_scanners) {
 	# Un matcher nommé ne peut être défini qu'UNE fois : un matcher par groupe.
 	# dotfiles & dépôts (à la racine et en profondeur)
@@ -30,52 +33,77 @@
 	abort @scan_phishkit
 }
 
-# API en bleu/vert : deux instances (compose api -> 8000, api-b -> 8001), même
-# image. lb_policy first = préfère le bleu ; health checks actifs sur /healthz ;
-# lb_try_duration réessaie l'autre instance si une connexion échoue pendant un
-# déploiement roulant (deploy/deploy-api.sh). Zéro coupure tant qu'une des deux vit.
-api.confinia.io {
+# Équilibrage bleu/vert de l'API (deploy/deploy-api.sh) : santé active ET
+# passive, zéro coupure pendant les bascules.
+(api_upstreams) {
+	reverse_proxy 127.0.0.1:8000 127.0.0.1:8001 {
+		lb_policy first
+		lb_try_duration 5s
+		lb_try_interval 250ms
+		fail_duration 15s
+		unhealthy_status 5xx
+		health_uri /healthz
+		health_interval 10s
+		health_timeout 3s
+	}
+}
+
+# API candidate (validation) : 8002 = données staging (deploy-data.sh stage),
+# sinon l'instance verte (code candidat).
+(staging_upstreams) {
+	reverse_proxy 127.0.0.1:8002 127.0.0.1:8001 {
+		lb_policy first
+		lb_try_duration 5s
+		lb_try_interval 250ms
+		fail_duration 15s
+		health_uri /healthz
+		health_interval 10s
+		health_timeout 3s
+	}
+}
+
+# Site public + nouveaux chemins canoniques : /api/ (API) et /grafana
+# (grafana APPLICATIF : dashboards Confinia API/Usage/Sécurité).
+http://confinia.io, http://www.confinia.io {
 	encode zstd gzip
-	route {
-		import block_scanners
-		reverse_proxy 127.0.0.1:8000 127.0.0.1:8001 {
-			lb_policy first
-			lb_try_duration 5s
-			lb_try_interval 250ms
-			# Santé PASSIVE indispensable : sans fail_duration, un échec de
-			# connexion ne marque pas l'upstream mort et lb_policy first
-			# réessaie le même port pendant toute la fenêtre de bascule.
-			fail_duration 15s
-			unhealthy_status 5xx
-			health_uri /healthz
-			health_interval 10s
-			health_timeout 3s
+	handle /grafana* {
+		reverse_proxy 127.0.0.1:3000
+	}
+	handle_path /api/* {
+		route {
+			import block_scanners
+			import api_upstreams
+		}
+	}
+	handle {
+		root * /srv/site
+		route {
+			import block_scanners
+			file_server
 		}
 	}
 }
 
-# Validation humaine pré-promotion, derrière BASIC AUTH (identifiants dans
-# deploy/secrets.env via l'env du conteneur : jamais dans le repo).
-# staging.confinia.io = la DÉMO servie depuis le miroir VM + l'API candidate
-# (instance verte) en même origine sous /api : le login couvre tout, et le
-# footer affiche la version que l'on est en train de valider.
-staging.confinia.io {
+# Hostname historique de l'API : publié partout (posts OHM, backlink
+# OpenCage, README, release) : NE JAMAIS le casser.
+http://api.confinia.io {
+	encode zstd gzip
+	route {
+		import block_scanners
+		import api_upstreams
+	}
+}
+
+# Validation humaine pré-promotion, derrière BASIC AUTH (identifiants via
+# l'env du conteneur : jamais dans le repo). Démo (miroir VM) + API candidate
+# en même origine sous /api : un seul login couvre tout.
+http://staging.confinia.io {
 	basic_auth {
 		{env.STAGING_USER} {env.STAGING_HASH}
 	}
 	encode zstd gzip
 	handle_path /api/* {
-		# 8002 = API branchée sur le schéma de données staging (deploy-data.sh
-		# stage) ; absente, on retombe sur l'instance verte (code candidat).
-		reverse_proxy 127.0.0.1:8002 127.0.0.1:8001 {
-			lb_policy first
-			lb_try_duration 5s
-			lb_try_interval 250ms
-			fail_duration 15s
-			health_uri /healthz
-			health_interval 10s
-			health_timeout 3s
-		}
+		import staging_upstreams
 	}
 	handle {
 		root * /srv/demo
@@ -83,54 +111,19 @@ staging.confinia.io {
 	}
 }
 
-# Instance VERTE seule (8001) : accès direct (curl) à la version candidate,
-# mêmes identifiants basic auth.
-staging.api.confinia.io {
+# API candidate seule (curl), mêmes identifiants.
+http://staging.api.confinia.io {
 	basic_auth {
 		{env.STAGING_USER} {env.STAGING_HASH}
 	}
 	encode zstd gzip
 	route {
 		import block_scanners
-		reverse_proxy 127.0.0.1:8002 127.0.0.1:8001 {
-			lb_policy first
-			lb_try_duration 5s
-			lb_try_interval 250ms
-			fail_duration 15s
-			health_uri /healthz
-			health_interval 10s
-			health_timeout 3s
-		}
+		import staging_upstreams
 	}
 }
 
-# La démo vit sur GitHub Pages ; le wildcard DNS amène ce nom ici, caddy
-# obtient le certificat et redirige (302 : réversible si la démo change
-# d'hébergement ou passe en domaine custom GitHub Pages natif).
-time-slider.confinia.io {
+# La démo vit sur GitHub Pages ; redirection (302 : réversible).
+http://time-slider.confinia.io {
 	redir https://confinia.github.io{uri} temporary
 }
-
-# Grafana (observabilité) — authentification gérée par Grafana lui-même
-# (mot de passe admin dans deploy/secrets.env, inscriptions désactivées).
-grafana.confinia.io {
-	reverse_proxy 127.0.0.1:3000
-}
-
-confinia.io, www.confinia.io {
-	encode zstd gzip
-	root * /srv/site
-	route {
-		import block_scanners
-		file_server
-	}
-}
-
-# Vhosts des autres projets hébergés sur la VM (un fichier par projet,
-# déposé dans deploy/sites/ — monté sur /etc/caddy/sites). Ce caddy est
-# l'edge partagé de la VM : il possède 80/443, les backends publient en
-# 127.0.0.1 uniquement. Ex. : overwatch.caddy (projects/overwatch).
-# Chemin absolu : ce Caddyfile vit dans /etc/caddy/conf (montage répertoire,
-# reload gracieux possible), les vhosts des autres projets restent montés
-# séparément sur /etc/caddy/sites (leur chemin de dépôt ne change pas).
-import /etc/caddy/sites/*.caddy
