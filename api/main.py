@@ -13,6 +13,7 @@ s'appuie sur la brute (exacte, index GIST).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
@@ -44,6 +45,16 @@ CREATE TABLE IF NOT EXISTS api_usage (
     requests bigint NOT NULL DEFAULT 0,
     PRIMARY KEY (key, day)
 );
+-- Visiteurs uniques par jour/pays. Jamais d'IP : client_hash est un condensé
+-- salé (secret d'env + jour UTC), irréversible et illisible d'un jour à l'autre.
+-- UNLOGGED : donnée d'observabilité, perdable sans regret. Purge à 45 jours.
+CREATE UNLOGGED TABLE IF NOT EXISTS visitor_daily (
+    day         date  NOT NULL,
+    country     text  NOT NULL,
+    client_hash bytea NOT NULL,
+    PRIMARY KEY (day, client_hash)
+);
+DELETE FROM visitor_daily WHERE day < CURRENT_DATE - 45;
 """
 
 # Clés facultatives pendant le développement ; passer REQUIRE_API_KEY=true
@@ -152,6 +163,45 @@ def client_kind(request: Request) -> str:
 
 
 # ---------------------------------------------------------------------------
+#  Visiteurs uniques par jour et par pays. La posture GDPR tient : on ne
+#  stocke jamais l'IP. Elle est réduite à un condensé salé (secret d'env +
+#  jour UTC), donc irréversible sans le secret et non corrélable entre jours.
+#  Le cache mémoire par worker évite un INSERT par requête ; la table fait
+#  l'exactitude inter-workers (comme api_usage pour le metering).
+# ---------------------------------------------------------------------------
+VISITOR_SECRET = os.environ.get("VISITOR_SALT_SECRET", "")
+_seen_today: set[bytes] = set()
+_seen_day = ""
+
+
+def note_visitor(ip: str, country: str) -> None:
+    global _seen_day
+    if not ip or not VISITOR_SECRET or pool is None:
+        return
+    day = time.strftime("%Y-%m-%d", time.gmtime())
+    if day != _seen_day:
+        _seen_day = day
+        _seen_today.clear()
+    h = hashlib.sha256(f"{VISITOR_SECRET}|{day}|{ip}".encode()).digest()[:16]
+    if h in _seen_today:
+        return
+    if len(_seen_today) < 200_000:              # borne mémoire par worker
+        _seen_today.add(h)
+    try:
+        conn = pool.getconn()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO visitor_daily (day, country, client_hash) "
+                    "VALUES (CURRENT_DATE, %s, %s) ON CONFLICT DO NOTHING",
+                    (country, h))
+        finally:
+            pool.putconn(conn)
+    except Exception:
+        pass                                    # fail-open : jamais bloquant
+
+
+# ---------------------------------------------------------------------------
 #  Limitation de débit (Step 6) : par IP, en mémoire, deux fenêtres fixes.
 #  Généreuse pour un usage normal, bloque les rafales de scraping — par worker
 #  uvicorn (2 workers => limites effectives ~doublées, assumé).
@@ -222,13 +272,16 @@ async def timing(request: Request, call_next):
                                        "puis en-tête X-API-Key."}, status_code=401)
     response = await call_next(request)
     response.headers["X-Response-Time-Ms"] = f"{(time.perf_counter() - t0) * 1000:.1f}"
+    country = client_country(request)
+    if not internal:
+        note_visitor(ip, country)
     if REQ_COUNTER is not None:
         route = request.scope.get("route")
         REQ_COUNTER.add(1, {
             "route": getattr(route, "path", request.url.path),
             "method": request.method,
             "status": str(response.status_code),
-            "country": client_country(request),
+            "country": country,
             "client": client_kind(request),
             "keyed": valid_key is not None,
         })

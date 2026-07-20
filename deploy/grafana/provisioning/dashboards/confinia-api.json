@@ -50,6 +50,46 @@
         "expr": "topk(10, sum by (route) (increase(confinia_requests_total[24h])))",
         "format": "table", "instant": true
       }]
+    },
+    {
+      "id": 6, "type": "stat", "title": "Visiteurs uniques (aujourd'hui)",
+      "gridPos": { "x": 0, "y": 16, "w": 4, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "confinia-pg" },
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] } } },
+      "targets": [{
+        "rawSql": "SELECT count(*) FROM visitor_daily WHERE day = CURRENT_DATE",
+        "format": "table", "rawQuery": true
+      }]
+    },
+    {
+      "id": 7, "type": "stat", "title": "Pays visiteurs (aujourd'hui)",
+      "gridPos": { "x": 0, "y": 20, "w": 4, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "confinia-pg" },
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] } } },
+      "targets": [{
+        "rawSql": "SELECT count(DISTINCT country) FROM visitor_daily WHERE day = CURRENT_DATE",
+        "format": "table", "rawQuery": true
+      }]
+    },
+    {
+      "id": 8, "type": "table", "title": "Visiteurs uniques par pays (aujourd'hui)",
+      "gridPos": { "x": 4, "y": 16, "w": 8, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "confinia-pg" },
+      "targets": [{
+        "rawSql": "SELECT country AS pays, count(*) AS visiteurs FROM visitor_daily WHERE day = CURRENT_DATE GROUP BY 1 ORDER BY 2 DESC",
+        "format": "table", "rawQuery": true
+      }]
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "Visiteurs uniques par jour et pays (30 j)",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "confinia-pg" },
+      "fieldConfig": { "defaults": { "min": 0, "custom": {
+        "drawStyle": "bars", "fillOpacity": 75, "stacking": { "mode": "normal" } } } },
+      "targets": [{
+        "rawSql": "SELECT day::timestamptz AS time, country AS metric, count(*)::float8 AS value FROM visitor_daily WHERE day > CURRENT_DATE - 30 GROUP BY 1, 2 ORDER BY 1",
+        "format": "time_series", "rawQuery": true
+      }]
     }
   ],
   "schemaVersion": 39
