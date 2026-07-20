@@ -93,10 +93,34 @@ services:
     # la dépendance podman bloquait toute recréation isolée du conteneur api.
     restart: unless-stopped
 
+  # État OPÉRATIONNEL partagé (api_key, api_usage, visitor_daily) : les bases
+  # géo des stacks bleu/vert sont des artefacts jetables reconstruits par
+  # double ingestion ; l'état précieux vit ici, petit et sauvegardable.
+  ops-db:
+    image: docker.io/library/postgres:16
+    env_file:
+      - ./deploy/secrets.env
+    ports:
+      # Toutes interfaces : les conteneurs API la joignent via
+      # host.containers.internal ; ufw bloque 5440 depuis l'extérieur.
+      - "5440:5432"
+    volumes:
+      - opsdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U confinia -d confinia"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
   # --- Observabilité (Step 5b) : OTel collector -> Prometheus -> Grafana ---
   otel-collector:
     image: docker.io/otel/opentelemetry-collector-contrib:latest
     command: ["--config=/etc/otelcol/config.yaml"]
+    ports:
+      # Toutes interfaces : les API des stacks couleur poussent leurs
+      # métriques via host.containers.internal ; ufw bloque 4318 dehors.
+      - "4318:4318"
     volumes:
       - ./deploy/otel-collector.yaml:/etc/otelcol/config.yaml:ro
     restart: unless-stopped
@@ -142,6 +166,7 @@ services:
 
 volumes:
   pgdata:
+  opsdata:
   caddy_data:
   caddy_config:
   prom_data:

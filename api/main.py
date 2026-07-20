@@ -26,7 +26,10 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 FAR_FUTURE = date(9999, 1, 1)
-DSN = os.environ["PG_DSN"]     # fourni par deploy/secrets.env (gitignoré) via compose
+DSN = os.environ["PG_DSN"]     # base GÉO (artefact de build, par couleur de stack)
+# État OPÉRATIONNEL partagé (api_key, api_usage, visitor_daily) : mini-Postgres
+# « ops » de la couche services. Fallback sur la base géo si absent (dev).
+OPS_DSN = os.environ.get("OPS_DSN", "") or os.environ["PG_DSN"]
 
 # Version applicative : copiée depuis VERSION (racine du repo) dans l'image par
 # deploy/deploy-api.sh au build. Affichée par /healthz, /docs et le front.
@@ -38,6 +41,7 @@ except OSError:
     pass
 
 pool: psycopg2.pool.SimpleConnectionPool | None = None
+ops_pool: psycopg2.pool.SimpleConnectionPool | None = None
 
 
 KEYS_SQL = """
@@ -74,25 +78,27 @@ OPEN_PATHS = ("/", "/docs", "/openapi.json", "/redoc", "/healthz", "/v1/keys")
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global pool
+    global pool, ops_pool
     last_err = None
-    for _attempt in range(30):                     # la base peut démarrer après nous
+    for _attempt in range(30):                     # les bases peuvent démarrer après nous
         try:
-            pool = psycopg2.pool.SimpleConnectionPool(1, 8, DSN)
+            pool = pool or psycopg2.pool.SimpleConnectionPool(1, 8, DSN)
+            ops_pool = ops_pool or psycopg2.pool.SimpleConnectionPool(1, 4, OPS_DSN)
             break
         except psycopg2.OperationalError as e:
             last_err = e
             time.sleep(2)
-    if pool is None:
-        raise RuntimeError(f"PostGIS injoignable : {last_err}")
-    conn = pool.getconn()
+    if pool is None or ops_pool is None:
+        raise RuntimeError(f"Postgres injoignable : {last_err}")
+    conn = ops_pool.getconn()                      # les tables opérationnelles vivent côté ops
     try:
         with conn, conn.cursor() as cur:
             cur.execute(KEYS_SQL)
     finally:
-        pool.putconn(conn)
+        ops_pool.putconn(conn)
     yield
     pool.closeall()
+    ops_pool.closeall()
 
 
 app = FastAPI(
@@ -185,7 +191,7 @@ _seen_day = ""
 
 def note_visitor(ip: str, country: str) -> None:
     global _seen_day
-    if not ip or not VISITOR_SECRET or pool is None:
+    if not ip or not VISITOR_SECRET or ops_pool is None:
         return
     day = time.strftime("%Y-%m-%d", time.gmtime())
     if day != _seen_day:
@@ -197,7 +203,7 @@ def note_visitor(ip: str, country: str) -> None:
     if len(_seen_today) < 200_000:              # borne mémoire par worker
         _seen_today.add(h)
     try:
-        conn = pool.getconn()
+        conn = ops_pool.getconn()
         try:
             with conn, conn.cursor() as cur:
                 cur.execute(
@@ -205,7 +211,7 @@ def note_visitor(ip: str, country: str) -> None:
                     "VALUES (CURRENT_DATE, %s, %s) ON CONFLICT DO NOTHING",
                     (country, h))
         finally:
-            pool.putconn(conn)
+            ops_pool.putconn(conn)
     except Exception:
         pass                                    # fail-open : jamais bloquant
 
@@ -263,7 +269,7 @@ def meter_key(request: Request) -> str | None:
     if not key:
         return None
     try:
-        conn = pool.getconn()
+        conn = ops_pool.getconn()
         try:
             with conn, conn.cursor() as cur:
                 cur.execute("SELECT active FROM public.api_key WHERE key = %s::uuid", (key,))
@@ -275,7 +281,7 @@ def meter_key(request: Request) -> str | None:
                     "ON CONFLICT (key, day) DO UPDATE SET requests = api_usage.requests + 1", (key,))
                 return key
         finally:
-            pool.putconn(conn)
+            ops_pool.putconn(conn)
     except Exception:
         return None
 

@@ -1,0 +1,55 @@
+# Stack COULEUR confinia (bleu/vert) : API + base GÉO.
+# La base géo est un ARTEFACT DE BUILD : reconstruite par double ingestion
+# (deploy/build-geo.sh <couleur>) depuis data/raw + scripts versionnés,
+# JAMAIS copiée depuis l'autre couleur (une corruption ne se propage pas).
+# L'état opérationnel (api_key, api_usage, visitor_daily) vit dans l'ops-db
+# partagée de la couche services (OPS_DSN).
+#
+# Lancement (VM), toujours avec le projet et l'env de sa couleur :
+#   podman-compose -p confinia-blue  --env-file deploy/stack/blue.env  \
+#     -f deploy/stack/docker-compose.yml up -d db
+#   podman-compose -p confinia-green --env-file deploy/stack/green.env \
+#     -f deploy/stack/docker-compose.yml up -d db
+# (l'API de couleur ne se lance qu'au cutover : voir deploy/stacks.sh)
+services:
+  db:
+    image: docker.io/postgis/postgis:16-3.4
+    env_file:
+      - ../secrets.env
+    ports:
+      - "127.0.0.1:${DB_PORT}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U confinia -d confinia"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    image: confinia-api:latest
+    profiles: ["serve"]
+    env_file:
+      - ../secrets.env            # PG_DSN (host `db` = la db de CETTE couleur), OPS_DSN
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.containers.internal:4318
+    volumes:
+      - ../../data/geoip:/geoip:ro
+    ports:
+      - "127.0.0.1:${API_PORT}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ingest:
+    image: confinia-ingest:latest
+    profiles: ["tools"]
+    env_file:
+      - ../secrets.env
+    volumes:
+      - ../../data:/data
+
+volumes:
+  pgdata:

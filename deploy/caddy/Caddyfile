@@ -62,9 +62,14 @@
 	}
 }
 
+# Apex -> www (canonique, demande fondateur) : le front vit sur www.
+http://confinia.io {
+	redir https://www.confinia.io{uri} permanent
+}
+
 # Site public + nouveaux chemins canoniques : /api/ (API) et /grafana
 # (grafana APPLICATIF : dashboards Confinia API/Usage/Sécurité).
-http://confinia.io, http://www.confinia.io {
+http://www.confinia.io {
 	encode zstd gzip
 	handle /grafana* {
 		reverse_proxy 127.0.0.1:3000
