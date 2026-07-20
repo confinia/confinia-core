@@ -71,17 +71,21 @@ services:
   # network_mode host : rootlessport réécrit l'IP source (GeoIP aveugle) ; en
   # réseau hôte, caddy voit la vraie IP client et joint les backends via leurs
   # ports publiés en localhost (api 8000/8001, grafana 3000).
-  # Config montée en RÉPERTOIRE (deploy/caddy/), pas en fichier seul : après un
-  # rsync le conteneur voit le nouveau fichier, donc `caddy reload` gracieux
-  # via deploy/deploy-edge.sh = mise à jour d'edge SANS coupure.
+  # Config montée en RÉPERTOIRE (deploy/caddy/ -> /etc/caddy), pas en fichier
+  # seul : après un rsync le conteneur voit le nouveau fichier, donc `caddy
+  # reload` gracieux via deploy/deploy-edge.sh = mise à jour SANS coupure.
+  # CONTRAT D'EDGE PARTAGÉ : le chemin de config reste le STANDARD
+  # /etc/caddy/Caddyfile — les outillages des autres projets de la VM
+  # (ex. overwatch) rechargent ce chemin ; un chemin exotique leur ferait
+  # charger le Caddyfile d'usine de l'image et éteindrait tous les vhosts
+  # (incident du 2026-07-20).
   caddy:
     image: docker.io/library/caddy:2
     network_mode: host
-    command: ["caddy", "run", "--config", "/etc/caddy/conf/Caddyfile"]
     volumes:
-      - ./deploy/caddy:/etc/caddy/conf:ro
-      # Vhosts par projet (import /etc/caddy/sites/*.caddy) —
-      # chaque projet de la VM dépose ici son fichier .caddy.
+      - ./deploy/caddy:/etc/caddy:ro
+      # Vhosts par projet (import /etc/caddy/sites/*.caddy) — montage
+      # imbriqué : chaque projet de la VM dépose ici son fichier .caddy.
       - ./deploy/sites:/etc/caddy/sites:ro
       # Page publique confinia.io (pitch, quickstart, attributions)
       - ./deploy/site:/srv/site:ro

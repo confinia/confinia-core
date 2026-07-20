@@ -10,10 +10,10 @@ cd "$(dirname "$0")/.."
 
 echo "== validation (conteneur éphémère, vrais fichiers)"
 podman run --rm \
-	-v ./deploy/caddy:/etc/caddy/conf:ro \
+	-v ./deploy/caddy:/etc/caddy:ro \
 	-v ./deploy/sites:/etc/caddy/sites:ro \
-	docker.io/library/caddy:2 caddy validate --config /etc/caddy/conf/Caddyfile
+	docker.io/library/caddy:2 caddy validate --config /etc/caddy/Caddyfile
 
-echo "== reload gracieux"
-podman exec confinia_caddy_1 caddy reload --config /etc/caddy/conf/Caddyfile
+echo "== reload gracieux (chemin STANDARD /etc/caddy/Caddyfile : contrat partagé)"
+podman exec confinia_caddy_1 caddy reload --config /etc/caddy/Caddyfile
 echo "OK : edge rechargé sans coupure."
