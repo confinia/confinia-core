@@ -82,6 +82,8 @@ services:
   caddy:
     image: docker.io/library/caddy:2
     network_mode: host
+    env_file:
+      - ./deploy/secrets.env   # STAGING_USER / STAGING_HASH (basic auth staging)
     volumes:
       - ./deploy/caddy:/etc/caddy:ro
       # Vhosts par projet (import /etc/caddy/sites/*.caddy) — montage
@@ -89,6 +91,8 @@ services:
       - ./deploy/sites:/etc/caddy/sites:ro
       # Page publique confinia.io (pitch, quickstart, attributions)
       - ./deploy/site:/srv/site:ro
+      # Démo (miroir rsync) : servie sur staging.confinia.io pour validation
+      - ./demo:/srv/demo:ro
       - caddy_data:/data
       - caddy_config:/config
     # pas de depends_on : caddy (réseau hôte) joint l'api via 127.0.0.1:8000 et

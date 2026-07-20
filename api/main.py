@@ -28,6 +28,15 @@ from fastapi.middleware.cors import CORSMiddleware
 FAR_FUTURE = date(9999, 1, 1)
 DSN = os.environ["PG_DSN"]     # fourni par deploy/secrets.env (gitignoré) via compose
 
+# Version applicative : copiée depuis VERSION (racine du repo) dans l'image par
+# deploy/deploy-api.sh au build. Affichée par /healthz, /docs et le front.
+APP_VERSION = "dev"
+try:
+    with open(os.path.join(os.path.dirname(__file__), "VERSION")) as _v:
+        APP_VERSION = _v.read().strip() or "dev"
+except OSError:
+    pass
+
 pool: psycopg2.pool.SimpleConnectionPool | None = None
 
 
@@ -88,7 +97,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="Confinia API",
-    version="0.1.0",
+    version=APP_VERSION,
     description="EU administrative boundaries with full historical versioning. "
                 "Data: INSEE COG + IGN Admin Express (Licence Ouverte 2.0).",
     lifespan=lifespan,
@@ -465,7 +474,7 @@ def landing():
 def healthz():
     with cursor() as cur:
         cur.execute("SELECT count(*) FROM commune_version")
-        return {"status": "ok", "versions": cur.fetchone()[0]}
+        return {"status": "ok", "version": APP_VERSION, "versions": cur.fetchone()[0]}
 
 
 # Événements UI de la démo. Hors /v1/ (jamais soumis à clé), fire-and-forget

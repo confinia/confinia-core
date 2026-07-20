@@ -54,10 +54,31 @@ api.confinia.io {
 	}
 }
 
-# Instance VERTE seule (8001) : c'est là qu'une nouvelle version attend sa
-# validation humaine après `deploy-api.sh stage`, avant `promote`. Mêmes
-# données, même filtre anti-scanners ; URL volontairement non documentée.
+# Validation humaine pré-promotion, derrière BASIC AUTH (identifiants dans
+# deploy/secrets.env via l'env du conteneur : jamais dans le repo).
+# staging.confinia.io = la DÉMO servie depuis le miroir VM + l'API candidate
+# (instance verte) en même origine sous /api : le login couvre tout, et le
+# footer affiche la version que l'on est en train de valider.
+staging.confinia.io {
+	basic_auth {
+		{env.STAGING_USER} {env.STAGING_HASH}
+	}
+	encode zstd gzip
+	handle_path /api/* {
+		reverse_proxy 127.0.0.1:8001
+	}
+	handle {
+		root * /srv/demo
+		file_server
+	}
+}
+
+# Instance VERTE seule (8001) : accès direct (curl) à la version candidate,
+# mêmes identifiants basic auth.
 staging.api.confinia.io {
+	basic_auth {
+		{env.STAGING_USER} {env.STAGING_HASH}
+	}
 	encode zstd gzip
 	route {
 		import block_scanners

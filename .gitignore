@@ -33,3 +33,4 @@ deploy/secrets.env
 
 # Captured HTTP archives may contain session cookies — never commit
 *.har
+api/VERSION

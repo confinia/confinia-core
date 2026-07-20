@@ -44,7 +44,8 @@ stage() {
 	if [ "${SKIP_BUILD:-0}" != "1" ]; then
 		# L'image courante devient :previous (cible du rollback), puis build.
 		podman tag localhost/confinia-api:latest localhost/confinia-api:previous 2>/dev/null || true
-		echo "== build (no-cache)"
+		cp VERSION api/VERSION      # la version voyage dans l'image (pas de .git sur la VM)
+		echo "== build (no-cache) $(cat VERSION)"
 		podman-compose build --no-cache api
 	fi
 	echo "== VERT (8001) passe sur la nouvelle image ; le public reste sur le BLEU"

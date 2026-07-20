@@ -167,12 +167,15 @@
   Data: INSEE COG · IGN Admin Express (Licence Ouverte 2.0) · © EuroGeographics (NUTS/LAU) ·
   © GeoBasis-DE / BKG (dl-de/by-2-0) · CBS/Kadaster (CC BY 4.0) — simplified geometries ·
   basemap © OpenStreetMap contributors © CARTO ·
-  <a href="https://api.confinia.io/docs">Confinia API</a>
+  <a href="https://api.confinia.io/docs">Confinia API</a> <span id="ver"></span>
 </footer>
 <script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
 <script>
 "use strict";
-const API = new URLSearchParams(location.search).get("api") || "https://api.confinia.io";
+// Sur staging.confinia.io, l'API candidate (instance verte) est servie en même
+// origine sous /api : le basic auth du staging couvre aussi les appels API.
+const API = new URLSearchParams(location.search).get("api")
+  || (location.hostname === "staging.confinia.io" ? "/api" : "https://api.confinia.io");
 
 // Remontée d'activité UI (anonyme) : nom d'événement seul, fire-and-forget.
 // Le pays est déduit côté serveur (GeoIP) ; aucune IP n'est stockée.
@@ -721,6 +724,11 @@ map.on("load", () => {
   addEuropeLayer().then(addDeptLayer).then(addRegionLayer);
   render();
   beacon("load");
+  // Version servie par l'API : visible au footer (et sur staging, c'est la
+  // version CANDIDATE que l'on est en train de valider).
+  fetch(`${API}/healthz`).then(r => r.json())
+    .then(d => { if (d.version) $("ver").textContent = `v${d.version}`; })
+    .catch(() => {});
 
   const info = $("info");
   const DIFF_WORDS = { "new": "only at the displayed date", chg: "changed between the two dates",
