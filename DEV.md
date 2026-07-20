@@ -53,9 +53,16 @@ environnement qu'en production.
      Le script n'utilise PAS podman-compose pour les bascules : compose
      suit `depends_on` et peut supprimer les deux instances pour recréer
      la db dès que le hash de `secrets.env` change. podman pur.
-   - **Edge caddy** : `./deploy/deploy-edge.sh` (validation dans un
-     conteneur ÉPHÉMÈRE — jamais dans le conteneur en marche, qui voit
+   - **Edge caddy APPLICATIF** : `./deploy/deploy-edge.sh` (validation dans
+     un conteneur ÉPHÉMÈRE — jamais dans le conteneur en marche, qui voit
      d'anciens inodes après rsync — puis `caddy reload` gracieux).
+     Depuis le 2026-07-20, l'edge est EN COUCHES : le caddy amont
+     (80/443 + certificats + grafana.confinia.io = VM) vit dans
+     `~/project(s)/platform/` (compose dédié, git local) ; le caddy de ce
+     repo est APPLICATIF (HTTP 127.0.0.1:8085) et sert site, api
+     (hostname historique + www.confinia.io/api), staging et le grafana
+     applicatif (www.confinia.io/grafana). Les vhosts des autres apps se
+     déposent dans `platform/sites/` (reload : `platform/deploy-edge.sh`).
    - Seule opération à coupure restante : recréer le conteneur caddy
      lui-même (changement de montages ou de commande), quelques secondes, rare.
 5. (Historique macOS : Apple `container` + socktainer restent utilisables pour
