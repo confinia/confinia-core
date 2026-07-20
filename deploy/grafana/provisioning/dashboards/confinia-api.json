@@ -90,6 +90,41 @@
         "rawSql": "SELECT day::timestamptz AS time, country AS metric, count(*)::float8 AS value FROM visitor_daily WHERE day > CURRENT_DATE - 30 GROUP BY 1, 2 ORDER BY 1",
         "format": "time_series", "rawQuery": true
       }]
+    },
+    {
+      "id": 10, "type": "row", "title": "Sécurité : sondes de scanners & 404",
+      "gridPos": { "x": 0, "y": 24, "w": 24, "h": 1 }
+    },
+    {
+      "id": 11, "type": "stat", "title": "404 (24 h)",
+      "gridPos": { "x": 0, "y": 25, "w": 4, "h": 4 },
+      "fieldConfig": { "defaults": { "decimals": 0, "thresholds": { "mode": "absolute", "steps": [
+        { "color": "green", "value": null }, { "color": "orange", "value": 100 }, { "color": "red", "value": 1000 } ] } } },
+      "targets": [{ "expr": "sum(increase(confinia_requests_total{status=\"404\"}[24h])) or vector(0)" }]
+    },
+    {
+      "id": 12, "type": "stat", "title": "Pays sondeurs (24 h)",
+      "gridPos": { "x": 0, "y": 29, "w": 4, "h": 4 },
+      "fieldConfig": { "defaults": { "decimals": 0, "thresholds": { "mode": "absolute", "steps": [
+        { "color": "green", "value": null } ] } } },
+      "targets": [{ "expr": "count(sum by (country) (increase(confinia_requests_total{status=\"404\"}[24h])) > 0) or vector(0)" }]
+    },
+    {
+      "id": 13, "type": "table", "title": "404 par chemin (7 j), à verser dans le filtre Caddy",
+      "gridPos": { "x": 4, "y": 25, "w": 12, "h": 8 },
+      "targets": [{
+        "expr": "topk(50, sum by (route) (increase(confinia_requests_total{status=\"404\"}[7d])))",
+        "format": "table", "instant": true
+      }]
+    },
+    {
+      "id": 14, "type": "timeseries", "title": "404 / s par pays",
+      "gridPos": { "x": 16, "y": 25, "w": 8, "h": 8 },
+      "fieldConfig": { "defaults": { "min": 0, "custom": { "lineWidth": 2, "fillOpacity": 0 } } },
+      "targets": [{
+        "expr": "sum by (country) (rate(confinia_requests_total{status=\"404\"}[5m]))",
+        "legendFormat": "{{country}}"
+      }]
     }
   ],
   "schemaVersion": 39

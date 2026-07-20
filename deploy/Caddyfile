@@ -6,9 +6,28 @@
 # Placé DANS un `route` avant le backend : la requête n'atteint jamais FastAPI,
 # donc elle ne pollue pas l'observabilité (OTel/Prometheus/Grafana).
 # NB : n'attrape PAS /.well-known (ACME) — les motifs sont énumérés, pas /.* global.
+# BOUCLE D'ENRICHISSEMENT : le panneau Grafana « 404 par chemin » (dashboard
+# Confinia API, rangée Sécurité) liste ce qui passe encore ; on verse ici les
+# nouveaux motifs au fil de l'eau. Jamais : /robots.txt /sitemap.xml
+# /favicon.ico (crawlers légitimes), ni de motif large cassant /openapi.json
+# ou les assets du site (le snippet est partagé api + site).
 (block_scanners) {
-	@scanner path /.env /.env* /.git /.git* /.aws /.aws* /.svn* /.hg* /.ssh* /.npmrc /.dockercfg /.docker* /.DS_Store /.vscode* /.idea* /.bash_history *.php *.php* /stripe /stripe/* /wp-admin* /wp-login* /wp-content* /wp-includes* /xmlrpc.php /vendor/* /aws-ses.json /aws-config.js /assets/js/auth.js /assets/js/message.js /assets/js/qr_modal.js /credentials* /config.json* //*
-	abort @scanner
+	# Un matcher nommé ne peut être défini qu'UNE fois : un matcher par groupe.
+	# dotfiles & dépôts (à la racine et en profondeur)
+	@scan_dotfiles path /.env /.env* */.env* /.git /.git* */.git/* /.aws /.aws* */.aws/* /.svn* /.hg* /.ssh* /.npmrc /.dockercfg /.docker* /.DS_Store /.vscode* /.idea* /.bash_history //*
+	abort @scan_dotfiles
+	# PHP / WordPress / e-commerce
+	@scan_php path *.php *.php* /stripe /stripe/* /wp-admin* /wp-login* /wp-content* /wp-includes* /xmlrpc.php /vendor/*
+	abort @scan_php
+	# fichiers de secrets & configs (noms non ambigus, à toute profondeur)
+	@scan_secrets path */terraform.tf* */serviceAccountKey.json */service_account.json */service-account.json */firebase-adminsdk.json */firebase.json */gcp-credentials.json */aws-exports.js */awsconfiguration.json */amplifyconfiguration.json */secrets.json */keys.json */key.json */token.json */env.json */env.js */local_settings.py */instance/config.py */application.properties */application.yml /aws-ses.json /aws-config.js /credentials* /config.json*
+	abort @scan_secrets
+	# configs d'infra (racine uniquement : trop génériques en profondeur)
+	@scan_infra path /settings.json /web.config /vercel.json /netlify.toml /serverless.yml /docker-compose.yml /config.yml /config.js /graphql /debug/vars /sellers.json /app-ads.txt /ads.txt
+	abort @scan_infra
+	# kits de phishing (sondes de fichiers js/css signatures)
+	@scan_phishkit path /bot-connect.js /js/twint_ch.js /js/lkk_ch.js /js/antibot-client.js /css/support_parent.css /static/style/* /assets/js/auth.js /assets/js/message.js /assets/js/qr_modal.js
+	abort @scan_phishkit
 }
 
 api.confinia.io {

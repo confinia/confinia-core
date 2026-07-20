@@ -202,6 +202,28 @@ def note_visitor(ip: str, country: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+#  Observatoire 404 : les chemins sondés par les scanners deviennent des labels
+#  Prometheus (panneau « Sécurité » Grafana), qu'on verse ensuite dans le filtre
+#  Caddy. Garde-fou de cardinalité : au-delà de 300 chemins distincts par jour,
+#  tout part dans « (flood) » pour ne pas noyer Prometheus.
+# ---------------------------------------------------------------------------
+_paths_404: set[str] = set()
+_paths_404_day = ""
+
+
+def label_404(path: str) -> str:
+    global _paths_404_day
+    day = time.strftime("%Y-%m-%d", time.gmtime())
+    if day != _paths_404_day:
+        _paths_404_day = day
+        _paths_404.clear()
+    if path in _paths_404 or len(_paths_404) < 300:
+        _paths_404.add(path)
+        return path
+    return "(flood)"
+
+
+# ---------------------------------------------------------------------------
 #  Limitation de débit (Step 6) : par IP, en mémoire, deux fenêtres fixes.
 #  Généreuse pour un usage normal, bloque les rafales de scraping — par worker
 #  uvicorn (2 workers => limites effectives ~doublées, assumé).
@@ -278,7 +300,7 @@ async def timing(request: Request, call_next):
     if REQ_COUNTER is not None:
         route = request.scope.get("route")
         REQ_COUNTER.add(1, {
-            "route": getattr(route, "path", request.url.path),
+            "route": getattr(route, "path", None) or label_404(request.url.path),
             "method": request.method,
             "status": str(response.status_code),
             "country": country,
