@@ -1,0 +1,49 @@
+# Stack BLUE confinia : API + base GÉO de la couleur blue.
+# La base géo est un ARTEFACT DE BUILD : reconstruite par double ingestion
+# (deploy/build-geo.sh blue), JAMAIS copiée depuis l'autre couleur.
+# L'état opérationnel vit dans l'ops-db partagée (compose racine).
+# Commandes :
+#   podman-compose -p confinia-blue -f deploy/stack/docker-compose-blue.yml up -d db
+#   podman-compose -p confinia-blue -f deploy/stack/docker-compose-blue.yml --profile serve up -d api
+services:
+  db:
+    image: docker.io/postgis/postgis:16-3.4
+    env_file:
+      - ../secrets.env
+    ports:
+      - "127.0.0.1:5441:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U confinia -d confinia"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    image: confinia-api:latest
+    profiles: ["serve"]
+    env_file:
+      - ../secrets.env            # PG_DSN (host `db` = la db de CETTE couleur), OPS_DSN
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.containers.internal:4318
+    volumes:
+      - ../../data/geoip:/geoip:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ingest:
+    image: confinia-ingest:latest
+    profiles: ["tools"]
+    env_file:
+      - ../secrets.env
+    volumes:
+      - ../../data:/data
+
+volumes:
+  pgdata:

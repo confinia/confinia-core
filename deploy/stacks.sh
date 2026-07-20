@@ -13,10 +13,9 @@ cd "$(dirname "$0")/.."
 
 pc() {	# $1 = couleur, reste = commande podman-compose
 	local c="$1"; shift
-	# Chemins ABSOLUS : podman-compose résout -f relativement au répertoire
-	# de l'--env-file (piège découvert au premier lancement).
-	podman-compose -p "confinia-$c" --env-file "$PWD/deploy/stack/$c.env" \
-		-f "$PWD/deploy/stack/docker-compose.yml" "$@"
+	# Un fichier compose EXPLICITE par couleur (choix fondateur) ;
+	# chemin absolu (podman-compose et les chemins relatifs : piège connu).
+	podman-compose -p "confinia-$c" -f "$PWD/deploy/stack/docker-compose-$c.yml" "$@"
 }
 
 case "${1:-}" in
