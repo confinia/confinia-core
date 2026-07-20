@@ -36,6 +36,7 @@ RUN /app/ingest_lau.py --data-dir /data/raw/lau --download --dsn
 echo "==== [$COLOR] registre des sources + backfill"
 PSQL < ingestion/sources.sql
 RUN /app/ingest_trf.py --data-dir /data/raw/trf/communes
+RUN /app/ingest_trf_dept.py --data-dir /data/raw/trf/departements
 RUN /app/ingest_ons.py --data-dir /data/raw/uk/chd
 echo "==== [$COLOR] réconciliation UK"
 { echo "SET search_path TO public;"; cat ingestion/reconcile_uk.sql; } | PSQL

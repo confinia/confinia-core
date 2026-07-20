@@ -150,7 +150,8 @@
   <div id="hint">🖱 scroll / buttons bottom-right: zoom · <b>click a colored commune → its full
     history</b> (click a period to time-travel) · <b>click grey areas</b> — the local
     "department" opens whole (département, Land, province, canton…) · civil validity dates
-    (state as of the 1st of the chosen month) · the URL remembers the view</div>
+    (state as of the 1st of the chosen month) · <b>before 2017: département view</b>
+    (exact 1870-1940, current outline as approximation after) · the URL remembers the view</div>
 </header>
 <div id="info"></div>
 <div id="difflegend">
@@ -183,10 +184,13 @@ function beacon(e) {
   try { fetch(`${API}/beacon?e=${e}`, { mode: "no-cors", keepalive: true }); } catch {}
 }
 
-// Un pas par mois — chaque état affiché est la situation au 1er du mois (date
-// civile de validité, sans fuseau : le modèle est en dates, pas en instants).
-const START = new Date(Date.UTC(2017, 0, 1)), END = new Date(Date.UTC(2026, 6, 1));
+// Domaine temporel à pas ADAPTATIF : annuel 1870-2016 (vue départementale,
+// tracés TRF exacts jusqu'en 1940 puis approximation par le tracé actuel),
+// mensuel 2017+ (communes, géométries IGN). Dates civiles, sans fuseau.
+const HIST_CUTOFF = "2017-01-01";
 const DATES = [];
+for (let y = 1870; y <= 2016; y++) DATES.push(`${y}-01-01`);
+const START = new Date(Date.UTC(2017, 0, 1)), END = new Date(Date.UTC(2026, 6, 1));
 for (let d = new Date(START); d <= END; d.setUTCMonth(d.getUTCMonth() + 1))
   DATES.push(d.toISOString().slice(0, 10));
 
@@ -206,10 +210,10 @@ month2.max = month.max;
 // disparues, le reste atténué. C'est le produit rendu visible d'un coup d'œil.
 let diffOn = false;
 
-// Graduations d'années sous la frise.
-for (let y = 2017; y <= 2026; y++) {
+// Graduations : proportionnelles à l'INDEX du curseur (le pas change en 2017).
+for (let i = 0; i <= 6; i++) {
   const s = document.createElement("span");
-  s.textContent = y;
+  s.textContent = DATES[Math.round(i * (DATES.length - 1) / 6)].slice(0, 4);
   $("ticks").appendChild(s);
 }
 
@@ -248,8 +252,14 @@ const DE_LAENDER = {
 // pays : la région NUTS entière — Land DE, province IT, canton CH…) ou "area"
 // (secours : unités chargées selon la vue).
 let mode = "dept", areaCountry = null, regionCode = null, regionName = "";
-// Niveau NUTS du « département » par pays : Länder pour l'Allemagne, sinon NUTS 3.
-const REGION_LEVEL = { DE: 1 };
+// Niveau NUTS du « département » par pays : Länder pour l'Allemagne, grandes
+// régions (ITL1) pour le UK (ses NUTS3 sont minuscules : 1-2 autorités),
+// sinon NUTS 3.
+const REGION_LEVEL = { DE: 1, UK: 1 };
+// Le UK sort des éditions NUTS après 2021 (Brexit) : la RECHERCHE de la
+// région au point est bornée à 2020 (navigation) ; les unités affichées
+// restent à la vraie date du curseur.
+const NUTS_NAV_CLAMP = { UK: "2020-06-01" };
 
 // État dans l'URL (#z=…&c=lat,lon&at=YYYY-MM&dept=01|country=DE) : partager
 // une vue, y revenir, naviguer avec précédent/suivant.
@@ -376,10 +386,15 @@ function labelPoint(geom) {
   return best;
 }
 
+// Date de NAVIGATION des toiles de fond : la dernière édition NUTS incluant
+// le UK (sorti des éditions après le Brexit). Sans elle, le Royaume-Uni
+// n'a pas de polygone cliquable alors que ses données sont servies.
+const NAV_AT = "2020-06-01";
+
 // Toile de fond Europe : les pays depuis nos propres données NUTS (niveau 0).
 async function addEuropeLayer() {
   try {
-    const r = await fetch(`${API}/v1/nuts?level=0&at=2024-06-01`);
+    const r = await fetch(`${API}/v1/nuts?level=0&at=${NAV_AT}`);
     if (!r.ok) return;
     const fc = await r.json();
     const labels = { type: "FeatureCollection", features: fc.features.map(f => {
@@ -411,8 +426,8 @@ async function addEuropeLayer() {
 async function addRegionLayer() {
   try {
     const [r3, r1] = await Promise.all([
-      fetch(`${API}/v1/nuts?level=3&at=2024-06-01`),
-      fetch(`${API}/v1/nuts?level=1&country=DE&at=2024-06-01`),
+      fetch(`${API}/v1/nuts?level=3&at=${NAV_AT}`),
+      fetch(`${API}/v1/nuts?level=1&country=DE&at=${NAV_AT}`),
     ]);
     if (!r3.ok) return;
     const fc = await r3.json();
@@ -596,11 +611,64 @@ function show(decorated, countLabel) {
   $("count").textContent = countLabel;
 }
 
+// Vue HISTORIQUE (avant 2017) : la France entière à l'échelle départementale.
+// Tracés TRF année par année jusqu'en 1940 (l'Alsace-Moselle sort en 1871,
+// revient en 1919) ; 1941-2016 : tracé actuel servi en approximation.
+async function fetchHistFrance(d) {
+  const k = `histfr|${d}`;
+  if (!cache.has(k)) {
+    const r = await fetch(`${API}/v1/departements?at=${d}`);
+    if (!r.ok) throw new Error(`API ${r.status}`);
+    const fc = await r.json();
+    fc.features = fc.features.map(f => ({ type: "Feature", geometry: f.geometry,
+      properties: { code: f.properties.dept,
+                    nom: f.properties.nom || (DEPT_NAMES[f.properties.dept] || f.properties.dept),
+                    valid_from: f.properties.valid_from || "",
+                    valid_to: f.properties.valid_to || "",
+                    historical: !!f.properties.historical } }));
+    cache.set(k, decorate(fc));
+  }
+  return cache.get(k);
+}
+
+// Couches de navigation MODERNES (silhouettes/noms actuels, régions NUTS) :
+// masquées en mode historique, sinon 2A/2B ou l'Essonne flottent sur 1900.
+function setModernLayers(visible) {
+  for (const id of ["depts-fill", "depts-line", "depts-fill-hi", "dept-names",
+                    "regions-line", "region-names"])
+    if (map.getLayer(id))
+      map.setLayoutProperty(id, "visibility", visible ? "visible" : "none");
+}
+
+async function renderHistFrance() {
+  const d = DATES[slider.value];
+  setModernLayers(false);
+  $("deptname").textContent = "France " + d.slice(0, 4);
+  const ticket = ++pending;
+  try {
+    const decorated = await fetchHistFrance(d);
+    if (ticket !== pending) return;
+    const diff = await applyDiff(decorated, fetchHistFrance);
+    if (ticket !== pending) return;
+    const exact = decorated.fc.features[0]?.properties.historical;
+    show(decorated, diff ? diffLabel(diff)
+      : `${decorated.fc.features.length} départements` + (exact ? "" : " · approx. (tracé actuel)"));
+  } catch {
+    $("count").textContent = "API error";
+  }
+}
+
 async function render() {
   const date = DATES[slider.value];
   $("datefr").textContent = "as of " + UI_DATE.format(new Date(date + "T00:00:00Z"));
   if (month.value !== date.slice(0, 7)) month.value = date.slice(0, 7);
   writeHash();
+  // La vue historique France ne s'impose qu'en contexte France (mode dept) :
+  // en mode région/pays (UK, DE…), reculer le curseur reste dans ce contexte
+  // (le UK est couvert depuis 2009 ; avant : liste vide, honnêtement).
+  if (date < HIST_CUTOFF && mode === "dept") return renderHistFrance();
+  if (typeof setModernLayers === "function" && map.getLayer("dept-names"))
+    setModernLayers(true);
   if (mode === "area") return renderArea();
   if (mode === "region") return renderRegion();
   const dept = $("dept").value.trim();
@@ -771,6 +839,17 @@ map.on("load", () => {
   // Clic sur une commune AFFICHÉE : son histoire complète (panneau).
   // Clic ailleurs (zone grise) : bascule de département/région/pays.
   map.on("click", async e => {
+    // Avant 2017 (vue départementale) : le clic raconte la période, le
+    // détail communal commence avec les géométries IGN de 2017.
+    if (DATES[slider.value] < HIST_CUTOFF) {
+      const h = map.queryRenderedFeatures(e.point,
+        { layers: ["communes-fill", "communes-gone-fill"] });
+      if (h.length) {
+        const p = h[0].properties;
+        flash(`${p.nom} · ${p.valid_from || "1870"} → ${p.valid_to || ""}`);
+      }
+      return;
+    }
     // Les fantômes du mode comparaison sont cliquables comme les communes.
     const hits = map.queryRenderedFeatures(e.point,
       { layers: ["communes-fill", "communes-gone-fill"] });
@@ -804,8 +883,10 @@ map.on("load", () => {
       } else {
         // La région NUTS entière, comme un département (Land, province, canton…).
         const lvl = REGION_LEVEL[country] ?? 3;
+        const navAt = NUTS_NAV_CLAMP[country] && date > NUTS_NAV_CLAMP[country]
+          ? NUTS_NAV_CLAMP[country] : date;
         const rn = await fetch(
-          `${API}/v1/nuts?lat=${lat.toFixed(5)}&lon=${lng.toFixed(5)}&level=${lvl}&at=${date}`);
+          `${API}/v1/nuts?lat=${lat.toFixed(5)}&lon=${lng.toFixed(5)}&level=${lvl}&at=${navAt}`);
         if (rn.ok) {
           const reg = await rn.json();
           if (mode !== "region" || regionCode !== reg.properties.code) {

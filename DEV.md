@@ -68,7 +68,15 @@ environnement qu'en production.
 5. (Historique macOS : Apple `container` + socktainer restent utilisables pour
    un one-shot local — règles d'origine : BuildKit désactivé, `container run`
    pour les commandes ponctuelles — mais ce n'est plus la voie documentée.)
-6. **Tout changement de front (démo, site) est vérifié en rendu MOBILE
+6. **RÈGLE VM MULTI-CADDY (fondateur, 2026-07-20) : tout caddy en réseau
+   hôte doit déclarer une adresse admin UNIQUE** (`admin localhost:2085`
+   pour confinia ; convention : 2000 + port applicatif modulo 10000).
+   Par défaut, tous partagent `localhost:2019` : un `caddy reload` lancé
+   dans un conteneur peut alors charger sa config DANS LE PROCESSUS D'UN
+   AUTRE caddy (cause de la panne générale du 2026-07-20 : l'amont s'est
+   retrouvé à servir la config applicative sur 8085 et plus rien sur 443).
+   À répliquer dans platform, overwatch et ecobuilding (leurs sessions).
+7. **Tout changement de front (démo, site) est vérifié en rendu MOBILE
    (~440 px) ET desktop avant publication** — capture playwright depuis la VM
    (conteneur `mcr.microsoft.com/playwright/python`, démo servie sur :8080).
    Règle fondateur du 2026-07-20 : le rendu mobile doit être irréprochable.

@@ -604,9 +604,28 @@ def commune_history(code: str, geometry: bool = Query(False)):
 
 
 @app.get("/v1/departements")
-def departements(response: Response):
-    """Contours départementaux actuels (couche de navigation, union des communes)."""
+def departements(response: Response,
+                 at: date | None = Query(None,
+                     description="Date de validité : avant 1941, sert le "
+                                 "découpage HISTORIQUE (TRF-GIS, 1870-1940)")):
+    """Contours départementaux. Sans `at` (ou date moderne) : actuels (union
+    des communes). Avec `at` <= 1940 : le découpage de l'époque, année par
+    année (l'Alsace-Moselle sort en 1871 et revient en 1919)."""
     with cursor() as cur:
+        if at is not None and at < date(1941, 1, 1):
+            cur.execute(
+                "SELECT code, nom, valid_from, valid_to, ST_AsGeoJSON(geom_simple, 5) "
+                "FROM commune_version "
+                "WHERE unit_type = 'departement' AND valid_from <= %s AND valid_to > %s "
+                "ORDER BY code", (at, at))
+            rows = cur.fetchall()
+            if rows:
+                response.headers["Cache-Control"] = "public, max-age=86400"
+                return {"type": "FeatureCollection", "features": [
+                    {"type": "Feature", "geometry": json.loads(g),
+                     "properties": {"dept": c, "nom": n, "valid_from": str(vf),
+                                    "valid_to": str(vt), "historical": True}}
+                    for c, n, vf, vt, g in rows]}
         cur.execute("SELECT dept, ST_AsGeoJSON(geom, 5) FROM departement_geom ORDER BY dept")
         rows = cur.fetchall()
     if not rows:
@@ -706,11 +725,14 @@ def unit_at(
         if nuts:
             # Appartenance spatiale : point représentatif de l'unité dans la
             # région NUTS (partition propre, pas de doublons de frontière).
+            # Géométrie NUTS : à la date demandée, sinon la DERNIÈRE connue
+            # (navigation : le UK sort des éditions NUTS après 2021, mais ses
+            # régions restent le bon contenant pour ouvrir les autorités).
             cur.execute(
                 "WITH region AS (SELECT geom_simple AS g FROM commune_version "
                 "  WHERE unit_type LIKE 'nuts%%' AND code = %s "
-                "  AND valid_from <= %s AND valid_to > %s "
-                "  ORDER BY valid_from DESC LIMIT 1) "
+                "  ORDER BY (valid_from <= %s AND valid_to > %s) DESC, "
+                "           valid_to DESC LIMIT 1) "
                 f"SELECT {COLS} FROM commune_version, region "
                 "WHERE unit_type = ANY(%s) AND valid_from <= %s AND valid_to > %s "
                 "AND geom_simple IS NOT NULL AND geom_simple && region.g "

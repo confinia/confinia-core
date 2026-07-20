@@ -5,6 +5,12 @@
 {
 	http_port 8085
 	auto_https off
+	# RÈGLE VM : chaque caddy en réseau hôte DOIT avoir une adresse admin
+	# UNIQUE. Par défaut tous partagent localhost:2019 et un `caddy reload`
+	# peut charger sa config dans le processus d'un AUTRE caddy (panne
+	# générale du 2026-07-20, config 8085 avalée par l'amont). Convention :
+	# admin = 2000 + port applicatif % 10000 -> confinia : 2085.
+	admin localhost:2085
 }
 
 # Filtre anti-scanners : coupe net (abort = connexion fermée, aucune réponse)
@@ -49,6 +55,8 @@ http://www.confinia.io {
 	handle /grafana* {
 		reverse_proxy 127.0.0.1:3000
 	}
+	# /api nu -> /api/ (les sondes et les humains tapent sans slash final).
+	redir /api /api/ 308
 	handle_path /api/* {
 		route {
 			import block_scanners
