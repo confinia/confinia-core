@@ -54,6 +54,17 @@ api.confinia.io {
 	}
 }
 
+# Instance VERTE seule (8001) : c'est là qu'une nouvelle version attend sa
+# validation humaine après `deploy-api.sh stage`, avant `promote`. Mêmes
+# données, même filtre anti-scanners ; URL volontairement non documentée.
+staging.api.confinia.io {
+	encode zstd gzip
+	route {
+		import block_scanners
+		reverse_proxy 127.0.0.1:8001
+	}
+}
+
 # La démo vit sur GitHub Pages ; le wildcard DNS amène ce nom ici, caddy
 # obtient le certificat et redirige (302 : réversible si la démo change
 # d'hébergement ou passe en domaine custom GitHub Pages natif).

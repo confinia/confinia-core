@@ -44,8 +44,12 @@ environnement qu'en production.
      `deploy/sites/`.
 
    **Mises à jour SANS coupure (vérifié sonde à 300 ms : 0 échec) :**
-   - **API** : `./deploy/deploy-api.sh` sur la VM (rebuild `--no-cache`,
-     puis bascule vert → bleu ; `SKIP_BUILD=1` pour re-bascule seule).
+   - **API** : `./deploy/deploy-api.sh [stage|promote|rollback|full]`.
+     `stage` = build + le VERT seul reçoit la nouvelle version, testable
+     par un humain sur **https://staging.api.confinia.io** pendant que le
+     public reste sur le BLEU ; `promote` = bascule du public ;
+     `rollback` = retour à l'image `:previous` ; `full` (défaut) = roulant
+     direct. `SKIP_BUILD=1` pour re-bascule sans rebuild.
      Le script n'utilise PAS podman-compose pour les bascules : compose
      suit `depends_on` et peut supprimer les deux instances pour recréer
      la db dès que le hash de `secrets.env` change. podman pur.
