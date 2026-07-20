@@ -36,9 +36,24 @@ environnement qu'en production.
 4. **Déploiement :** la **démo web sera servie en GitHub Pages** (statique —
    elle appelle l'API publique) ; **la VM sert l'API et le reverse proxy** :
    - `db` — PostGIS, port 5432 en localhost uniquement ;
-   - `api` — FastAPI/uvicorn, port 8000 en localhost uniquement ;
-   - `caddy` — ports 80/443 publics, HTTPS automatique Let's Encrypt
-     (`deploy/Caddyfile`).
+   - `api` + `api-b` — FastAPI/uvicorn en **bleu/vert** (8000 et 8001,
+     localhost uniquement) ; caddy équilibre avec health checks actifs
+     (`/healthz`) ET passifs (`fail_duration`) ;
+   - `caddy` — ports 80/443 publics, HTTPS automatique Let's Encrypt ;
+     config montée en répertoire (`deploy/caddy/`), vhosts tiers dans
+     `deploy/sites/`.
+
+   **Mises à jour SANS coupure (vérifié sonde à 300 ms : 0 échec) :**
+   - **API** : `./deploy/deploy-api.sh` sur la VM (rebuild `--no-cache`,
+     puis bascule vert → bleu ; `SKIP_BUILD=1` pour re-bascule seule).
+     Le script n'utilise PAS podman-compose pour les bascules : compose
+     suit `depends_on` et peut supprimer les deux instances pour recréer
+     la db dès que le hash de `secrets.env` change. podman pur.
+   - **Edge caddy** : `./deploy/deploy-edge.sh` (validation dans un
+     conteneur ÉPHÉMÈRE — jamais dans le conteneur en marche, qui voit
+     d'anciens inodes après rsync — puis `caddy reload` gracieux).
+   - Seule opération à coupure restante : recréer le conteneur caddy
+     lui-même (changement de montages ou de commande), quelques secondes, rare.
 5. (Historique macOS : Apple `container` + socktainer restent utilisables pour
    un one-shot local — règles d'origine : BuildKit désactivé, `container run`
    pour les commandes ponctuelles — mais ce n'est plus la voie documentée.)

@@ -33,6 +33,9 @@ services:
       db:
         condition: service_healthy
 
+  # API en bleu/vert : `api` (bleu, 8000) + `api-b` (vert, 8001), même image.
+  # Caddy équilibre les deux avec health checks ; deploy/deploy-api.sh fait le
+  # déploiement roulant (rebuild -> vert -> bleu) sans coupure de service.
   api:
     build: ./api
     image: confinia-api:latest
@@ -49,16 +52,35 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  api-b:
+    image: confinia-api:latest    # pas de build : l'image est construite par `api`
+    env_file:
+      - ./deploy/secrets.env
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    volumes:
+      - ./data/geoip:/geoip:ro
+    ports:
+      - "127.0.0.1:8001:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
   # Reverse proxy + HTTPS automatique (Let's Encrypt). DNS: *.confinia.io -> VM.
   # network_mode host : rootlessport réécrit l'IP source (GeoIP aveugle) ; en
   # réseau hôte, caddy voit la vraie IP client et joint les backends via leurs
-  # ports publiés en localhost (api 8000, grafana 3000).
+  # ports publiés en localhost (api 8000/8001, grafana 3000).
+  # Config montée en RÉPERTOIRE (deploy/caddy/), pas en fichier seul : après un
+  # rsync le conteneur voit le nouveau fichier, donc `caddy reload` gracieux
+  # via deploy/deploy-edge.sh = mise à jour d'edge SANS coupure.
   caddy:
     image: docker.io/library/caddy:2
     network_mode: host
+    command: ["caddy", "run", "--config", "/etc/caddy/conf/Caddyfile"]
     volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      # Vhosts par projet (import sites/*.caddy dans le Caddyfile) —
+      - ./deploy/caddy:/etc/caddy/conf:ro
+      # Vhosts par projet (import /etc/caddy/sites/*.caddy) —
       # chaque projet de la VM dépose ici son fichier .caddy.
       - ./deploy/sites:/etc/caddy/sites:ro
       # Page publique confinia.io (pitch, quickstart, attributions)
