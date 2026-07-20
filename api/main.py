@@ -472,7 +472,7 @@ def healthz():
 # côté navigateur (fetch keepalive). Liste blanche => cardinalité bornée ;
 # on ne stocke que le nom d'événement + le code pays (GeoIP), jamais d'IP.
 FE_EVENTS = {"load", "play", "commune_history", "dept_switch",
-             "region_switch", "country_switch", "timetravel", "share"}
+             "region_switch", "country_switch", "timetravel", "share", "diff"}
 
 
 @app.get("/beacon", include_in_schema=False)

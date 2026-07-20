@@ -25,6 +25,22 @@
   #datebox { display: flex; flex-direction: column; align-items: center; gap: .1rem; }
   #datefr { font-weight: 600; white-space: nowrap; }
   #count { opacity: .75; white-space: nowrap; }
+  /* Mode comparaison : bouton ⇄ + second sélecteur de mois (date de référence). */
+  #month2 { display: none; color-scheme: dark; }
+  body.diffing #month2 { display: inline-block; }
+  body.diffing #diffbtn { border-color: #7ab8ff; color: #7ab8ff; }
+  #difflegend {
+    position: absolute; left: 1rem; top: 6.2rem; z-index: 2; display: none;
+    background: rgba(10,14,20,.88); border: 1px solid #26314a; border-radius: 6px;
+    padding: .45rem .7rem; font-size: .78rem; line-height: 1.7;
+  }
+  body.diffing #difflegend { display: block; }
+  #difflegend .dot { display: inline-block; width: .65em; height: .65em;
+    border-radius: 50%; margin-right: .35em; }
+  #difflegend .dot-new { background: #34d399; }
+  #difflegend .dot-chg { background: #fbbf24; }
+  #difflegend .dot-gone { background: #f87171; }
+  #difflegend .dim { opacity: .6; }
   input, button { background: #1b2330; color: inherit; border: 1px solid #33405a;
                   border-radius: 4px; padding: .2rem .4rem; font: inherit; }
   #dept { width: 3em; text-align: center; }
@@ -115,7 +131,11 @@
     </div>
     <div id="datebox">
       <span id="datefr"></span>
-      <input id="month" type="month" title="Pick a specific month">
+      <span>
+        <input id="month" type="month" title="Pick a specific month">
+        <button id="diffbtn" type="button" title="Compare with another date">⇄</button>
+        <input id="month2" type="month" title="Comparison date">
+      </span>
     </div>
     <span id="count"></span>
   </div>
@@ -125,6 +145,13 @@
     (state as of the 1st of the chosen month) · the URL remembers the view</div>
 </header>
 <div id="info"></div>
+<div id="difflegend">
+  <b>Changes vs <span id="difflegend-date"></span></b><br>
+  <span class="dot dot-new"></span>only at the displayed date<br>
+  <span class="dot dot-chg"></span>changed (name or period)<br>
+  <span class="dot dot-gone"></span>only at the comparison date<br>
+  <span class="dim">unchanged units are dimmed</span>
+</div>
 <div id="coach">👆 <span>Click a grey <b>département</b> — or any coloured commune — to explore its history</span><span class="x" title="dismiss">✕</span></div>
 <div id="flash"></div>
 <div id="histo"></div>
@@ -153,11 +180,18 @@ for (let d = new Date(START); d <= END; d.setUTCMonth(d.getUTCMonth() + 1))
   DATES.push(d.toISOString().slice(0, 10));
 
 const $ = id => document.getElementById(id);
-const slider = $("slider"), month = $("month");
+const slider = $("slider"), month = $("month"), month2 = $("month2");
 slider.max = DATES.length - 1;
 slider.value = DATES.indexOf("2018-06-01");
 month.min = DATES[0].slice(0, 7);
 month.max = DATES[DATES.length - 1].slice(0, 7);
+month2.min = month.min;
+month2.max = month.max;
+
+// Mode comparaison : la carte n'affiche plus « l'état à la date A » mais
+// « ce qui change entre A (curseur) et B (month2) » — apparues / modifiées /
+// disparues, le reste atténué. C'est le produit rendu visible d'un coup d'œil.
+let diffOn = false;
 
 // Graduations d'années sous la frise.
 for (let y = 2017; y <= 2026; y++) {
@@ -217,6 +251,13 @@ if (H.at) {
   const i = DATES.findIndex(d => d.slice(0, 7) === H.at);
   if (i >= 0) slider.value = i;
 }
+// Comparaison mémorisée dans l'URL (#…&vs=YYYY-MM) : vue partageable.
+const H_vs = new URLSearchParams(location.hash.slice(1)).get("vs");
+if (H_vs && DATES.some(d => d.slice(0, 7) === H_vs)) {
+  diffOn = true;
+  month2.value = H_vs;
+  document.body.classList.add("diffing");
+}
 
 const map = new maplibregl.Map({
   container: "map",
@@ -257,6 +298,7 @@ function writeHash() {
                    mode === "area" ? `country=${areaCountry}` :
                    mode === "region" ? `region=${regionCode}`
                                      : `dept=${document.getElementById("dept").value.trim()}`];
+    if (diffOn && month2.value) parts.push(`vs=${month2.value}`);
     history.replaceState(null, "", "#" + parts.join("&"));
   }, 300);
 }
@@ -481,7 +523,48 @@ function clearCommunes() {
   const empty = { type: "FeatureCollection", features: [] };
   map.getSource("communes")?.setData(empty);
   map.getSource("commune-labels")?.setData(empty);
+  map.getSource("communes-gone")?.setData(empty);
 }
+
+// Comparaison A (curseur) / B (month2) : marque chaque unité de l'état affiché
+// _diff = new | chg | same, publie les disparues en fantômes. Les objets
+// décorés étant en cache, les marques sont recalculées à chaque rendu (et
+// effacées quand le mode est coupé).
+function clearDiffMarks(decorated) {
+  for (const f of decorated.fc.features) delete f.properties._diff;
+}
+
+async function applyDiff(decorated, fetchAt) {
+  const vs = month2.value;
+  const empty = { type: "FeatureCollection", features: [] };
+  if (!diffOn || !vs || vs === DATES[slider.value].slice(0, 7)) {
+    clearDiffMarks(decorated);
+    map.getSource("communes-gone")?.setData(empty);
+    return null;
+  }
+  const dateB = DATES.find(d => d.slice(0, 7) === vs);
+  const B = await fetchAt(dateB);
+  const codesA = new Map(decorated.fc.features.map(f => [f.properties.code, f]));
+  const codesB = new Map(B.fc.features.map(f => [f.properties.code, f]));
+  let nNew = 0, nChg = 0;
+  for (const f of decorated.fc.features) {
+    const b = codesB.get(f.properties.code);
+    const s = !b ? "new"
+      : (b.properties.valid_from !== f.properties.valid_from
+         || b.properties.nom !== f.properties.nom) ? "chg" : "same";
+    f.properties._diff = s;
+    if (s === "new") nNew++;
+    else if (s === "chg") nChg++;
+  }
+  const gone = { type: "FeatureCollection",
+    features: B.fc.features.filter(f => !codesA.has(f.properties.code))
+      .map(f => ({ ...f, properties: { ...f.properties, _diff: "gone" } })) };
+  map.getSource("communes-gone")?.setData(gone);
+  $("difflegend-date").textContent = vs;
+  return { nNew, nChg, nGone: gone.features.length };
+}
+
+const diffLabel = d => `+${d.nNew} new · ~${d.nChg} changed · -${d.nGone} gone`;
 
 function show(decorated, countLabel) {
   const src = map.getSource("communes");
@@ -505,7 +588,9 @@ async function render() {
   try {
     const decorated = await fetchState(dept, date);
     if (ticket !== pending) return;              // une requête plus récente a gagné
-    show(decorated, `${decorated.fc.features.length} communes`);
+    const d = await applyDiff(decorated, d2 => fetchState(dept, d2));
+    if (ticket !== pending) return;
+    show(decorated, d ? diffLabel(d) : `${decorated.fc.features.length} communes`);
     if (firstFit && decorated.fc.features.length) { fitTo(decorated.fc); firstFit = false; }
   } catch (e) {
     $("count").textContent = "API error";
@@ -520,17 +605,23 @@ async function renderRegion() {
   $("dept").value = country;
   $("deptname").textContent =
     `${regionName || regionCode} · ${COUNTRY_NAMES[country] || country}`;
-  const key = `${regionCode}|${date}`;
+  const fetchRegionAt = async d2 => {
+    const k = `${regionCode}|${d2}`;
+    if (!cache.has(k)) {
+      const r = await fetch(`${API}/v1/units?nuts=${regionCode}&at=${d2}`);
+      if (!r.ok) throw new Error(`API ${r.status}`);
+      cache.set(k, decorate(await r.json()));
+    }
+    return cache.get(k);
+  };
   const ticket = ++pending;
   try {
-    if (!cache.has(key)) {
-      const r = await fetch(`${API}/v1/units?nuts=${regionCode}&at=${date}`);
-      if (!r.ok) throw new Error(`API ${r.status}`);
-      cache.set(key, decorate(await r.json()));
-    }
-    const decorated = cache.get(key);
+    const decorated = await fetchRegionAt(date);
     if (ticket !== pending) return;
-    show(decorated, `${decorated.fc.features.length} units · ${regionName || regionCode}`);
+    const d = await applyDiff(decorated, fetchRegionAt);
+    if (ticket !== pending) return;
+    show(decorated, d ? `${diffLabel(d)} · ${regionName || regionCode}`
+                      : `${decorated.fc.features.length} units · ${regionName || regionCode}`);
     if (firstFit && decorated.fc.features.length) { fitTo(decorated.fc); firstFit = false; }
   } catch {
     $("count").textContent = "API error";
@@ -556,7 +647,8 @@ async function renderArea() {
     if (!r.ok) throw new Error();
     const decorated = decorate(await r.json());
     if (ticket !== pending) return;
-    show(decorated, `${decorated.fc.features.length} units (${areaCountry})`);
+    show(decorated, `${decorated.fc.features.length} units (${areaCountry})`
+      + (diffOn ? " · comparison needs a département/region view" : ""));
   } catch {
     $("count").textContent = "API error";
   }
@@ -574,9 +666,26 @@ map.on("load", () => {
   map.addSource("communes", { type: "geojson",
     data: { type: "FeatureCollection", features: [] } });
   map.addLayer({ id: "communes-fill", type: "fill", source: "communes",
-    paint: { "fill-color": ["get", "_color"], "fill-opacity": 0.82 } });
+    // En mode comparaison, les communes inchangées (_diff = same) s'estompent :
+    // seul ce qui a bougé garde sa couleur pleine.
+    paint: { "fill-color": ["get", "_color"],
+             "fill-opacity": ["match", ["coalesce", ["get", "_diff"], "off"],
+                              "same", 0.15, 0.82] } });
   map.addLayer({ id: "communes-line", type: "line", source: "communes",
     paint: { "line-color": "#0b0f16", "line-width": 0.8 } });
+  // Contours du diff (vert = seulement à la date affichée, ambre = modifiée).
+  map.addLayer({ id: "communes-diff", type: "line", source: "communes",
+    paint: { "line-color": ["match", ["coalesce", ["get", "_diff"], "off"],
+                            "new", "#34d399", "chg", "#fbbf24", "rgba(0,0,0,0)"],
+             "line-width": ["match", ["coalesce", ["get", "_diff"], "off"],
+                            "new", 2.4, "chg", 2.4, 0] } });
+  // Fantômes : les communes présentes seulement à la date de comparaison.
+  map.addSource("communes-gone", { type: "geojson",
+    data: { type: "FeatureCollection", features: [] } });
+  map.addLayer({ id: "communes-gone-fill", type: "fill", source: "communes-gone",
+    paint: { "fill-color": "#f87171", "fill-opacity": 0.22 } });
+  map.addLayer({ id: "communes-gone-line", type: "line", source: "communes-gone",
+    paint: { "line-color": "#f87171", "line-width": 1.6, "line-dasharray": [2, 2] } });
   // Noms de communes : visibles en zoomant ; les grandes communes gagnent les
   // collisions (symbol-sort-key), les petites apparaissent en zoomant plus.
   map.addSource("commune-labels", { type: "geojson",
@@ -595,18 +704,23 @@ map.on("load", () => {
   beacon("load");
 
   const info = $("info");
-  map.on("mousemove", "communes-fill", e => {
-    const p = e.features[0].properties;
-    info.innerHTML = `<b>${p.nom}</b> (${p.code})<br>` +
-      `valid: ${p.valid_from} → ${p.valid_to === "null" || !p.valid_to ? "today" : p.valid_to}<br>` +
-      `geometry: ${p.geometry_vintage || "—"} edition${p.geometry_approx === "true" || p.geometry_approx === true ? " (approx.)" : ""}`;
-    info.style.visibility = "visible";
-    map.getCanvas().style.cursor = "pointer";
-  });
-  map.on("mouseleave", "communes-fill", () => {
-    info.style.visibility = "hidden";
-    map.getCanvas().style.cursor = "";
-  });
+  const DIFF_WORDS = { "new": "only at the displayed date", chg: "changed between the two dates",
+                       gone: "only at the comparison date" };
+  for (const lyr of ["communes-fill", "communes-gone-fill"]) {
+    map.on("mousemove", lyr, e => {
+      const p = e.features[0].properties;
+      info.innerHTML = `<b>${p.nom}</b> (${p.code})<br>` +
+        `valid: ${p.valid_from} → ${p.valid_to === "null" || !p.valid_to ? "today" : p.valid_to}<br>` +
+        `geometry: ${p.geometry_vintage || "?"} edition${p.geometry_approx === "true" || p.geometry_approx === true ? " (approx.)" : ""}` +
+        (DIFF_WORDS[p._diff] ? `<br><b>${DIFF_WORDS[p._diff]}</b>` : "");
+      info.style.visibility = "visible";
+      map.getCanvas().style.cursor = "pointer";
+    });
+    map.on("mouseleave", lyr, () => {
+      info.style.visibility = "hidden";
+      map.getCanvas().style.cursor = "";
+    });
+  }
 
   // Zones grises cliquables : curseur « main » + surlignage du département/pays
   // survolé, pour que leur interactivité soit évidente (retour utilisateur).
@@ -630,7 +744,9 @@ map.on("load", () => {
   // Clic sur une commune AFFICHÉE : son histoire complète (panneau).
   // Clic ailleurs (zone grise) : bascule de département/région/pays.
   map.on("click", async e => {
-    const hits = map.queryRenderedFeatures(e.point, { layers: ["communes-fill"] });
+    // Les fantômes du mode comparaison sont cliquables comme les communes.
+    const hits = map.queryRenderedFeatures(e.point,
+      { layers: ["communes-fill", "communes-gone-fill"] });
     if (hits.length) {
       const p = hits[0].properties;
       showHistory(p.code, p.country || "FR", p.nom);
@@ -752,6 +868,22 @@ month.addEventListener("change", () => {
   const i = DATES.findIndex(d => d.slice(0, 7) === month.value);
   if (i >= 0) { slider.value = i; render(); }
 });
+// Mode comparaison : bouton ⇄ + date de référence. Défaut : un an avant A.
+$("diffbtn").addEventListener("click", () => {
+  diffOn = !diffOn;
+  document.body.classList.toggle("diffing", diffOn);
+  if (diffOn) {
+    if (!month2.value) {
+      const a = new Date(DATES[slider.value] + "T00:00:00Z");
+      a.setUTCFullYear(a.getUTCFullYear() - 1);
+      const guess = a.toISOString().slice(0, 7);
+      month2.value = guess >= month2.min ? guess : month2.min;
+    }
+    beacon("diff");
+  }
+  render();
+});
+month2.addEventListener("change", render);
 $("dept").addEventListener("change", () => {
   if (!DEPT_RE.test($("dept").value.trim())) return;   // codes pays : via clic carte
   mode = "dept"; areaCountry = null; regionCode = null;
