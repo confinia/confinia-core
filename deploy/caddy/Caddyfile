@@ -33,42 +33,17 @@
 	abort @scan_phishkit
 }
 
-# Équilibrage bleu/vert de l'API (deploy/deploy-api.sh) : santé active ET
-# passive, zéro coupure pendant les bascules.
-(api_upstreams) {
-	reverse_proxy 127.0.0.1:8000 127.0.0.1:8001 {
-		lb_policy first
-		lb_try_duration 5s
-		lb_try_interval 250ms
-		fail_duration 15s
-		unhealthy_status 5xx
-		health_uri /healthz
-		health_interval 10s
-		health_timeout 3s
-	}
-}
+# Équilibrage des stacks COULEUR : l'ordre des upstreams (couleur active en
+# tête) vit dans un fichier d'ÉTAT généré par deploy/stacks.sh promote,
+# monté depuis ~/confinia-edge-state (HORS miroir rsync : il survit aux
+# synchronisations). Il définit (api_upstreams) et (staging_upstreams).
+# (définit aussi (staging_auth) : identifiants générés depuis secrets.env
+# par deploy/stacks.sh, en littéral : le reload admin ne résout pas {env.*})
+import /etc/caddy/active/*.caddy
 
-# API candidate (validation) : 8002 = données staging (deploy-data.sh stage),
-# sinon l'instance verte (code candidat).
-(staging_upstreams) {
-	reverse_proxy 127.0.0.1:8002 127.0.0.1:8001 {
-		lb_policy first
-		lb_try_duration 5s
-		lb_try_interval 250ms
-		fail_duration 15s
-		health_uri /healthz
-		health_interval 10s
-		health_timeout 3s
-	}
-}
-
-# Apex -> www (canonique, demande fondateur) : le front vit sur www.
-http://confinia.io {
-	redir https://www.confinia.io{uri} permanent
-}
-
-# Site public + nouveaux chemins canoniques : /api/ (API) et /grafana
-# (grafana APPLICATIF : dashboards Confinia API/Usage/Sécurité).
+# Frontend confinia (demande fondateur) : la DÉMO est la page d'accueil de
+# www ; le pitch/quickstart vit sur /about, le blog garde ses URLs publiées
+# (/blog/*). Chemins canoniques : /api/ (API) et /grafana (grafana APPLICATIF).
 http://www.confinia.io {
 	encode zstd gzip
 	handle /grafana* {
@@ -80,8 +55,20 @@ http://www.confinia.io {
 			import api_upstreams
 		}
 	}
-	handle {
+	# Blog : URLs publiées (article Marseille…), servies depuis le site.
+	handle /blog* {
 		root * /srv/site
+		file_server
+	}
+	# Pitch API + quickstart + attributions : déplacé sur /about.
+	handle /about {
+		root * /srv/site
+		rewrite * /index.html
+		file_server
+	}
+	# Accueil : la démo (le produit qui se démontre tout seul).
+	handle {
+		root * /srv/demo
 		route {
 			import block_scanners
 			file_server
@@ -103,9 +90,7 @@ http://api.confinia.io {
 # l'env du conteneur : jamais dans le repo). Démo (miroir VM) + API candidate
 # en même origine sous /api : un seul login couvre tout.
 http://staging.confinia.io {
-	basic_auth {
-		{env.STAGING_USER} {env.STAGING_HASH}
-	}
+	import staging_auth
 	encode zstd gzip
 	handle_path /api/* {
 		import staging_upstreams
@@ -118,9 +103,7 @@ http://staging.confinia.io {
 
 # API candidate seule (curl), mêmes identifiants.
 http://staging.api.confinia.io {
-	basic_auth {
-		{env.STAGING_USER} {env.STAGING_HASH}
-	}
+	import staging_auth
 	encode zstd gzip
 	route {
 		import block_scanners
@@ -128,7 +111,9 @@ http://staging.api.confinia.io {
 	}
 }
 
-# La démo vit sur GitHub Pages ; redirection (302 : réversible).
+# Hostname historique de la démo : la démo est désormais la page d'accueil
+# de www (même contenu que le miroir GitHub Pages) — on y redirige.
+# permanent : www est l'origine canonique (décision 2026-07-20).
 http://time-slider.confinia.io {
-	redir https://confinia.github.io{uri} temporary
+	redir https://www.confinia.io{uri} permanent
 }

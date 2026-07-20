@@ -13,6 +13,7 @@ podman run --rm \
 	--env-file deploy/secrets.env \
 	-v ./deploy/caddy:/etc/caddy:ro \
 	-v ./deploy/sites:/etc/caddy/sites:ro \
+	-v "$HOME/confinia-edge-state:/etc/caddy/active:ro" \
 	docker.io/library/caddy:2 caddy validate --config /etc/caddy/Caddyfile
 
 echo "== reload gracieux (chemin STANDARD /etc/caddy/Caddyfile : contrat partagé)"

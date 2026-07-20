@@ -80,6 +80,9 @@ services:
       - ./deploy/secrets.env   # STAGING_USER / STAGING_HASH (basic auth staging)
     volumes:
       - ./deploy/caddy:/etc/caddy:ro
+      # État de bascule couleur (généré par deploy/stacks.sh promote) :
+      # volontairement HORS du miroir rsync pour survivre aux syncs.
+      - /home/debian/confinia-edge-state:/etc/caddy/active:ro
       # Vhosts par projet (import /etc/caddy/sites/*.caddy) — montage
       # imbriqué : chaque projet de la VM dépose ici son fichier .caddy.
       - ./deploy/sites:/etc/caddy/sites:ro
