@@ -1,0 +1,75 @@
+# EcoBuilding — vhosts for the VM's shared caddy edge.
+# CANONICAL HOME: confinia-core repo, deploy/sites/ecobuilding.caddy (the
+# confinia project's deploy sync owns that directory and deletes foreign
+# files — this copy in the ecobuilding repo is the source, deploy.sh keeps
+# both in sync). Backends bind 127.0.0.1 only.
+#
+# Blue/green with a manual gate:
+#   ecobuilding.confinia.io       -> slot A (prod,    api 8010 / front 8011)
+#   next.ecobuilding.confinia.io  -> slot B (staging, api 8110 / front 8111)
+# deploy.sh only ever touches slot B; promote.sh moves prod to the validated
+# image. No automatic failover from prod to staging: an unvalidated version
+# must never receive production traffic.
+
+ecobuilding.confinia.io {
+	encode zstd gzip
+
+	log {
+		output file /data/logs/ecobuilding-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		format json
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	route {
+		import block_scanners
+
+		# Public API (FastAPI). /api is stripped; the app's root_path keeps
+		# docs URLs correct -> https://ecobuilding.confinia.io/api/v1/docs
+		handle_path /api/* {
+			reverse_proxy 127.0.0.1:8010
+		}
+
+		# Dedicated Grafana (subpath mode, auth handled by Grafana itself).
+		handle /grafana* {
+			reverse_proxy 127.0.0.1:3002
+		}
+
+		# MapLibre frontend (static).
+		handle {
+			reverse_proxy 127.0.0.1:8011
+		}
+	}
+}
+
+next.ecobuilding.confinia.io {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Robots-Tag "noindex"
+		-Server
+	}
+
+	route {
+		import block_scanners
+		handle_path /api/* {
+			reverse_proxy 127.0.0.1:8110
+		}
+		handle /grafana* {
+			reverse_proxy 127.0.0.1:3002
+		}
+		handle {
+			reverse_proxy 127.0.0.1:8111
+		}
+	}
+}
