@@ -484,7 +484,7 @@ GET <a href="/v1/communes?code=01033&amp;at=2020-06-01">/v1/communes?code=01033&
 GET <a href="/v1/communes/01033/history">/v1/communes/01033/history</a>            → every version since 1943
 GET <a href="/v1/communes?dept=01&amp;at=2019-06-01">/v1/communes?dept=01&amp;at=2019-06-01</a>   → a whole département (FeatureCollection)
 
-Any European municipality — 36 countries (EU-27 + EFTA + UK + candidates):
+Any European municipality (EU + EFTA + UK + candidates), and New Zealand:
 
 GET <a href="/v1/units?lat=52.52&amp;lon=13.405&amp;at=2020-06-01">/v1/units?lat=52.52&amp;lon=13.405&amp;at=2020-06-01</a>  → Berlin (point, any country)
 GET <a href="/v1/units?nuts=ITC4C&amp;at=2020-06-01">/v1/units?nuts=ITC4C&amp;at=2020-06-01</a>    → all comuni of the Milano province
@@ -503,9 +503,9 @@ GET <a href="/v1/nuts?lat=45.46&amp;lon=9.19&amp;level=3&amp;at=2020-06-01">/v1/
 <li><a href="/docs">Interactive documentation (OpenAPI)</a></li>
 <li><a href="/healthz">Service health</a></li>
 </ul>
-<footer>168k historical versions · France at exact INSEE event dates since 1943,
-Germany &amp; Netherlands from yearly national editions, the rest of Europe via
-Eurostat LAU/NUTS. Free during development — no key required yet
+<footer>France at exact event dates back to 1870, Germany &amp; Netherlands from
+yearly national editions, the rest of Europe via Eurostat LAU/NUTS, the UK at
+legal dates (ONS), New Zealand from Stats NZ editions. Free during development — no key required yet
 (<code>POST /v1/keys {"email": …}</code> to get one for the beta).
 Attribution: INSEE · IGN Licence Ouverte 2.0 · © EuroGeographics ·
 © GeoBasis-DE / BKG dl-de/by-2-0 · CBS/Kadaster CC BY 4.0 —
