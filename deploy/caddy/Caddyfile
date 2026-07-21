@@ -74,6 +74,12 @@ http://www.confinia.io {
 		rewrite * /index.html
 		file_server
 	}
+	# Tarifs + capture d'intention (issue #7) : la surface d'achat.
+	handle /pricing {
+		root * /srv/site
+		rewrite * /pricing.html
+		file_server
+	}
 	# Accueil : la démo (le produit qui se démontre tout seul).
 	handle {
 		root * /srv/demo
@@ -102,6 +108,12 @@ http://staging.confinia.io {
 	encode zstd gzip
 	handle_path /api/* {
 		import staging_upstreams
+	}
+	# Validation de la page tarifs avant exposition www.
+	handle /pricing {
+		root * /srv/site
+		rewrite * /pricing.html
+		file_server
 	}
 	handle {
 		root * /srv/demo

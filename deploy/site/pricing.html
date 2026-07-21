@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pricing — Confinia</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Confinia pricing: free during the beta, Pro and Enterprise tiers opening soon. Leave your intent, lock the launch price.">
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #10151d; color: #e8eaed;
+         font: 16px/1.65 system-ui, -apple-system, sans-serif; }
+  main { max-width: 62rem; margin: 0 auto; padding: 3rem 1.5rem; }
+  h1 { font-size: 2rem; margin: 0 0 .4rem; } h1 a { color: #7ab8ff; text-decoration: none; }
+  p.tag { opacity: .9; max-width: 46rem; }
+  .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+          margin: 2rem 0; }
+  .tier { border: 1px solid #26314a; border-radius: 12px; padding: 1.3rem 1.2rem;
+          background: #0b0f16; display: flex; flex-direction: column; }
+  .tier h2 { margin: 0; font-size: 1.15rem; color: #9fb3d1; }
+  .price { font-size: 1.7rem; margin: .5rem 0 .2rem; }
+  .price small { font-size: .85rem; opacity: .7; }
+  .tier.pro { border-color: #7ab8ff; }
+  .badge { display: inline-block; font-size: .72rem; letter-spacing: .04em;
+           text-transform: uppercase; color: #10151d; background: #7ab8ff;
+           border-radius: 99px; padding: .1rem .6rem; margin-left: .5rem; }
+  ul { padding-left: 1.15rem; margin: .8rem 0 1.2rem; flex: 1; }
+  li { margin: .35rem 0; }
+  .cta { border: 1px solid #33405a; border-radius: 8px; padding: .6rem 1rem;
+         text-align: center; color: #7ab8ff; cursor: pointer; background: none;
+         font: inherit; }
+  .cta:hover { border-color: #7ab8ff; }
+  .cta.primary { background: #7ab8ff; color: #10151d; border-color: #7ab8ff; }
+  pre { background: #0b0f16; border: 1px solid #26314a; border-radius: 8px;
+        padding: .7rem .9rem; overflow-x: auto; font-size: .8rem; }
+  form { border: 1px solid #26314a; border-radius: 12px; background: #0b0f16;
+         padding: 1.3rem 1.2rem; max-width: 34rem; margin: 1rem 0; }
+  form.hidden { display: none; }
+  label { display: block; font-size: .85rem; color: #9fb3d1; margin: .8rem 0 .25rem; }
+  input, textarea { width: 100%; box-sizing: border-box; background: #10151d;
+    color: #e8eaed; border: 1px solid #33405a; border-radius: 8px;
+    padding: .55rem .7rem; font: inherit; }
+  textarea { min-height: 4.5rem; resize: vertical; }
+  #intent-msg { margin-top: .8rem; font-size: .9rem; }
+  a { color: #7ab8ff; text-decoration: none; } a:hover { text-decoration: underline; }
+  footer { margin-top: 3rem; font-size: .85rem; opacity: .75;
+           border-top: 1px solid #26314a; padding-top: 1.2rem; }
+</style>
+</head>
+<body><main>
+<h1><a href="/about">Confinia</a> · Pricing</h1>
+<p class="tag">Everything is <b>free during the public beta</b>. Paid tiers open
+soon: leaving your intent below takes one minute, costs nothing, and locks the
+launch price for your account when billing starts.</p>
+
+<div class="grid">
+  <div class="tier">
+    <h2>Free</h2>
+    <div class="price">€0 <small>during the beta</small></div>
+    <ul>
+      <li>All endpoints, 44 countries, full history (France back to 1870)</li>
+      <li>Fair-use rate limits (5 req/s)</li>
+      <li><b>9 area-change reports</b> included (<code>/v1/changes</code>: every merger, split and rename in an area, dated and fully sourced)</li>
+      <li>Attribution of upstream sources required</li>
+      <li>Community support (GitHub issues)</li>
+    </ul>
+    <pre>curl -X POST https://api.confinia.io/v1/keys \
+  -H 'content-type: application/json' \
+  -d '{"email": "you@example.org"}'</pre>
+  </div>
+
+  <div class="tier pro">
+    <h2>Pro <span class="badge">launch price</span></h2>
+    <div class="price">€49<small>/month</small></div>
+    <ul>
+      <li>Commercial use at scale: 50 req/s, 1M requests/month</li>
+      <li><b>Unlimited area-change reports</b> (<code>/v1/changes</code>)</li>
+      <li>Versioned endpoints: breaking changes announced 6 months ahead</li>
+      <li>Attribution kit ready to paste (per-source, per-response)</li>
+      <li>Email support, 2 business days</li>
+    </ul>
+    <button class="cta primary" data-tier="pro">Reserve the launch price</button>
+  </div>
+
+  <div class="tier">
+    <h2>Enterprise</h2>
+    <div class="price">from €249<small>/month</small></div>
+    <ul>
+      <li>SLA 99.9%, invoice billing</li>
+      <li>Bulk exports: full-country GeoJSON dumps, OHM-ready format</li>
+      <li>Premium datasets as they land: French EPCI history, UK per-edition geometries</li>
+      <li>Priority coverage: your country moves to the front of the ingestion queue</li>
+    </ul>
+    <button class="cta" data-tier="enterprise">Talk about your use case</button>
+  </div>
+</div>
+
+<form id="intent" class="hidden">
+  <b id="intent-title">Reserve the Pro launch price</b>
+  <label for="email">Work email</label>
+  <input id="email" type="email" required placeholder="you@company.eu">
+  <label for="use_case">What would you build with it? (optional)</label>
+  <textarea id="use_case" placeholder="e.g. matching 20 years of address data against the communes that existed at the time"></textarea>
+  <input type="hidden" id="tier" value="pro">
+  <div style="margin-top:1rem"><button class="cta primary" type="submit">Send</button></div>
+  <div id="intent-msg"></div>
+</form>
+
+<p>Not sure? The <a href="https://time-slider.confinia.io">demo</a> and the
+<a href="https://api.confinia.io/docs">API docs</a> are open: try before caring
+about any of this. Questions: <a href="mailto:contact@confinia.io">contact@confinia.io</a>.</p>
+
+<footer>
+  Open source (Apache-2.0): <a href="https://github.com/confinia/confinia-core">github.com/confinia/confinia-core</a>
+  · <a href="/about">About</a> · Boundaries change — your data shouldn't break.
+</footer>
+</main>
+<script>
+const API = location.hostname.endsWith("confinia.io") && location.pathname !== "/"
+  ? (location.hostname.startsWith("www.") || location.hostname === "staging.confinia.io"
+     ? "/api" : "https://api.confinia.io")
+  : "https://api.confinia.io";
+const form = document.getElementById("intent");
+document.querySelectorAll(".cta[data-tier]").forEach(b => b.addEventListener("click", () => {
+  document.getElementById("tier").value = b.dataset.tier;
+  document.getElementById("intent-title").textContent = b.dataset.tier === "pro"
+    ? "Reserve the Pro launch price" : "Enterprise: tell us about your use case";
+  form.classList.remove("hidden");
+  form.scrollIntoView({behavior: "smooth", block: "center"});
+  document.getElementById("email").focus();
+}));
+form.addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const msg = document.getElementById("intent-msg");
+  msg.textContent = "Sending…";
+  try {
+    const r = await fetch(`${API}/v1/upgrade-intent`, {
+      method: "POST", headers: {"content-type": "application/json"},
+      body: JSON.stringify({
+        email: document.getElementById("email").value,
+        tier: document.getElementById("tier").value,
+        use_case: document.getElementById("use_case").value || null,
+      })});
+    msg.textContent = r.ok
+      ? "Recorded. You'll hear from us when the tier opens, launch price locked."
+      : "Something went wrong (" + r.status + "). Email us instead: contact@confinia.io";
+  } catch {
+    msg.textContent = "Network error. Email us instead: contact@confinia.io";
+  }
+});
+</script>
+</body></html>
