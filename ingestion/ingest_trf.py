@@ -36,13 +36,38 @@ YEARS = list(range(1870, 1941))
 SOURCE = "trf-gis"
 
 
-def read_year(path: str) -> dict[str, str]:
-    """COG_COMMUNES_YYYY.tab -> {code insee: nom propre}. Première occurrence
-    gardée en cas de doublon (rare), lignes sans code ignorées."""
+def load_year_text(base: str, year: int) -> tuple[str, str]:
+    """(texte, délimiteur) pour une année. Préfère l'ORIGINAL .txt (cp1252,
+    CSV) au dérivé .tab de Dataverse : la conversion Stata de Dataverse
+    remplace les accents par U+FFFD (découvert le 2026-07-21 : « G��nicourt »).
+    GARDE-FOU : refuse toute source contenant un U+FFFD, plutôt que d'ingérer
+    de la donnée poubelle en silence."""
+    txt = os.path.join(base, f"COG_COMMUNES_{year}.txt")
+    tab = os.path.join(base, f"COG_COMMUNES_{year}.tab")
+    if os.path.exists(txt):
+        raw = open(txt, "rb").read()
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            text = raw.decode("cp1252")
+        delim = ","
+    else:
+        text = open(tab, "rb").read().decode("utf-8")
+        delim = "\t"
+    if "\ufffd" in text:
+        raise SystemExit(f"Source corrompue (U+FFFD) : {txt or tab} : refus d'ingérer.")
+    return text, delim
+
+
+def read_year(base: str, year: int) -> dict[str, str]:
+    """-> {code insee: nom propre}. Première occurrence gardée en cas de
+    doublon (rare), lignes sans code ignorées."""
+    import io as _io
+    text, delim = load_year_text(base, year)
     out: dict[str, str] = {}
     dupes = empty = 0
-    with open(path, encoding="utf-8", errors="replace", newline="") as f:
-        for row in csv.DictReader(f, delimiter="\t"):
+    if True:
+        for row in csv.DictReader(_io.StringIO(text), delimiter=delim):
             code = (row.get("insee") or "").strip()
             nom = (row.get("com_name_prop") or row.get("com_name") or "").strip()
             if not code or not nom:
@@ -53,7 +78,7 @@ def read_year(path: str) -> dict[str, str]:
                 continue
             out[code] = nom
     if dupes or empty:
-        print(f"  {os.path.basename(path)}: {dupes} doublons, {empty} lignes vides ignorés")
+        print(f"  {year}: {dupes} doublons, {empty} lignes vides ignorés")
     return out
 
 
@@ -87,9 +112,8 @@ def main() -> int:
         print("PG_DSN manquant", file=sys.stderr)
         return 2
 
-    print("Lecture des 71 nomenclatures annuelles…")
-    states = {y: read_year(os.path.join(args.data_dir, f"COG_COMMUNES_{y}.tab"))
-              for y in YEARS}
+    print("Lecture des 71 nomenclatures annuelles (originaux .txt)…")
+    states = {y: read_year(args.data_dir, y) for y in YEARS}
     for y in (1870, 1900, 1921, 1940):
         print(f"  {y}: {len(states[y])} communes")
 

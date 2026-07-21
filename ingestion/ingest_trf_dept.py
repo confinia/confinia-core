@@ -34,7 +34,32 @@ UNIT_TYPE = "departement"
 L93_TO_WGS84 = Transformer.from_crs("EPSG:2154", "EPSG:4326", always_xy=True)
 
 
-def read_year(base: str, year: int) -> dict[str, tuple[str, object]]:
+def proper_dept_names(communes_dir: str, year: int) -> dict[str, str]:
+    """{code dept: nom ACCENTUÉ} depuis les originaux communes (dep_name_prop) :
+    le dbf TRF des départements est désaccentué (CHARENTE-INFERIEURE)."""
+    import io as _io
+    txt = os.path.join(communes_dir, f"COG_COMMUNES_{year}.txt")
+    if not os.path.exists(txt):
+        return {}
+    raw = open(txt, "rb").read()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = raw.decode("cp1252")
+    if "\ufffd" in text:
+        raise SystemExit(f"Source corrompue (U+FFFD) : {txt} : refus d'ingérer.")
+    import csv as _csv
+    out = {}
+    for row in _csv.DictReader(_io.StringIO(text)):
+        code = str(row.get("dep", "")).zfill(2)
+        nom = (row.get("dep_name_prop") or "").strip()
+        if code != "00" and nom:
+            out.setdefault(code, nom)
+    return out
+
+
+def read_year(base: str, year: int, names: dict[str, str] | None = None
+              ) -> dict[str, tuple[str, object]]:
     """{code: (nom, geom_wgs84)} pour une année."""
     zpath = os.path.join(base, f"DEPARTEMENTS_{year}.zip")
     xdir = os.path.join(base, "extract", str(year))
@@ -48,7 +73,7 @@ def read_year(base: str, year: int) -> dict[str, tuple[str, object]]:
     for sr in r.iterShapeRecords():
         rec = dict(zip(fields, sr.record))
         code = str(rec["dep_id"]).zfill(2)
-        nom = str(rec["dep_name"]).strip().title()
+        nom = (names or {}).get(code) or str(rec["dep_name"]).strip().title()
         geom = shp_transform(lambda x, y: L93_TO_WGS84.transform(x, y),
                              shape(sr.shape.__geo_interface__))
         out[code] = (nom, geom)
@@ -58,12 +83,14 @@ def read_year(base: str, year: int) -> dict[str, tuple[str, object]]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", default="/data/raw/trf/departements")
+    ap.add_argument("--communes-dir", default="/data/raw/trf/communes")
     ap.add_argument("--dsn", default=os.environ.get("PG_DSN"))
     args = ap.parse_args()
 
     states = {}
     for y in YEARS:
-        states[y] = read_year(args.data_dir, y)
+        states[y] = read_year(args.data_dir, y,
+                              proper_dept_names(args.communes_dir, y))
     for y in (1870, 1875, 1900, 1921, 1940):
         print(f"  {y}: {len(states[y])} départements")
 
