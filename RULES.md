@@ -13,6 +13,12 @@
    - rappeler les commandes de suite : `./deploy/deploy-api.sh promote`
      (ou `rollback`), `./deploy/stacks.sh promote <couleur>`.
 
+2. **Toute publication de la démo part sur LES DEUX surfaces** : le miroir
+   VM (`www.confinia.io`, servi immédiatement après rsync) ET GitHub Pages
+   (`make demo-publish` → https://confinia.github.io/, la cible de
+   time-slider.confinia.io et de tous les liens publiés depuis le premier
+   partage #maplibre). Vérifier Pages après publication (propagation ~1 min).
+
 Autres règles opérationnelles (détaillées dans `DEV.md`) : rendu mobile
 vérifié par captures avant toute publication front ; adresse admin caddy
 unique par instance en réseau hôte ; `--no-deps` sur toute commande
