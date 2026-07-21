@@ -121,10 +121,15 @@
 - [x] ONS CHD (OGL v3) : UK local authorities depuis 2009 aux dates légales
   (`ingestion/ingest_ons.py`), 471 versions, 361 vivantes (compte exact),
   liens prédécesseurs/successeurs (réforme Cumbria 2023 vérifiée).
-- [ ] **Réconciliation UK** : les lignes eurostat-lau UK (édition 2016 figée) disent
-  « vivant aujourd'hui » là où le CHD dit « aboli 2023 ». Faire du CHD la colonne
-  vertébrale temporelle UK et joindre les géométries LAU par code GSS ; retirer
-  ou re-sourcer les lignes LAU UK en conflit.
+- [x] **Réconciliation UK** (`ingestion/reconcile_uk.sql`) : le CHD est la colonne
+  vertébrale temporelle UK, géométries LAU jointes par code GSS, lignes LAU UK
+  en conflit retirées (lignage Cumbria 2023 vérifié dans la démo).
+- [x] **Nouvelle-Zélande** (issue #1, PR #2 mergée) : Territorial Authorities
+  Stats NZ (CC BY 4.0), éditions 2010-2026 diffées (`ingestion/ingest_nz.py`),
+  77 périodes, unité technique 999 exclue, couches iwi/traités volontairement
+  hors périmètre. Fusion Auckland (007 → 076 au 2013-01-01) vérifiée en public.
+  `/v1/countries` expose les silhouettes hors NUTS ; NZ grisée et cliquable
+  sur la vue monde (les deux surfaces). Promu (actif = blue) le 2026-07-21.
 - [ ] Géométries UK par édition (ONS Open Geography, contours LAD annuels).
 - [ ] TRF : niveaux supra (cantons/arrondissements/départements annuels 1870-1940,
   shapefiles inclus) : munitions OHM (admin_level 6/7) pour le fil #762.
