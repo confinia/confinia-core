@@ -48,9 +48,10 @@
 </head>
 <body><main>
 <h1><a href="/about">Confinia</a> · Pricing</h1>
-<p class="tag">Everything is <b>free during the public beta</b>. Paid tiers open
-soon: leaving your intent below takes one minute, costs nothing, and locks the
-launch price for your account when billing starts.</p>
+<p class="tag">The Free tier stays free during the public beta. Paid tiers are
+<b>live</b>: checkout, EU VAT and invoices are handled by Polar (merchant of
+record). Your API key is upgraded automatically within a minute of purchase,
+whether you create it before or after.</p>
 
 <div class="grid">
   <div class="tier">
@@ -78,7 +79,9 @@ launch price for your account when billing starts.</p>
       <li>Attribution kit ready to paste (per-source, per-response)</li>
       <li>Email support, 2 business days</li>
     </ul>
-    <button class="cta primary" data-tier="pro">Reserve the launch price</button>
+    <a class="cta primary" href="https://buy.polar.sh/polar_cl_VYpdGBRjeH4Pn7vvD1dNbN450Yncw9sOHwqLf154vRQ">Subscribe · €49/month</a>
+    <div style="text-align:center; margin-top:.6rem; font-size:.85rem">
+      <a href="#" data-tier="pro">not ready? leave your intent</a></div>
   </div>
 
   <div class="tier">
@@ -90,7 +93,9 @@ launch price for your account when billing starts.</p>
       <li>Premium datasets as they land: French EPCI history, UK per-edition geometries</li>
       <li>Priority coverage: your country moves to the front of the ingestion queue</li>
     </ul>
-    <button class="cta" data-tier="enterprise">Talk about your use case</button>
+    <a class="cta" href="https://buy.polar.sh/polar_cl_Z6irg2Ji3tuuvlKjUx6gjW4iEIw6fNRK49evF3AKe7L">Subscribe · €249/month</a>
+    <div style="text-align:center; margin-top:.6rem; font-size:.85rem">
+      <a href="#" data-tier="enterprise">talk about your use case first</a></div>
   </div>
 </div>
 
@@ -120,7 +125,8 @@ const API = location.hostname.endsWith("confinia.io") && location.pathname !== "
      ? "/api" : "https://api.confinia.io")
   : "https://api.confinia.io";
 const form = document.getElementById("intent");
-document.querySelectorAll(".cta[data-tier]").forEach(b => b.addEventListener("click", () => {
+document.querySelectorAll("[data-tier]").forEach(b => b.addEventListener("click", ev => {
+  ev.preventDefault();
   document.getElementById("tier").value = b.dataset.tier;
   document.getElementById("intent-title").textContent = b.dataset.tier === "pro"
     ? "Reserve the Pro launch price" : "Enterprise: tell us about your use case";
