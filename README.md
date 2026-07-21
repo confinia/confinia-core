@@ -4,7 +4,7 @@
 
 > Boundaries change: communes merge, districts are redrawn, codes get reused. Confinia models every administrative unit as versions valid over `[valid_from, valid_to)`, with parent/child links across mergers and splits — so `code=01033&at=2018-06-01` returns Bellegarde-sur-Valserine, and the same code a year later returns Valserhône.
 
-Status: **public beta**. France at exact INSEE event dates (COG + IGN Admin Express), Germany & the Netherlands from national yearly editions, and the rest of Europe via Eurostat LAU + NUTS — 43 countries, ~168k historical versions.
+Status: **public beta**. France at exact event dates back to 1870 (INSEE COG + IGN Admin Express, TRF-GIS before 1943), Germany and the Netherlands from national yearly editions, the rest of Europe via Eurostat LAU + NUTS, the UK at exact legal dates (ONS Code History Database), New Zealand from Stats NZ editions.
 
 ## Layout
 
