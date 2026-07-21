@@ -510,6 +510,81 @@ def attributions():
             for s, li, a, c, u in cur.fetchall()]}
 
 
+# Suggestion d'admin_level OHM par type d'unité (conventions OSM/OHM France
+# et voisins ; les cantons historiques n'ont pas d'équivalent moderne, 9 par
+# convention de proposition). C'est une SUGGESTION : la communauté OHM décide.
+OHM_ADMIN_LEVEL = {
+    "nuts1": 4, "nuts2": 5, "nuts3": 6, "region": 4,
+    "departement": 6, "arrondissement": 7, "canton": 9,
+    "commune": 8, "gemeinde": 8, "gemeente": 8, "lau": 8, "lad": 8, "ta": 6,
+}
+REF_KEY = {"FR": "ref:INSEE", "GB": "ref:gss", "DE": "ref:ags", "NL": "ref:cbs"}
+EXPORT_MAX = 5000
+
+
+@app.get("/v1/export/ohm")
+def export_ohm(
+    response: Response,
+    country: str = Query(..., min_length=2, max_length=2),
+    unit_type: str = Query(..., description="commune, departement, canton…"),
+    date_from: date | None = Query(None, alias="from",
+                                   description="Ne garder que les versions actives après cette date"),
+    date_to: date | None = Query(None, alias="to",
+                                 description="Ne garder que les versions actives avant cette date"),
+    full_geometry: bool = Query(False, description="Géométrie brute (défaut : simplifiée)"),
+    limit: int = Query(1000, ge=1, le=EXPORT_MAX),
+    offset: int = Query(0, ge=0),
+):
+    """Export « OHM-ready » : chaque VERSION d'unité en Feature GeoJSON avec
+    `start_date`/`end_date` (conventions OpenHistoricalMap), la référence
+    officielle (`ref:INSEE`…), une suggestion d'`admin_level` et l'attribution
+    de la source. Pensé pour préparer des imports OHM (issue #3) : le consensus
+    communautaire et l'outillage d'upload restent côté OHM."""
+    geom_col = "ST_AsGeoJSON(geom, 6)" if full_geometry else "ST_AsGeoJSON(geom_simple, 6)"
+    where = ["country = %s", "unit_type = %s"]
+    params: list = [country.upper(), unit_type]
+    if date_from is not None:
+        where.append("valid_to > %s")
+        params.append(date_from)
+    if date_to is not None:
+        where.append("valid_from < %s")
+        params.append(date_to)
+    with cursor() as cur:
+        cur.execute(
+            f"SELECT cv.code, cv.nom, cv.valid_from, cv.valid_to, cv.unit_type, "
+            f" cv.geometry_approx, cv.source, ds.attribution, ds.license, {geom_col} "
+            "FROM commune_version cv "
+            "LEFT JOIN public.data_source ds ON ds.source = cv.source "
+            f"WHERE {' AND '.join(where)} "
+            "ORDER BY cv.code, cv.valid_from LIMIT %s OFFSET %s",
+            params + [limit + 1, offset])
+        rows = cur.fetchall()
+    truncated = len(rows) > limit
+    rows = rows[:limit]
+    ref_key = REF_KEY.get(country.upper(), "ref")
+    feats = []
+    for code, nom, vf, vt, ut, approx, src, attr, lic, g in rows:
+        props = {
+            "name": nom, ref_key: code,
+            "boundary": "administrative",
+            "admin_level": OHM_ADMIN_LEVEL.get(ut),
+            "start_date": vf.isoformat(),
+            "unit_type": ut, "source": attr or src,
+            "license": lic, "geometry_approx": approx,
+        }
+        if vt != FAR_FUTURE:
+            props["end_date"] = vt.isoformat()
+        feats.append({"type": "Feature", "geometry": json.loads(g) if g else None,
+                      "properties": props})
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return {"type": "FeatureCollection",
+            "count": len(feats), "offset": offset, "truncated": truncated,
+            "note": ("admin_level est une suggestion ; start_date/end_date suivent "
+                     "les conventions OHM. Attribution obligatoire par source "
+                     "(voir /v1/attributions)."),
+            "features": feats}
+
+
 @app.get("/healthz")
 def healthz():
     with cursor() as cur:
