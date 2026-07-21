@@ -19,6 +19,12 @@
    time-slider.confinia.io et de tous les liens publiés depuis le premier
    partage #maplibre). Vérifier Pages après publication (propagation ~1 min).
 
+3. **Tout changement passe par une issue GitHub et une pull request** :
+   ouvrir l'issue (motivation, source, périmètre : anonymiser toute personne
+   extérieure), développer sur une branche, ouvrir la PR avec `Closes #N`,
+   la merger (squash) seulement après validation en staging. Les commits
+   directs sur `main` sont réservés aux documents de process (RULES, TODO).
+
 Autres règles opérationnelles (détaillées dans `DEV.md`) : rendu mobile
 vérifié par captures avant toute publication front ; adresse admin caddy
 unique par instance en réseau hôte ; `--no-deps` sur toute commande
