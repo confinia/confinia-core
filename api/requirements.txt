@@ -7,3 +7,4 @@ opentelemetry-instrumentation-fastapi>=0.46b0
 opentelemetry-instrumentation-psycopg2>=0.46b0
 maxminddb>=2.6
 email-validator>=2.1
+reportlab>=4.1
