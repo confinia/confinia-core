@@ -11,6 +11,14 @@
 	# générale du 2026-07-20, config 8085 avalée par l'amont). Convention :
 	# admin = 2000 + port applicatif % 10000 -> confinia : 2085.
 	admin localhost:2085
+	# Le caddy AMONT nous parle depuis la boucle locale : sans cette confiance,
+	# caddy JETTE son X-Forwarded-For (comportement 2.5+) et toute la planète
+	# arrive à l'API avec l'IP 127.0.0.1 (quota premium GLOBAL, rate limit
+	# inopérant, analytics pays dégradées — issue #12). L'amont écrase le XFF
+	# fourni par les clients : pas de spoofing possible de l'extérieur.
+	servers {
+		trusted_proxies static private_ranges
+	}
 }
 
 # Filtre anti-scanners : coupe net (abort = connexion fermée, aucune réponse)
