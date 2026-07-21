@@ -38,8 +38,10 @@ stage() {
 	fi
 	echo "== l'API $P (passive, $(port_of "$P")) passe sur la nouvelle version ; le public reste sur $A"
 	podman rm -f "confinia-${P}_api_1" >/dev/null 2>&1 || true
+	# --no-deps IMPÉRATIF : sans lui, un changement de hash de secrets.env
+	# fait recréer la db et arrache ses dépendants (doctrine, 2 incidents).
 	podman-compose -p "confinia-$P" -f "$PWD/deploy/stack/docker-compose-$P.yml" \
-		--profile serve up -d api >/dev/null 2>&1
+		--profile serve up -d --no-deps api >/dev/null 2>&1
 	wait_ok "$(port_of "$P")"
 	echo "OK : valider sur https://staging.api.confinia.io puis ./deploy/deploy-api.sh promote"
 }

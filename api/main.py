@@ -68,6 +68,37 @@ CREATE UNLOGGED TABLE IF NOT EXISTS public.visitor_daily (
     PRIMARY KEY (day, client_hash)
 );
 DELETE FROM public.visitor_daily WHERE day < CURRENT_DATE - 45;
+-- Intentions de paiement (page /pricing) : le pipeline commercial en
+-- self-service. Lu à la main (ou par le futur webhook MoR), jamais purgé.
+CREATE TABLE IF NOT EXISTS public.upgrade_intent (
+    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    email      text NOT NULL,
+    tier       text NOT NULL,
+    use_case   text,
+    UNIQUE (email, tier)
+);
+-- Palier par clé ('free' tant que le checkout MoR n'existe pas ; le webhook
+-- de l'issue #8 passera 'pro'/'enterprise').
+ALTER TABLE public.api_key ADD COLUMN IF NOT EXISTS tier text NOT NULL DEFAULT 'free';
+-- Compteur À VIE des requêtes premium par appelant (clé ou condensé d'IP
+-- STABLE, jamais l'IP) : les N premières sont offertes, au-delà 402 -> /pricing.
+CREATE TABLE IF NOT EXISTS public.premium_usage (
+    caller     text PRIMARY KEY,
+    requests   bigint NOT NULL DEFAULT 0,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+-- Abonnements Polar (Merchant of Record, issue #8) : état par souscription,
+-- alimenté par le webhook. Le palier d'un email = sa meilleure souscription
+-- active ; appliqué aux clés existantes ET aux clés créées ensuite.
+CREATE TABLE IF NOT EXISTS public.polar_subscription (
+    subscription_id text PRIMARY KEY,
+    email           text NOT NULL,
+    tier            text NOT NULL,
+    status          text NOT NULL,
+    updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_polar_sub_email ON public.polar_subscription (email);
 """
 
 # Clés facultatives pendant le développement ; passer REQUIRE_API_KEY=true
@@ -112,7 +143,7 @@ app = FastAPI(
 
 # API publique en lecture seule : CORS ouvert (la démo tourne sur GitHub Pages).
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
-                   allow_methods=["GET"], allow_headers=["*"])
+                   allow_methods=["GET", "POST"], allow_headers=["*"])
 
 # ---------------------------------------------------------------------------
 #  Observabilité (Step 5b) : métriques OpenTelemetry -> collector -> Prometheus
@@ -303,7 +334,7 @@ async def timing(request: Request, call_next):
     valid_key = meter_key(request) if request.url.path.startswith("/v1/") else None
     if (REQUIRE_KEY and valid_key is None
             and request.url.path.startswith("/v1/")
-            and not request.url.path.startswith("/v1/keys")):
+            and not request.url.path.startswith(("/v1/keys", "/v1/upgrade-intent"))):
         from fastapi.responses import JSONResponse
         return JSONResponse({"detail": "Clé API requise : POST /v1/keys {email} "
                                        "puis en-tête X-API-Key."}, status_code=401)
@@ -333,6 +364,18 @@ def cursor():
             yield cur
     finally:
         pool.putconn(conn)
+
+
+@contextmanager
+def ops_cursor():
+    """Curseur sur la base OPS partagée (clés, usage, intentions) : commit
+    automatique en sortie — ces écritures doivent survivre aux couleurs."""
+    conn = ops_pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            yield cur
+    finally:
+        ops_pool.putconn(conn)
 
 
 def feature(row) -> dict:
@@ -585,6 +628,117 @@ def export_ohm(
             "features": feats}
 
 
+# ---------------------------------------------------------------------------
+# Premium : rapport de changements d'une zone, provenance complète.
+# Modèle économique (fondateur, 2026-07-21) : les 9 premières requêtes sont
+# offertes, la 10e exige un palier payant -> 402 avec pointeur /pricing tant
+# que le checkout MoR (issue #8) n'est pas branché.
+PREMIUM_FREE = 9
+PRICING_URL = "https://www.confinia.io/pricing"
+
+
+def premium_gate(request: Request) -> dict:
+    """Retourne le quota {used, free_limit, remaining} de l'appelant, ou lève
+    402. Appelant = clé API valide (tier 'pro'/'enterprise' = illimité), sinon
+    condensé STABLE et irréversible de l'IP (jamais l'IP elle-même)."""
+    key = request.headers.get("x-api-key") or request.query_params.get("api_key")
+    caller = None
+    if key:
+        with ops_cursor() as cur:
+            cur.execute("SELECT active, tier FROM public.api_key WHERE key = %s::uuid", (key,))
+            row = cur.fetchone()
+        if row and row[0]:
+            if row[1] in ("pro", "enterprise"):
+                return {"used": None, "free_limit": None, "remaining": "unlimited"}
+            caller = f"key:{key}"
+    if caller is None:
+        ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \
+            or (request.client.host if request.client else "anon")
+        caller = "ip:" + hashlib.sha256(f"{VISITOR_SECRET}|premium|{ip}".encode()).hexdigest()[:32]
+    with ops_cursor() as cur:
+        cur.execute(
+            "INSERT INTO public.premium_usage (caller, requests) VALUES (%s, 1) "
+            "ON CONFLICT (caller) DO UPDATE SET requests = premium_usage.requests + 1, "
+            " updated_at = now() RETURNING requests", (caller,))
+        used = cur.fetchone()[0]
+    if used > PREMIUM_FREE:
+        raise HTTPException(402, {
+            "detail": f"Les {PREMIUM_FREE} premiers rapports de changements sont offerts ; "
+                      "au-delà, c'est le palier Pro.",
+            "pricing": PRICING_URL,
+            "note": "Réserver maintenant fige le tarif de lancement.",
+        })
+    return {"used": used, "free_limit": PREMIUM_FREE, "remaining": PREMIUM_FREE - used}
+
+
+CHANGES_MAX_UNITS = 300
+
+
+@app.get("/v1/changes")
+def area_changes(
+    request: Request,
+    response: Response,
+    bbox: str = Query(..., description="w,s,e,n (WGS84)"),
+    date_from: date | None = Query(None, alias="from"),
+    date_to: date | None = Query(None, alias="to"),
+):
+    """PREMIUM — tous les CHANGEMENTS des unités municipales d'une zone
+    (fusions, scissions, renommages, créations, disparitions), datés, avec la
+    provenance complète (source, licence, attribution) de chaque unité.
+    9 rapports offerts, palier Pro ensuite."""
+    try:
+        w, s, e, n = (float(x) for x in bbox.split(","))
+    except ValueError:
+        raise HTTPException(422, "bbox attendu : w,s,e,n")
+    quota = premium_gate(request)
+    with cursor() as cur:
+        cur.execute(
+            "SELECT country, unit_type, code FROM commune_version "
+            "WHERE unit_type = ANY(%s) AND geom && ST_MakeEnvelope(%s,%s,%s,%s,4326) "
+            "GROUP BY 1, 2, 3 ORDER BY 1, 2, 3 LIMIT %s",
+            (list(MUNICIPAL_TYPES), w, s, e, n, CHANGES_MAX_UNITS + 1))
+        units = cur.fetchall()
+        truncated = len(units) > CHANGES_MAX_UNITS
+        units = units[:CHANGES_MAX_UNITS]
+        cur.execute("SELECT source, attribution, license FROM public.data_source")
+        src_info = {r[0]: {"attribution": r[1], "license": r[2]} for r in cur.fetchall()}
+        events = []
+        for country, ut, code in units:
+            cur.execute(
+                "SELECT nom, valid_from, valid_to, parents, children, source "
+                "FROM commune_version WHERE country=%s AND unit_type=%s AND code=%s "
+                "ORDER BY valid_from", (country, ut, code))
+            rows = cur.fetchall()
+            vs = [{"type": "Feature", "properties": {
+                       "code": code, "nom": nom,
+                       "valid_from": vf.isoformat(),
+                       "valid_to": None if vt == FAR_FUTURE else vt.isoformat(),
+                       "parents": parents, "children": children}}
+                  for nom, vf, vt, parents, children, _src in rows]
+            last_src = rows[-1][5] if rows else None
+            for ev in derive_events(vs):
+                d = ev.get("date")
+                if d and date_from and date.fromisoformat(d) < date_from:
+                    continue
+                if d and date_to and date.fromisoformat(d) >= date_to:
+                    continue
+                events.append({
+                    "country": country, "unit_type": ut, "code": code,
+                    "name": vs[-1]["properties"]["nom"] if vs else None,
+                    **ev,
+                    "source": last_src,
+                    **(src_info.get(last_src) or {}),
+                })
+        events.sort(key=lambda ev: (ev.get("date") or "9999", ev["code"]))
+    return {"bbox": [w, s, e, n],
+            "from": date_from.isoformat() if date_from else None,
+            "to": date_to.isoformat() if date_to else None,
+            "units_scanned": len(units), "units_truncated": truncated,
+            "events": events, "quota": quota,
+            "note": "Attribution des sources obligatoire (champ attribution par "
+                    "événement ; registre complet : /v1/attributions)."}
+
+
 @app.get("/healthz")
 def healthz():
     with cursor() as cur:
@@ -617,25 +771,144 @@ class KeyRequest(BaseModel):
 @app.post("/v1/keys", status_code=201)
 def create_key(req: KeyRequest):
     """Crée une clé API (gratuite — beta). À passer en en-tête X-API-Key."""
-    with cursor() as cur:
-        cur.execute("INSERT INTO api_key (email, note) VALUES (%s, %s) RETURNING key, created_at",
-                    (req.email, req.note))
+    # Base OPS impérativement : le metering (meter_key) lit public.api_key côté
+    # ops ; une clé écrite côté géo serait invisible et donc inutilisable.
+    email = req.email.strip().lower()
+    with ops_cursor() as cur:
+        # Une souscription Polar active sur cet email donne son palier aux
+        # clés créées APRÈS l'achat (l'ordre achat/clé est indifférent).
+        cur.execute("SELECT tier FROM public.polar_subscription "
+                    "WHERE email = %s AND status = ANY(%s)", (email, list(POLAR_ACTIVE)))
+        tiers = {t for (t,) in cur.fetchall()}
+        tier = "enterprise" if "enterprise" in tiers else "pro" if "pro" in tiers else "free"
+        cur.execute("INSERT INTO public.api_key (email, note, tier) VALUES (%s, %s, %s) "
+                    "RETURNING key, created_at", (email, req.note, tier))
         key, created = cur.fetchone()
-        cur.connection.commit()
-    return {"key": str(key), "created_at": created.isoformat(),
+    return {"key": str(key), "created_at": created.isoformat(), "tier": tier,
             "usage": f"/v1/keys/{key}/usage"}
 
 
 @app.get("/v1/keys/{key}/usage")
 def key_usage(key: str):
     """Consommation des 30 derniers jours pour une clé."""
-    with cursor() as cur:
+    with ops_cursor() as cur:
         cur.execute(
-            "SELECT day, requests FROM api_usage "
+            "SELECT day, requests FROM public.api_usage "
             "WHERE key = %s::uuid AND day > CURRENT_DATE - 30 ORDER BY day", (key,))
         rows = cur.fetchall()
     return {"key": key, "days": [{"day": d.isoformat(), "requests": n} for d, n in rows],
             "total_30d": sum(n for _, n in rows)}
+
+
+class IntentRequest(BaseModel):
+    email: EmailStr
+    tier: str
+    use_case: str | None = None
+
+
+@app.post("/v1/upgrade-intent", status_code=201)
+def upgrade_intent(req: IntentRequest):
+    """Capture d'intention de paiement depuis /pricing. Idempotent par
+    (email, tier) : re-soumettre met à jour le cas d'usage."""
+    tier = req.tier.strip().lower()
+    if tier not in ("pro", "enterprise"):
+        raise HTTPException(422, "tier doit être 'pro' ou 'enterprise'")
+    use_case = (req.use_case or "").strip()[:2000] or None
+    with ops_cursor() as cur:
+        cur.execute(
+            "INSERT INTO public.upgrade_intent (email, tier, use_case) "
+            "VALUES (%s, %s, %s) "
+            "ON CONFLICT (email, tier) DO UPDATE SET use_case = EXCLUDED.use_case",
+            (req.email, tier, use_case))
+    return {"status": "recorded", "tier": tier,
+            "note": "Merci ! Vous serez prévenu à l'ouverture du palier, "
+                    "tarif de lancement garanti."}
+
+
+# ---------------------------------------------------------------------------
+# Polar (Merchant of Record, issue #8) : Polar est le vendeur légal (TVA,
+# factures, relances) ; nous ne touchons jamais la carte. Ce webhook applique
+# le palier payé aux clés de l'email acheteur : la boucle achat -> clé active
+# tourne sans intervention humaine.
+POLAR_WEBHOOK_SECRET = os.environ.get("POLAR_WEBHOOK_SECRET", "")
+POLAR_TIER_BY_PRODUCT = {
+    pid: tier for tier, pid in (
+        ("pro", os.environ.get("POLAR_PRODUCT_PRO", "")),
+        ("enterprise", os.environ.get("POLAR_PRODUCT_ENTERPRISE", "")),
+    ) if pid
+}
+POLAR_ACTIVE = ("active", "trialing")
+
+
+def polar_verify(request: Request, body: bytes) -> bool:
+    """Signature « Standard Webhooks » : HMAC-SHA256 de `id.timestamp.corps`,
+    secret base64 (préfixe whsec_ éventuel), en-tête webhook-signature
+    'v1,<b64> ...'. Refus si secret absent : jamais de webhook en aveugle."""
+    import base64
+    import hmac as hmac_mod
+    if not POLAR_WEBHOOK_SECRET:
+        return False
+    mid = request.headers.get("webhook-id", "")
+    ts = request.headers.get("webhook-timestamp", "")
+    sigs = request.headers.get("webhook-signature", "")
+    if not (mid and ts and sigs):
+        return False
+    secret = POLAR_WEBHOOK_SECRET.removeprefix("whsec_")
+    try:
+        key = base64.b64decode(secret + "=" * (-len(secret) % 4))
+    except Exception:
+        key = secret.encode()
+    signed = f"{mid}.{ts}.".encode() + body
+    want = base64.b64encode(hmac_mod.new(key, signed, hashlib.sha256).digest()).decode()
+    return any(hmac_mod.compare_digest(want, s.split(",", 1)[-1])
+               for s in sigs.split() if s)
+
+
+def polar_apply_tier(email: str) -> str:
+    """Palier effectif d'un email = sa meilleure souscription active ;
+    répercuté sur TOUTES ses clés existantes. Les clés créées plus tard
+    héritent du palier via create_key."""
+    with ops_cursor() as cur:
+        cur.execute("SELECT tier FROM public.polar_subscription "
+                    "WHERE email = %s AND status = ANY(%s)", (email, list(POLAR_ACTIVE)))
+        tiers = {t for (t,) in cur.fetchall()}
+        tier = "enterprise" if "enterprise" in tiers else "pro" if "pro" in tiers else "free"
+        cur.execute("UPDATE public.api_key SET tier = %s WHERE email = %s", (tier, email))
+    return tier
+
+
+@app.post("/polar/webhook", include_in_schema=False)
+async def polar_webhook(request: Request):
+    body = await request.body()
+    if not polar_verify(request, body):
+        raise HTTPException(401, "signature webhook invalide")
+    try:
+        evt = json.loads(body)
+    except ValueError:
+        raise HTTPException(422, "corps JSON attendu")
+    etype = str(evt.get("type", ""))
+    data = evt.get("data") or {}
+    if not etype.startswith("subscription."):
+        return {"status": "ignored", "type": etype}
+    sub_id = str(data.get("id") or "")
+    status = str(data.get("status") or "")
+    email = ((data.get("customer") or {}).get("email")
+             or (data.get("user") or {}).get("email") or "").strip().lower()
+    product_id = str(data.get("product_id")
+                     or (data.get("product") or {}).get("id") or "")
+    tier = POLAR_TIER_BY_PRODUCT.get(product_id)
+    if not (sub_id and email and tier):
+        return {"status": "ignored", "reason": "souscription incomplète ou produit inconnu"}
+    with ops_cursor() as cur:
+        cur.execute(
+            "INSERT INTO public.polar_subscription (subscription_id, email, tier, status) "
+            "VALUES (%s, %s, %s, %s) "
+            "ON CONFLICT (subscription_id) DO UPDATE SET "
+            " email = EXCLUDED.email, tier = EXCLUDED.tier, "
+            " status = EXCLUDED.status, updated_at = now()",
+            (sub_id, email, tier, status))
+    effective = polar_apply_tier(email)
+    return {"status": "ok", "email_tier": effective}
 
 
 @app.get("/v1/communes")
