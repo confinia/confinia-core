@@ -88,6 +88,17 @@ CREATE TABLE IF NOT EXISTS public.premium_usage (
     requests   bigint NOT NULL DEFAULT 0,
     updated_at timestamptz NOT NULL DEFAULT now()
 );
+-- Abonnements Polar (Merchant of Record, issue #8) : état par souscription,
+-- alimenté par le webhook. Le palier d'un email = sa meilleure souscription
+-- active ; appliqué aux clés existantes ET aux clés créées ensuite.
+CREATE TABLE IF NOT EXISTS public.polar_subscription (
+    subscription_id text PRIMARY KEY,
+    email           text NOT NULL,
+    tier            text NOT NULL,
+    status          text NOT NULL,
+    updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_polar_sub_email ON public.polar_subscription (email);
 """
 
 # Clés facultatives pendant le développement ; passer REQUIRE_API_KEY=true
@@ -762,11 +773,18 @@ def create_key(req: KeyRequest):
     """Crée une clé API (gratuite — beta). À passer en en-tête X-API-Key."""
     # Base OPS impérativement : le metering (meter_key) lit public.api_key côté
     # ops ; une clé écrite côté géo serait invisible et donc inutilisable.
+    email = req.email.strip().lower()
     with ops_cursor() as cur:
-        cur.execute("INSERT INTO public.api_key (email, note) VALUES (%s, %s) "
-                    "RETURNING key, created_at", (req.email, req.note))
+        # Une souscription Polar active sur cet email donne son palier aux
+        # clés créées APRÈS l'achat (l'ordre achat/clé est indifférent).
+        cur.execute("SELECT tier FROM public.polar_subscription "
+                    "WHERE email = %s AND status = ANY(%s)", (email, list(POLAR_ACTIVE)))
+        tiers = {t for (t,) in cur.fetchall()}
+        tier = "enterprise" if "enterprise" in tiers else "pro" if "pro" in tiers else "free"
+        cur.execute("INSERT INTO public.api_key (email, note, tier) VALUES (%s, %s, %s) "
+                    "RETURNING key, created_at", (email, req.note, tier))
         key, created = cur.fetchone()
-    return {"key": str(key), "created_at": created.isoformat(),
+    return {"key": str(key), "created_at": created.isoformat(), "tier": tier,
             "usage": f"/v1/keys/{key}/usage"}
 
 
@@ -805,6 +823,92 @@ def upgrade_intent(req: IntentRequest):
     return {"status": "recorded", "tier": tier,
             "note": "Merci ! Vous serez prévenu à l'ouverture du palier, "
                     "tarif de lancement garanti."}
+
+
+# ---------------------------------------------------------------------------
+# Polar (Merchant of Record, issue #8) : Polar est le vendeur légal (TVA,
+# factures, relances) ; nous ne touchons jamais la carte. Ce webhook applique
+# le palier payé aux clés de l'email acheteur : la boucle achat -> clé active
+# tourne sans intervention humaine.
+POLAR_WEBHOOK_SECRET = os.environ.get("POLAR_WEBHOOK_SECRET", "")
+POLAR_TIER_BY_PRODUCT = {
+    pid: tier for tier, pid in (
+        ("pro", os.environ.get("POLAR_PRODUCT_PRO", "")),
+        ("enterprise", os.environ.get("POLAR_PRODUCT_ENTERPRISE", "")),
+    ) if pid
+}
+POLAR_ACTIVE = ("active", "trialing")
+
+
+def polar_verify(request: Request, body: bytes) -> bool:
+    """Signature « Standard Webhooks » : HMAC-SHA256 de `id.timestamp.corps`,
+    secret base64 (préfixe whsec_ éventuel), en-tête webhook-signature
+    'v1,<b64> ...'. Refus si secret absent : jamais de webhook en aveugle."""
+    import base64
+    import hmac as hmac_mod
+    if not POLAR_WEBHOOK_SECRET:
+        return False
+    mid = request.headers.get("webhook-id", "")
+    ts = request.headers.get("webhook-timestamp", "")
+    sigs = request.headers.get("webhook-signature", "")
+    if not (mid and ts and sigs):
+        return False
+    secret = POLAR_WEBHOOK_SECRET.removeprefix("whsec_")
+    try:
+        key = base64.b64decode(secret + "=" * (-len(secret) % 4))
+    except Exception:
+        key = secret.encode()
+    signed = f"{mid}.{ts}.".encode() + body
+    want = base64.b64encode(hmac_mod.new(key, signed, hashlib.sha256).digest()).decode()
+    return any(hmac_mod.compare_digest(want, s.split(",", 1)[-1])
+               for s in sigs.split() if s)
+
+
+def polar_apply_tier(email: str) -> str:
+    """Palier effectif d'un email = sa meilleure souscription active ;
+    répercuté sur TOUTES ses clés existantes. Les clés créées plus tard
+    héritent du palier via create_key."""
+    with ops_cursor() as cur:
+        cur.execute("SELECT tier FROM public.polar_subscription "
+                    "WHERE email = %s AND status = ANY(%s)", (email, list(POLAR_ACTIVE)))
+        tiers = {t for (t,) in cur.fetchall()}
+        tier = "enterprise" if "enterprise" in tiers else "pro" if "pro" in tiers else "free"
+        cur.execute("UPDATE public.api_key SET tier = %s WHERE email = %s", (tier, email))
+    return tier
+
+
+@app.post("/polar/webhook", include_in_schema=False)
+async def polar_webhook(request: Request):
+    body = await request.body()
+    if not polar_verify(request, body):
+        raise HTTPException(401, "signature webhook invalide")
+    try:
+        evt = json.loads(body)
+    except ValueError:
+        raise HTTPException(422, "corps JSON attendu")
+    etype = str(evt.get("type", ""))
+    data = evt.get("data") or {}
+    if not etype.startswith("subscription."):
+        return {"status": "ignored", "type": etype}
+    sub_id = str(data.get("id") or "")
+    status = str(data.get("status") or "")
+    email = ((data.get("customer") or {}).get("email")
+             or (data.get("user") or {}).get("email") or "").strip().lower()
+    product_id = str(data.get("product_id")
+                     or (data.get("product") or {}).get("id") or "")
+    tier = POLAR_TIER_BY_PRODUCT.get(product_id)
+    if not (sub_id and email and tier):
+        return {"status": "ignored", "reason": "souscription incomplète ou produit inconnu"}
+    with ops_cursor() as cur:
+        cur.execute(
+            "INSERT INTO public.polar_subscription (subscription_id, email, tier, status) "
+            "VALUES (%s, %s, %s, %s) "
+            "ON CONFLICT (subscription_id) DO UPDATE SET "
+            " email = EXCLUDED.email, tier = EXCLUDED.tier, "
+            " status = EXCLUDED.status, updated_at = now()",
+            (sub_id, email, tier, status))
+    effective = polar_apply_tier(email)
+    return {"status": "ok", "email_tier": effective}
 
 
 @app.get("/v1/communes")
