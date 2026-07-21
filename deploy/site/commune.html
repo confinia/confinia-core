@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Commune record — Confinia</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Full record of an administrative unit: complete lineage, dated events with provenance, and its boundary at each period. Downloadable as SVG or PDF.">
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #10151d; color: #e8eaed;
+         font: 16px/1.65 system-ui, -apple-system, sans-serif; }
+  main { max-width: 62rem; margin: 0 auto; padding: 2.5rem 1.5rem; }
+  h1 { font-size: 1.9rem; margin: .2rem 0 .2rem; } h1 small { color: #9fb3d1; font-size: 1rem; }
+  .crumb a { color: #7ab8ff; text-decoration: none; } .crumb { font-size: .9rem; opacity: .85; }
+  .meta { color: #9fb3d1; font-size: .92rem; margin-bottom: 1.2rem; }
+  .dl { display: flex; gap: .8rem; flex-wrap: wrap; margin: 1rem 0 1.6rem; align-items: center; }
+  .dl a { border: 1px solid #33405a; border-radius: 8px; padding: .55rem 1rem;
+          color: #7ab8ff; text-decoration: none; }
+  .dl a.primary { background: #7ab8ff; color: #10151d; border-color: #7ab8ff; }
+  .dl a:hover { border-color: #7ab8ff; }
+  .dl small { opacity: .7; font-size: .8rem; }
+  h2 { font-size: 1.1rem; color: #9fb3d1; margin: 1.8rem 0 .6rem; }
+  .ev { margin: .25rem 0; font-size: .95rem; }
+  .ev b { color: #7ab8ff; font-weight: 600; }
+  .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); }
+  .card { border: 1px solid #26314a; border-radius: 12px; background: #0b0f16; padding: 1rem; }
+  .card svg { width: 100%; height: 11rem; display: block; }
+  .card .nm { font-weight: 600; margin-top: .4rem; }
+  .card .pd, .card .vg { font-size: .85rem; color: #9fb3d1; }
+  .card .vg { opacity: .8; font-size: .78rem; }
+  #err { color: #ff9a9a; }
+  footer { margin-top: 3rem; font-size: .85rem; opacity: .75;
+           border-top: 1px solid #26314a; padding-top: 1.2rem; }
+  a { color: #7ab8ff; }
+</style>
+</head>
+<body><main>
+<div class="crumb"><a href="/">Confinia</a> · commune record</div>
+<h1 id="title">Loading…</h1>
+<div class="meta" id="meta"></div>
+<div class="dl" id="dl" style="display:none">
+  <a class="primary" id="dl-pdf" href="#">⬇ PDF report</a>
+  <a id="dl-svg" href="#">⬇ SVG report</a>
+  <small>9 reports free per caller, then the <a href="/pricing">Pro tier</a> · every fact carries its source</small>
+</div>
+<div id="err"></div>
+<h2 id="ev-h" style="display:none">Chronology</h2>
+<div id="events"></div>
+<h2 id="gr-h" style="display:none">Boundaries by period <small style="opacity:.7">(same scale)</small></h2>
+<div class="grid" id="grid"></div>
+<footer>
+  Open source (Apache-2.0): <a href="https://github.com/confinia/confinia-core">github.com/confinia/confinia-core</a>
+  · <a href="/about">About</a> · <a href="/pricing">Pricing</a> · <span id="attrib"></span>
+</footer>
+</main>
+<script>
+const API = (location.hostname === "www.confinia.io" || location.hostname === "staging.confinia.io")
+  ? "/api" : "https://api.confinia.io";
+const code = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop() || "");
+const country = (new URLSearchParams(location.search).get("country") || "FR").toUpperCase();
+
+function ringsOf(geom) {
+  if (!geom) return [];
+  const polys = geom.type === "MultiPolygon" ? geom.coordinates : [geom.coordinates];
+  return polys.flat();
+}
+function pathFor(rings, bbox, w, h) {
+  const [w0, s0, e0, n0] = bbox;
+  const kx = Math.cos(((s0 + n0) / 2) * Math.PI / 180);
+  const sc = Math.min(w / Math.max((e0 - w0) * kx, 1e-9), h / Math.max(n0 - s0, 1e-9)) * 0.92;
+  const cx = w / 2, cy = h / 2, mx = (w0 + e0) / 2, my = (s0 + n0) / 2;
+  return rings.map(r => "M" + r.map(([x, y]) =>
+    `${(cx + (x - mx) * kx * sc).toFixed(1)},${(cy - (y - my) * sc).toFixed(1)}`).join("L") + "Z").join("");
+}
+
+(async () => {
+  try {
+    const url = country === "FR"
+      ? `${API}/v1/communes/${code}/history?geometry=true`
+      : `${API}/v1/units/${encodeURIComponent(code)}/history?country=${country}&geometry=true`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`unknown unit ${country}/${code}`);
+    const d = await r.json();
+    const vs = d.versions.map(f => f.properties);
+    const latest = vs[vs.length - 1];
+    document.title = `${latest.nom} (${code}) — Confinia`;
+    document.getElementById("title").innerHTML =
+      `${latest.nom} <small>(${code}, ${country})</small>`;
+    document.getElementById("meta").textContent =
+      `${vs.length} recorded version(s) · full lineage with per-fact provenance · Confinia`;
+    const q = country === "FR" ? "" : `?country=${country}`;
+    document.getElementById("dl-pdf").href = `${API}/v1/communes/${code}/report.pdf${q}`;
+    document.getElementById("dl-svg").href = `${API}/v1/communes/${code}/report.svg${q}`;
+    document.getElementById("dl").style.display = "flex";
+
+    const evs = d.events || [];
+    if (evs.length) {
+      document.getElementById("ev-h").style.display = "block";
+      document.getElementById("events").innerHTML = evs.map(ev =>
+        `<div class="ev">• ${ev.date ? `<b>${ev.date}</b> — ` : ""}${ev.detail}</div>`).join("");
+    }
+    const allRings = d.versions.flatMap(f => ringsOf(f.geometry));
+    if (allRings.length) {
+      const xs = allRings.flat().map(p => p[0]), ys = allRings.flat().map(p => p[1]);
+      const bbox = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+      document.getElementById("gr-h").style.display = "block";
+      document.getElementById("grid").innerHTML = d.versions.map(f => {
+        const p = f.properties, rings = ringsOf(f.geometry);
+        const vg = p.geometry_vintage
+          ? `geometry vintage ${p.geometry_vintage}${p.geometry_approx ? " (approx.)" : ""}` : "";
+        return `<div class="card">
+          <svg viewBox="0 0 300 200">${rings.length
+            ? `<path d="${pathFor(rings, bbox, 300, 200)}" fill="#1d2c44" stroke="#7ab8ff"
+                 stroke-width="1.1" fill-rule="evenodd"/>`
+            : `<text x="150" y="100" fill="#5b6b85" font-size="13" text-anchor="middle">no geometry</text>`}</svg>
+          <div class="nm">${p.nom}</div>
+          <div class="pd">${p.valid_from} → ${p.valid_to || "today"}</div>
+          <div class="vg">${vg}</div>
+        </div>`;
+      }).join("");
+    }
+    const a = await fetch(`${API}/v1/attributions`).then(x => x.json()).catch(() => null);
+    if (a) document.getElementById("attrib").textContent =
+      "Data: " + a.sources.map(s => s.attribution).slice(0, 4).join(" · ") + " …";
+  } catch (e) {
+    document.getElementById("title").textContent = "Not found";
+    document.getElementById("err").textContent = String(e.message || e);
+  }
+})();
+</script>
+</body></html>
