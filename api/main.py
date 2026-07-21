@@ -476,6 +476,28 @@ def landing():
     return HTMLResponse(LANDING)
 
 
+@app.get("/v1/countries")
+def countries(response: Response):
+    """Silhouettes des pays couverts HORS nomenclature NUTS (ex. NZ) :
+    union des unités courantes par pays. Complète /v1/nuts?level=0 pour les
+    couches de navigation."""
+    with cursor() as cur:
+        cur.execute(
+            "SELECT country, ST_AsGeoJSON(ST_Multi(ST_SimplifyPreserveTopology("
+            "  ST_Union(geom_simple), 0.01)), 5) "
+            "FROM commune_version "
+            "WHERE valid_to = %s AND geom_simple IS NOT NULL "
+            "  AND country NOT IN (SELECT DISTINCT country FROM commune_version "
+            "                      WHERE unit_type = 'nuts0') "
+            "GROUP BY country ORDER BY country", (FAR_FUTURE,))
+        rows = cur.fetchall()
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return {"type": "FeatureCollection", "features": [
+        {"type": "Feature", "geometry": json.loads(g),
+         "properties": {"code": c, "country": c}}
+        for c, g in rows]}
+
+
 @app.get("/v1/attributions")
 def attributions():
     """Registre des sources : licence, attribution et conditions par source."""

@@ -398,6 +398,17 @@ async function addEuropeLayer() {
     const r = await fetch(`${API}/v1/nuts?level=0&at=${NAV_AT}`);
     if (!r.ok) return;
     const fc = await r.json();
+    // Pays couverts hors NUTS (NZ…) : même couche grise cliquable.
+    try {
+      const rx = await fetch(`${API}/v1/countries`);
+      if (rx.ok) {
+        const extra = await rx.json();
+        for (const f of extra.features) {
+          f.properties.nom = COUNTRY_NAMES[f.properties.code] || f.properties.code;
+          fc.features.push(f);
+        }
+      }
+    } catch { /* couche optionnelle */ }
     const labels = { type: "FeatureCollection", features: fc.features.map(f => {
       const pt = labelPoint(f.geometry);
       return pt && { type: "Feature",
