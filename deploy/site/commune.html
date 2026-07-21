@@ -97,7 +97,7 @@ function pathFor(rings, bbox, w, h) {
     if (evs.length) {
       document.getElementById("ev-h").style.display = "block";
       document.getElementById("events").innerHTML = evs.map(ev =>
-        `<div class="ev">• ${ev.date ? `<b>${ev.date}</b> — ` : ""}${ev.detail}</div>`).join("");
+        `<div class="ev">• ${ev.date ? `<b>${ev.date}</b> · ` : ""}${ev.detail}</div>`).join("");
     }
     const allRings = d.versions.flatMap(f => ringsOf(f.geometry));
     if (allRings.length) {
