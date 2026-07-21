@@ -132,7 +132,10 @@
   sur la vue monde (les deux surfaces). Promu (actif = blue) le 2026-07-21.
 - [ ] Géométries UK par édition (ONS Open Geography, contours LAD annuels).
 - [ ] TRF : niveaux supra (cantons/arrondissements/départements annuels 1870-1940,
-  shapefiles inclus) : munitions OHM (admin_level 6/7) pour le fil #762.
+  shapefiles inclus) : munitions OHM (admin_level 6/7) pour le fil #762. → issue #4
+- [ ] Export OHM-ready (start_date/end_date, ref:INSEE, admin_level) pour les fils
+  OHM #762 et OSM-fr #23898. → issue #3
+- [ ] EPCI historiques (BANATIC/DGCL, unions de communes membres). → issue #5
 - [ ] Leçon podman-compose (2 incidents) : `run`/`up` recréent la db et arrachent
   ses dépendants dès que le hash de secrets.env bouge : TOUJOURS `--no-deps` sur
   toute commande compose ciblée (fait dans deploy-api.sh ; penser aux runs ingest).
