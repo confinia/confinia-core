@@ -983,7 +983,9 @@ async function showHistory(code, country, currentName) {
     el.innerHTML = `<span class="close" title="Close">✕</span>
       <h2><b>${currentName}</b> (${code}) · ${COUNTRY_NAMES[country] || country}</h2>
       ${rows}${evts}
-      <div class="tip">Click a period to travel to that time.</div>`;
+      <div class="tip">Click a period to travel to that time.</div>
+      <div class="tip"><a href="https://www.confinia.io/commune/${code}?country=${country}"
+        target="_blank" rel="noopener" style="color:#7ab8ff">Full record &amp; downloadable report →</a></div>`;
     el.querySelector(".close").onclick = () => { el.style.display = "none"; };
     el.querySelectorAll(".v").forEach(n =>
       n.addEventListener("click", () => jumpTo(n.dataset.vf)));

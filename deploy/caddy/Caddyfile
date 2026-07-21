@@ -88,6 +88,12 @@ http://www.confinia.io {
 		rewrite * /pricing.html
 		file_server
 	}
+	# Fiche communale détaillée (issue #14) : /commune/<code>.
+	handle /commune/* {
+		root * /srv/site
+		rewrite * /commune.html
+		file_server
+	}
 	# Accueil : la démo (le produit qui se démontre tout seul).
 	handle {
 		root * /srv/demo
@@ -121,6 +127,11 @@ http://staging.confinia.io {
 	handle /pricing {
 		root * /srv/site
 		rewrite * /pricing.html
+		file_server
+	}
+	handle /commune/* {
+		root * /srv/site
+		rewrite * /commune.html
 		file_server
 	}
 	handle {
