@@ -690,7 +690,7 @@ def nuts_at(
 
 
 # Types « communaux » par pays : adaptateurs natifs + LAU Eurostat (largeur EU).
-MUNICIPAL_TYPES = ("commune", "gemeinde", "gemeente", "lau", "lad")
+MUNICIPAL_TYPES = ("commune", "gemeinde", "gemeente", "lau", "lad", "ta")
 
 
 @app.get("/v1/units")

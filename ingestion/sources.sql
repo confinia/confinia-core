@@ -23,6 +23,7 @@ INSERT INTO data_source (source, license, attribution, commercial_use, source_ur
  ('cbs-pdok',          'CC BY 4.0',           'CBS / Kadaster (CC BY 4.0)',                                               true, 'https://www.pdok.nl',                         'Gemeenten NL 2016 à 2026'),
  ('dbip-country-lite', 'CC BY 4.0',           'IP geolocation by DB-IP (db-ip.com), Country Lite',                        true, 'https://db-ip.com',                           'GeoIP pays d''appel (observabilité) ; jamais l''IP'),
  ('trf-gis',           'CC BY 4.0',           'Victor Gay, TRF-GIS, Mapping the Third Republic (CC BY 4.0)',              true, 'https://dataverse.harvard.edu/dataverse/TRF-GIS', 'Nomenclatures communales annuelles 1870 à 1940'),
+ ('statsnz',           'CC BY 4.0',           'Stats NZ, Territorial Authority boundaries (CC BY 4.0)',                   true, 'https://maps-by-statsnz.hub.arcgis.com',      'NZ : éditions TA 2010 à 2026 (fusion Auckland incluse) ; couches iwi/traités volontairement exclues'),
  ('ons-chd',           'OGL v3',              'Office for National Statistics, Code History Database, © Crown copyright', true, 'https://geoportal.statistics.gov.uk',         'UK : historique des codes GSS (chantier en cours)')
 ON CONFLICT (source) DO UPDATE SET
     license = EXCLUDED.license, attribution = EXCLUDED.attribution,
