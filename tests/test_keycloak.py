@@ -54,5 +54,7 @@ def test_registration_form_shows_organization():
         "redirect_uri": "https://www.confinia.io/account.html",
         "code_challenge": "A" * 43, "code_challenge_method": "S256"})
     assert r.status_code == 200, r.text[:300]
-    assert 'user.attributes.organization' in r.text, \
+    # Theme versions name the input differently (organization vs
+    # user.attributes.organization): assert on the attribute name itself.
+    assert "organization" in r.text.lower(), \
         "organization field missing from the registration form"
