@@ -142,6 +142,10 @@ http://staging.confinia.io {
 		rewrite * /commune.html
 		file_server
 	}
+	handle /account.html {
+		root * /srv/site
+		file_server
+	}
 	handle {
 		root * /srv/demo
 		file_server

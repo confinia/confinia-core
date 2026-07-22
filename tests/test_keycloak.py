@@ -45,6 +45,8 @@ def test_client_is_public_pkce():
     assert cl["publicClient"] is True
     assert cl["attributes"]["pkce.code.challenge.method"] == "S256"
     assert "https://www.confinia.io/*" in cl["redirectUris"]
+    mappers = {m["name"] for m in cl.get("protocolMappers", [])}
+    assert "organization" in mappers   # the /account page reads it from the token
 
 
 def test_registration_form_shows_organization():
