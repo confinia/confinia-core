@@ -82,6 +82,10 @@ http://www.confinia.io {
 		rewrite * /index.html
 		file_server
 	}
+	# IdP Keycloak (issue #19) : chemin relatif /auth, conteneur local 8180.
+	handle /auth/* {
+		reverse_proxy 127.0.0.1:8180
+	}
 	# Tarifs + capture d'intention (issue #7) : la surface d'achat.
 	handle /pricing {
 		root * /srv/site

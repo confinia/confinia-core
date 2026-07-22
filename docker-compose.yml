@@ -52,6 +52,30 @@ services:
       retries: 20
     restart: unless-stopped
 
+  # IdP Keycloak (issue #19) : identités, inscription avec organisation
+  # obligatoire. Servi SOUS www.confinia.io/auth (chemin relatif, pas de
+  # nouveau DNS) derrière le caddy applicatif ; base dédiée `keycloak`
+  # dans l'instance ops-db (état précieux, même politique de sauvegarde).
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command:
+      - start
+      - --http-enabled=true
+      - --http-port=8180
+      - --http-relative-path=/auth
+      - --hostname=https://www.confinia.io/auth
+      - --hostname-backchannel-dynamic=true
+      - --proxy-headers=xforwarded
+    env_file:
+      - ./deploy/secrets.env   # KC_BOOTSTRAP_ADMIN_*, KC_DB_USERNAME/PASSWORD
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://host.containers.internal:5440/keycloak
+      KC_HTTP_MANAGEMENT_PORT: "9001"   # health/metrics hors du chemin public
+    ports:
+      - "127.0.0.1:8180:8180"
+    restart: unless-stopped
+
   # --- Observabilité (Step 5b) : OTel collector -> Prometheus -> Grafana ---
   otel-collector:
     image: docker.io/otel/opentelemetry-collector-contrib:latest
