@@ -1,0 +1,187 @@
+{
+  "title": "Confinia \u00b7 Identities & Organizations (internal)",
+  "uid": "confinia-identities",
+  "timezone": "utc",
+  "refresh": "5m",
+  "time": {
+    "from": "now-90d",
+    "to": "now"
+  },
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Users",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "confinia-kc"
+          },
+          "format": "table",
+          "rawSql": "SELECT count(*) AS value FROM user_entity WHERE realm_id=(SELECT id FROM realm WHERE name='confinia')",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Organizations (declared)",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "confinia-kc"
+          },
+          "format": "table",
+          "rawSql": "SELECT count(DISTINCT value) AS value FROM user_attribute ua JOIN user_entity ue ON ue.id=ua.user_id WHERE ua.name='organization' AND ue.realm_id=(SELECT id FROM realm WHERE name='confinia')",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Users with an organization",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "confinia-kc"
+          },
+          "format": "table",
+          "rawSql": "SELECT count(DISTINCT ua.user_id) AS value FROM user_attribute ua JOIN user_entity ue ON ue.id=ua.user_id WHERE ua.name='organization' AND ue.realm_id=(SELECT id FROM realm WHERE name='confinia')",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Sign-ups last 30 days",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "confinia-kc"
+          },
+          "format": "table",
+          "rawSql": "SELECT count(*) AS value FROM user_entity WHERE realm_id=(SELECT id FROM realm WHERE name='confinia') AND to_timestamp(created_timestamp/1000) > now() - interval '30 days'",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Sign-ups over time",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "confinia-kc"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('day', to_timestamp(created_timestamp/1000)) AS time, count(*) AS signups FROM user_entity WHERE realm_id=(SELECT id FROM realm WHERE name='confinia') GROUP BY 1 ORDER BY 1",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Users per organization",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "confinia-kc"
+          },
+          "format": "table",
+          "rawSql": "SELECT value AS organization, count(*) AS users FROM user_attribute ua JOIN user_entity ue ON ue.id=ua.user_id WHERE ua.name='organization' AND ue.realm_id=(SELECT id FROM realm WHERE name='confinia') GROUP BY value ORDER BY users DESC",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Active sessions (Keycloak usage)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "confinia-kc"
+          },
+          "format": "table",
+          "rawSql": "SELECT count(*) AS active_sessions FROM offline_user_session WHERE realm_id=(SELECT id FROM realm WHERE name='confinia')",
+          "rawQuery": true
+        }
+      ]
+    }
+  ]
+}
