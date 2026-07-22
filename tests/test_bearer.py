@@ -24,6 +24,7 @@ def _make_user(email, pw):
     h = {"Authorization": f"Bearer {_admin_token()}"}
     requests.post(f"{KC}/admin/realms/confinia/users", headers=h, json={
         "email": email, "username": email, "enabled": True, "emailVerified": True,
+        "firstName": "CI", "lastName": "User", "requiredActions": [],
         "attributes": {"organization": ["CI Corp"]},
         "credentials": [{"type": "password", "value": pw, "temporary": False}]})
     # direct grant needs the client to allow it; use admin-cli-style password grant
