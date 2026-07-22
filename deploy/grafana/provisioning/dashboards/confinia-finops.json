@@ -1,0 +1,209 @@
+{
+  "title": "Confinia \u00b7 FinOps (internal)",
+  "uid": "confinia-finops",
+  "timezone": "utc",
+  "refresh": "5m",
+  "time": {
+    "from": "now-90d",
+    "to": "now"
+  },
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Active Pro",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "confinia-pg"
+          },
+          "format": "table",
+          "rawSql": "SELECT count(*) AS value FROM public.polar_subscription WHERE tier='pro' AND status IN ('active','trialing')",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Active Enterprise",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "confinia-pg"
+          },
+          "format": "table",
+          "rawSql": "SELECT count(*) AS value FROM public.polar_subscription WHERE tier='enterprise' AND status IN ('active','trialing')",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "MRR proxy (EUR)",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "confinia-pg"
+          },
+          "format": "table",
+          "rawSql": "SELECT coalesce(sum(CASE tier WHEN 'pro' THEN 49 WHEN 'enterprise' THEN 249 ELSE 0 END),0) AS value FROM public.polar_subscription WHERE status IN ('active','trialing')",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Upgrade intents",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "confinia-pg"
+          },
+          "format": "table",
+          "rawSql": "SELECT count(*) AS value FROM public.upgrade_intent",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Subscriptions changes over time",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "confinia-pg"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('day', updated_at) AS time, tier, count(*) AS events FROM public.polar_subscription GROUP BY 1,2 ORDER BY 1",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Paid keys by tier",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 12
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "confinia-pg"
+          },
+          "format": "table",
+          "rawSql": "SELECT tier, count(*) AS keys FROM public.api_key WHERE tier <> 'free' GROUP BY tier ORDER BY keys DESC",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Upgrade intents by tier",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 12
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "confinia-pg"
+          },
+          "format": "table",
+          "rawSql": "SELECT tier, count(*) AS intents FROM public.upgrade_intent GROUP BY tier ORDER BY intents DESC",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Premium reports consumed (lifetime, free callers)",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 12
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "confinia-pg"
+          },
+          "format": "table",
+          "rawSql": "SELECT count(*) AS free_callers, coalesce(sum(requests),0) AS reports FROM public.premium_usage",
+          "rawQuery": true
+        }
+      ]
+    }
+  ]
+}
