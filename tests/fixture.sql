@@ -50,3 +50,15 @@ VALUES
   ARRAY['99901', '99902'], NULL,
   ST_Multi(ST_GeomFromText('POLYGON((5.00 46.00, 5.02 46.00, 5.02 46.01, 5.00 46.01, 5.00 46.00))', 4326)),
   ST_Multi(ST_GeomFromText('POLYGON((5.00 46.00, 5.02 46.00, 5.02 46.01, 5.00 46.01, 5.00 46.00))', 4326)));
+
+-- A fixture EPCI (banatic) covering the two test communes, for the EPCI
+-- serving test (issue #5). Geometry = the merged Testville footprint.
+INSERT INTO data_source (source, license, attribution, commercial_use) VALUES
+ ('banatic', 'Licence Ouverte 2.0', 'BANATIC (Ministere de l''Interieur)', true)
+ON CONFLICT (source) DO NOTHING;
+INSERT INTO commune_version
+ (code, nom, valid_from, valid_to, unit_type, country, source, geometry_vintage, geom, geom_simple)
+VALUES
+ ('200099999', 'CC de Testville', DATE '2025-01-01', DATE '9999-01-01', 'epci', 'FR', 'banatic', DATE '2025-01-01',
+  ST_Multi(ST_GeomFromText('POLYGON((5.00 46.00, 5.02 46.00, 5.02 46.01, 5.00 46.01, 5.00 46.00))', 4326)),
+  ST_Multi(ST_GeomFromText('POLYGON((5.00 46.00, 5.02 46.00, 5.02 46.01, 5.00 46.01, 5.00 46.00))', 4326)));
