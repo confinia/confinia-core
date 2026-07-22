@@ -97,15 +97,6 @@ Reload data without downtime: run `make load-fr` (the table is rebuilt in one tr
 - **IGN — Admin Express** (Licence Ouverte 2.0, attribution « IGN — Admin Express ») — commune geometries
 - **Eurostat GISCO** — NUTS regions *(planned)*
 
-
-## Acknowledgements
-
-The temporal-conversion problem for French communes was first made practical
-by [COGugaison](https://github.com/antuki/COGugaison) (Kim Antunez): the
-package's treatment of COG vintages, and its population-weighted handling of
-communal splits, informed the design of this API's temporal model and of the
-upcoming weighted passage tables. Merci.
-
 ## License
 
 Code: [Apache-2.0](LICENSE). Data: per-source licenses above.
