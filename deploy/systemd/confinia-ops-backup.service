@@ -1,0 +1,9 @@
+# User-level unit (no crontab on the minimal VM). Install:
+#   cp deploy/systemd/confinia-ops-backup.* ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now confinia-ops-backup.timer
+#   loginctl enable-linger $USER   # keeps the timer alive without a session
+[Unit]
+Description=Confinia nightly ops-state backup
+[Service]
+Type=oneshot
+ExecStart=/bin/bash %h/projects/confinia/deploy/backup-ops.sh
