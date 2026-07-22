@@ -25,6 +25,19 @@
    la merger (squash) seulement après validation en staging. Les commits
    directs sur `main` sont réservés aux documents de process (RULES, TODO).
 
+4. **Anglais partout dans le public** : commentaires de code et docs markdown
+   du repo en ANGLAIS (exceptions : RULES.md et TODO.md, docs de process).
+
+5. **Jamais de posture business dans le repo public** : stratégie, seuils
+   financiers, règles internes → `business/` ou mémoire, jamais un fichier suivi.
+
+6. **Chaque issue expose un test (unitaire ou bout-en-bout), rejoué après
+   chaque déploiement** : toute issue livrée ajoute au moins un test qui
+   exerce son comportement ; ces tests tournent en CI ET sont rejoués contre
+   le déploiement LIVE après chaque promotion (suite post-deploy
+   `tests/smoke_prod.py`, à lancer sur staging puis sur la prod promue).
+   Un test *skipped* ne vaut pas validation.
+
 Autres règles opérationnelles (détaillées dans `DEV.md`) : rendu mobile
 vérifié par captures avant toute publication front ; adresse admin caddy
 unique par instance en réseau hôte ; `--no-deps` sur toute commande
