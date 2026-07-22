@@ -1,13 +1,12 @@
--- Réconciliation UK : le CHD (ons-chd, dates légales exactes) devient la
--- colonne vertébrale temporelle ; les géométries des lignes eurostat-lau UK
--- (codes GSS identiques) sont rapatriées sur les versions CHD, puis les
--- lignes LAU UK (édition 2016 figée, périodes fausses post-Brexit) sont
--- retirées. Schéma-neutre : exécuter avec le search_path voulu (bleu/vert
--- données : SET search_path TO staging, public).
+-- UK reconciliation: the CHD (ons-chd, exact legal dates) becomes the temporal
+-- backbone; the geometries of the UK eurostat-lau rows (identical GSS codes)
+-- are brought over onto the CHD versions, then the UK LAU rows (frozen 2016
+-- edition, wrong post-Brexit periods) are removed. Schema-neutral: run with
+-- the desired search_path (blue/green data: SET search_path TO staging, public).
 
--- 1) Rapatrier la meilleure géométrie LAU disponible sur chaque version LAD.
---    geometry_approx = true : l'édition géométrique ne coïncide pas
---    nécessairement avec la période légale de la version.
+-- 1) Bring the best available LAU geometry onto each LAD version.
+--    geometry_approx = true: the geometry edition does not necessarily
+--    coincide with the legal period of the version.
 UPDATE commune_version lad
 SET geom = lau.geom,
     geom_simple = lau.geom_simple,
@@ -21,17 +20,17 @@ FROM (
 ) lau
 WHERE lad.source = 'ons-chd' AND lad.unit_type = 'lad' AND lad.code = lau.code;
 
--- 2) Retirer les doublons LAU UK (le CHD fait désormais autorité).
+-- 2) Remove the UK LAU duplicates (the CHD is now authoritative).
 DELETE FROM commune_version WHERE country = 'UK' AND unit_type = 'lau';
 
--- 3) Contrôles.
-SELECT 'versions lad avec géométrie' AS controle, count(*) FROM commune_version
+-- 3) Checks.
+SELECT 'lad versions with geometry' AS controle, count(*) FROM commune_version
 WHERE source = 'ons-chd' AND geom IS NOT NULL
 UNION ALL
-SELECT 'versions lad sans géométrie', count(*) FROM commune_version
+SELECT 'lad versions without geometry', count(*) FROM commune_version
 WHERE source = 'ons-chd' AND geom IS NULL
 UNION ALL
-SELECT 'lignes lau UK restantes (attendu 0)', count(*) FROM commune_version
+SELECT 'remaining UK lau rows (expected 0)', count(*) FROM commune_version
 WHERE country = 'UK' AND unit_type = 'lau'
 UNION ALL
-SELECT 'total base', count(*) FROM commune_version;
+SELECT 'database total', count(*) FROM commune_version;

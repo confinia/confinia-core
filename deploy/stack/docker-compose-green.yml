@@ -1,8 +1,8 @@
-# Stack GREEN confinia : API + base GÉO de la couleur green.
-# La base géo est un ARTEFACT DE BUILD : reconstruite par double ingestion
-# (deploy/build-geo.sh green), JAMAIS copiée depuis l'autre couleur.
-# L'état opérationnel vit dans l'ops-db partagée (compose racine).
-# Commandes :
+# Confinia GREEN stack: API + GEO database of the green color.
+# The geo database is a BUILD ARTIFACT: rebuilt by double ingestion
+# (deploy/build-geo.sh green), NEVER copied from the other color.
+# The operational state lives in the shared ops-db (root compose).
+# Commands:
 #   podman-compose -p confinia-green -f deploy/stack/docker-compose-green.yml up -d db
 #   podman-compose -p confinia-green -f deploy/stack/docker-compose-green.yml --profile serve up -d api
 services:
@@ -25,7 +25,7 @@ services:
     image: confinia-api:latest
     profiles: ["serve"]
     env_file:
-      - ../secrets.env            # PG_DSN (host `db` = la db de CETTE couleur), OPS_DSN
+      - ../secrets.env            # PG_DSN (host `db` = THIS color's db), OPS_DSN
     environment:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://host.containers.internal:4318
     volumes:

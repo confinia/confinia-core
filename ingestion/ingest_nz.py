@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Stats NZ Territorial Authorities -> modèle temporel (country = NZ).
+"""Stats NZ Territorial Authorities -> temporal model (country = NZ).
 
-Source : éditions publiées sur l'ArcGIS Hub de Stats NZ (licence CC BY 4.0),
-téléchargeables sans clé : 2010, 2013, 2018, 2023, 2025, 2026. Diff
-d'éditions comme DE/NL/LAU : transitions aux 1ers janvier d'édition
-(approximation documentée). La fusion du super-Auckland (sept conseils
-fusionnés fin 2010) apparaît entre les éditions 2010 et 2013.
+Source: editions published on the Stats NZ ArcGIS Hub (CC BY 4.0 license),
+downloadable without a key: 2010, 2013, 2018, 2023, 2025, 2026. Edition diff
+like DE/NL/LAU: transitions at the January 1st of each edition (documented
+approximation). The super-Auckland merger (seven councils merged in late
+2010) appears between the 2010 and 2013 editions.
 
-PÉRIMÈTRE : Territorial Authorities uniquement (limites administratives
-standard). Les couches iwi / traités ne sont PAS ingérées : données de
-souveraineté autochtone, hors périmètre sans partenariat explicite.
+SCOPE: Territorial Authorities only (standard administrative boundaries).
+The iwi / treaty layers are NOT ingested: indigenous sovereignty data, out
+of scope without an explicit partnership.
 
-Usage : ingest_nz.py [--download] --data-dir /data/raw/nz
+Usage: ingest_nz.py [--download] --data-dir /data/raw/nz
 """
 from __future__ import annotations
 
@@ -44,14 +44,14 @@ def download(data_dir: str) -> None:
         try:
             urllib.request.urlretrieve(URL.format(y=y), out)
         except Exception as e:
-            print(f"  {y}: téléchargement impossible ({e})")
+            print(f"  {y}: download failed ({e})")
 
 
 def read_edition(path: str) -> dict[str, tuple[str, object]]:
     d = json.load(open(path, encoding="utf-8"))
     feats = d.get("features") or []
     if not feats:
-        raise SystemExit(f"Édition vide : {path} : refus d'ingérer.")
+        raise SystemExit(f"Empty edition: {path}: refusing to ingest.")
     props0 = feats[0]["properties"]
     code_key = next(k for k in props0 if re.fullmatch(r"TA\d{4}_V\d_00", k))
     name_key = code_key + "_NAME"
@@ -59,10 +59,10 @@ def read_edition(path: str) -> dict[str, tuple[str, object]]:
     for f in feats:
         p = f["properties"]
         code = str(p[code_key]).zfill(3)
-        # 999 = « Area Outside Territorial Authority » : unité TECHNIQUE
-        # (océans, zones hors TA) dont le polygone chevauche le pays entier
-        # et capte les requêtes point-dans-polygone. Exclue, comme l'unité
-        # fantôme UN du LAU.
+        # 999 = "Area Outside Territorial Authority": a TECHNICAL unit
+        # (oceans, areas outside any TA) whose polygon overlaps the whole
+        # country and captures point-in-polygon queries. Excluded, like the
+        # phantom UN unit of the LAU.
         if code == "999":
             continue
         out[code] = (str(p[name_key]).strip(), f["geometry"])
@@ -81,14 +81,14 @@ def main() -> int:
     years = sorted(int(re.search(r"ta_(\d{4})", p).group(1))
                    for p in glob.glob(os.path.join(args.data_dir, "ta_*.geojson")))
     if not years:
-        raise SystemExit("Aucune édition ta_YYYY.geojson : lancer avec --download.")
+        raise SystemExit("No ta_YYYY.geojson edition: run with --download.")
     states = {y: read_edition(os.path.join(args.data_dir, f"ta_{y}.geojson"))
               for y in years}
     for y in years:
-        print(f"  édition {y}: {len(states[y])} territorial authorities")
+        print(f"  edition {y}: {len(states[y])} territorial authorities")
 
-    # Diff d'éditions -> périodes ; géométrie de l'édition de DÉBUT.
-    periods = []                                  # (code, nom, y_debut, y_fin|None)
+    # Edition diff -> periods; geometry of the STARTING edition.
+    periods = []                                  # (code, name, start_y, end_y|None)
     open_: dict[str, tuple[str, int]] = {}
     for y in years:
         cur = states[y]
@@ -104,13 +104,13 @@ def main() -> int:
                 open_[code] = (nom, y)
     for code, (nom, start) in open_.items():
         periods.append((code, nom, start, None))
-    print(f"{len(periods)} périodes TA")
+    print(f"{len(periods)} TA periods")
 
     import psycopg2
     conn = psycopg2.connect(args.dsn)
     with conn, conn.cursor() as cur:
         cur.execute("DELETE FROM commune_version WHERE source=%s", (SOURCE,))
-        print(f"{cur.rowcount} anciennes lignes supprimées (rejeu idempotent)")
+        print(f"{cur.rowcount} old rows deleted (idempotent replay)")
         for code, nom, start, end in periods:
             geom = shape(states[start][code][1])
             gj = json.dumps(mapping(geom))
@@ -132,14 +132,14 @@ def main() -> int:
                         "WHERE source=%s AND valid_from<=%s AND valid_to>%s",
                         (SOURCE, d, d))
             got, want = cur.fetchone()[0], len(states[edition])
-            tag = "OK " if got == want else "ECART"
+            tag = "OK " if got == want else "MISMATCH"
             ok = ok and got == want
-            print(f"  contrôle {d}: reconstruit {got} vs édition {edition} ({want})  {tag}")
+            print(f"  check {d}: rebuilt {got} vs edition {edition} ({want})  {tag}")
         cur.execute("SELECT nom, valid_from, valid_to FROM commune_version "
                     "WHERE source=%s AND nom LIKE '%%Auckland%%' ORDER BY valid_from",
                     (SOURCE,))
         for nom, vf, vt in cur.fetchall():
-            print(f"  Auckland : {nom} {vf} -> {vt if vt != FAR_FUTURE else 'today'}")
+            print(f"  Auckland: {nom} {vf} -> {vt if vt != FAR_FUTURE else 'today'}")
     conn.close()
     return 0 if ok else 1
 

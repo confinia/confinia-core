@@ -1,8 +1,8 @@
--- Registre des sources de données : provenance, licence, attribution, droits.
--- Chaque ligne de commune_version référence sa source primaire ; le jour où
--- des tiers payants existent, le filtrage par conditions d'usage est un WHERE
--- (commercial_use), et l'attribution par réponse se génère depuis ce registre.
--- Idempotent : rejouable à volonté (ON CONFLICT ... DO UPDATE).
+-- Registry of data sources: provenance, license, attribution, usage rights.
+-- Each commune_version row references its primary source; the day paying
+-- third parties exist, filtering by terms of use is a WHERE (commercial_use),
+-- and the per-response attribution is generated from this registry.
+-- Idempotent: replayable at will (ON CONFLICT ... DO UPDATE).
 
 CREATE TABLE IF NOT EXISTS data_source (
     source         text PRIMARY KEY,
@@ -32,8 +32,8 @@ ON CONFLICT (source) DO UPDATE SET
 
 ALTER TABLE commune_version ADD COLUMN IF NOT EXISTS source text REFERENCES data_source(source);
 
--- Backfill des lignes existantes : la source primaire du RELEVÉ TEMPOREL
--- (les géométries FR viennent d'IGN, documenté dans le registre).
+-- Backfill of the existing rows: the primary source of the TEMPORAL RECORD
+-- (FR geometries come from IGN, documented in the registry).
 UPDATE commune_version SET source = CASE
     WHEN unit_type LIKE 'nuts%'   THEN 'eurostat-nuts'
     WHEN unit_type = 'gemeinde'   THEN 'bkg-vg250'

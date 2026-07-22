@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
-Ingestion du Code Officiel Géographique (INSEE) + géométries IGN vers PostGIS,
-avec un modèle temporel valid_from / valid_to interrogeable par date.
+Ingestion of the Code Officiel Géographique (INSEE) + IGN geometries into PostGIS,
+with a valid_from / valid_to temporal model queryable by date.
 
-Deux fichiers INSEE suffisent pour démarrer :
-  1. Le fichier COMMUNE d'un millésime  -> l'état des communes au 1er janvier de l'année
-  2. Le fichier MVTCOMMUNE (mouvements)  -> les événements (fusion, création, renommage...)
+Two INSEE files are enough to get started:
+  1. The COMMUNE file of a vintage       -> the state of communes on January 1st of that year
+  2. The MVTCOMMUNE file (movements)     -> the events (merger, creation, renaming...)
 
-Le script :
-  - télécharge (ou lit en local) ces fichiers pour plusieurs millésimes
-  - reconstruit une table temporelle : une ligne = un (code, nom) valide sur [valid_from, valid_to)
-  - déduit les liens parent/enfant à partir des mouvements
-  - joint la géométrie IGN Admin Express quand elle est fournie
-  - charge le tout dans PostGIS (ou exporte en GeoJSON si pas de base)
+The script:
+  - downloads (or reads locally) these files for several vintages
+  - rebuilds a temporal table: one row = one (code, name) valid over [valid_from, valid_to)
+  - derives parent/child links from the movements
+  - joins the IGN Admin Express geometry when it is provided
+  - loads everything into PostGIS (or exports to GeoJSON if no database)
 
-Conçu pour être robuste : si le réseau ou la base manquent, il bascule en mode
-démonstration sur un petit échantillon intégré, pour qu'on puisse le lancer partout.
+Designed to be robust: if the network or the database is missing, it falls back
+to a demonstration mode with a small built-in sample, so it can be run anywhere.
 """
 
 from __future__ import annotations
@@ -33,26 +33,26 @@ from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 
 # --------------------------------------------------------------------------
-#  Configuration des sources
+#  Source configuration
 # --------------------------------------------------------------------------
-# ATTENTION : les URLs INSEE changent à chaque millésime et ne sont pas stables
-# dans le temps. On les centralise ici pour pouvoir les corriger facilement.
-# Renseignez l'URL du fichier "commune" et "mouvements" par millésime.
-# Laissez None pour utiliser un fichier local (--data-dir) ou le mode démo.
+# WARNING: INSEE URLs change with every vintage and are not stable over time.
+# They are centralized here so they can be fixed easily.
+# Fill in the URL of the "commune" and "movements" file per vintage.
+# Leave None to use a local file (--data-dir) or demo mode.
 INSEE_SOURCES: dict[int, dict] = {
     2020: {"commune": None, "mvt": None},
     2023: {"commune": None, "mvt": None},
     2025: {"commune": None, "mvt": None},
 }
 
-# Colonnes attendues dans le fichier COMMUNE (millésime >= 2019)
+# Expected columns in the COMMUNE file (vintage >= 2019):
 #   TYPECOM, COM, NCC, NCCENR, LIBELLE, ...
-# Colonnes attendues dans le fichier MVTCOMMUNE (mouvements) :
+# Expected columns in the MVTCOMMUNE file (movements):
 #   MOD, DATE_EFF, TYPECOM_AV, COM_AV, LIBELLE_AV, TYPECOM_AP, COM_AP, LIBELLE_AP, ...
 #
-# Codes MOD (type d'événement) principaux :
-#   10 changement de nom | 20 création | 21 rétablissement
-#   30 suppression | 31 fusion simple | 32 création commune nouvelle
+# Main MOD codes (event type) — official INSEE labels, kept in French:
+#   10 changement de nom (renaming) | 20 création (creation) | 21 rétablissement (re-establishment)
+#   30 suppression (abolition) | 31 fusion simple (simple merger) | 32 création commune nouvelle
 #   33 fusion-association | 34 transformation de fusion | 41 ... etc.
 MOD_LABELS = {
     "10": "changement de nom",
@@ -68,47 +68,47 @@ MOD_LABELS = {
     "50": "changement de code dû à un changement de département",
 }
 
-# Sémantique des lignes AV -> AP dont le code CHANGE (les lignes à code
-# identique sont traitées à part : identité ou renommage).
-#   - La version AV ne prend fin que si l'événement la fait disparaître :
-#     suppression, fusions (côté absorbé), changements de code. Une création
-#     (20) ou un rétablissement partiel (21) laissent la commune source vivre —
-#     c'est le bug "Marseille finit en 1946" (création de Plan-de-Cuques).
-#   - La version AP ne démarre que si l'événement la crée : création,
-#     rétablissement, commune nouvelle, changements de code. Une fusion simple
-#     ou une fusion-association ne (re)démarre pas l'absorbeur — c'est le bug
-#     "Manosque démarre en 1975" (absorption de communes associées).
+# Semantics of AV -> AP rows whose code CHANGES (rows with an identical code
+# are handled separately: identity or renaming).
+#   - The AV version only ends if the event makes it disappear: abolition,
+#     mergers (absorbed side), code changes. A creation (20) or a partial
+#     re-establishment (21) lets the source commune live on — that is the
+#     "Marseille ends in 1946" bug (creation of Plan-de-Cuques).
+#   - The AP version only starts if the event creates it: creation,
+#     re-establishment, commune nouvelle, code changes. A simple merger or a
+#     fusion-association does not (re)start the absorber — that is the
+#     "Manosque starts in 1975" bug (absorption of associated communes).
 ENDS_AV_CROSS = {"30", "31", "32", "33", "41", "50"}
 STARTS_AP_CROSS = {"20", "21", "32", "41", "50"}
 
-FAR_FUTURE = "9999-01-01"  # convention pour "toujours valide"
-COG_FLOOR = "1943-01-01"   # borne basse de l'historique INSEE des mouvements
+FAR_FUTURE = "9999-01-01"  # convention for "still valid"
+COG_FLOOR = "1943-01-01"   # lower bound of the INSEE movements history
 
 
 # --------------------------------------------------------------------------
-#  Modèle de données
+#  Data model
 # --------------------------------------------------------------------------
 @dataclass
 class CommuneVersion:
-    """Une version datée d'une commune : (code, nom) valide sur [valid_from, valid_to).
+    """A dated version of a commune: (code, name) valid over [valid_from, valid_to).
 
-    Un même (code, nom) peut produire plusieurs versions si la commune est
-    rétablie après une fusion (ex. Celles 15148, morte en 2016, rétablie en 2025).
+    The same (code, name) can produce several versions if the commune is
+    re-established after a merger (e.g. Celles 15148, gone in 2016, re-established in 2025).
     """
     code: str
     nom: str
     valid_from: str            # ISO date
-    valid_to: str              # ISO date ou FAR_FUTURE
-    parents: list[str] = field(default_factory=list)   # codes dont elle est issue
-    children: list[str] = field(default_factory=list)  # codes qui la remplacent
-    geometry: dict | None = None                        # GeoJSON geometry (brute)
-    geometry_simple: dict | None = None                 # GeoJSON geometry (simplifiée web)
-    geometry_vintage: str | None = None                 # date du millésime IGN utilisé
-    geometry_approx: bool = False                       # héritée d'un millésime voisin
+    valid_to: str              # ISO date or FAR_FUTURE
+    parents: list[str] = field(default_factory=list)   # codes it originates from
+    children: list[str] = field(default_factory=list)  # codes that replace it
+    geometry: dict | None = None                        # GeoJSON geometry (raw)
+    geometry_simple: dict | None = None                 # GeoJSON geometry (web-simplified)
+    geometry_vintage: str | None = None                 # date of the IGN vintage used
+    geometry_approx: bool = False                       # inherited from a neighboring vintage
 
 
 # --------------------------------------------------------------------------
-#  Récupération des fichiers (réseau ou local)
+#  Fetching the files (network or local)
 # --------------------------------------------------------------------------
 def fetch_bytes(url: str, timeout: int = 30) -> bytes:
     req = Request(url, headers={"User-Agent": "chronocarte-ingest/0.1"})
@@ -117,7 +117,7 @@ def fetch_bytes(url: str, timeout: int = 30) -> bytes:
 
 
 def read_csv_from_source(src: str | None, local: Path | None, encoding="utf-8") -> list[dict]:
-    """Lit un CSV depuis une URL (zip ou brut) ou un fichier local. Retourne une liste de dicts."""
+    """Reads a CSV from a URL (zip or raw) or a local file. Returns a list of dicts."""
     raw: bytes | None = None
 
     if local and local.exists():
@@ -128,46 +128,46 @@ def read_csv_from_source(src: str | None, local: Path | None, encoding="utf-8") 
     if raw is None:
         return []
 
-    # Dézipper si nécessaire
+    # Unzip if needed
     if raw[:2] == b"PK":
         with zipfile.ZipFile(io.BytesIO(raw)) as z:
-            # on prend le premier .csv/.txt du zip
+            # take the first .csv/.txt in the zip
             name = next((n for n in z.namelist()
                          if n.lower().endswith((".csv", ".txt"))), None)
             if not name:
                 return []
             raw = z.read(name)
 
-    # utf-8-sig : les CSV INSEE ≥ 2020 arrivent avec un BOM
+    # utf-8-sig: INSEE CSVs >= 2020 come with a BOM
     text = raw.decode("utf-8-sig" if encoding == "utf-8" else encoding, errors="replace")
-    # l'INSEE utilise la virgule ; on laisse le sniffer trancher au besoin
+    # INSEE uses the comma; let the sniffer decide when needed
     delimiter = ","
     first_line = text.splitlines()[0] if text else ""
     if first_line.count(";") > first_line.count(","):
         delimiter = ";"
-    # En-têtes normalisés en MAJUSCULES : les millésimes ≥ 2020 sont en minuscules
-    # (typecom, com, libelle…), le code attend TYPECOM/COM/LIBELLE.
+    # Headers normalized to UPPERCASE: vintages >= 2020 are lowercase
+    # (typecom, com, libelle…), the code expects TYPECOM/COM/LIBELLE.
     return [{(k or "").upper().strip(): v for k, v in row.items()}
             for row in csv.DictReader(io.StringIO(text), delimiter=delimiter)]
 
 
 # --------------------------------------------------------------------------
-#  Construction du modèle temporel
+#  Building the temporal model
 # --------------------------------------------------------------------------
 def build_versions(millesimes: list[int],
                     data_dir: Path | None,
                     use_network: bool) -> list[CommuneVersion]:
     """
-    Reconstruit les versions temporelles à partir des fichiers COMMUNE + MVTCOMMUNE.
+    Rebuilds the temporal versions from the COMMUNE + MVTCOMMUNE files.
 
-    Stratégie simple et lisible :
-      - chaque fichier COMMUNE d'un millésime donne l'ensemble des communes au 1er janvier
-      - on pose valid_from = 1er janvier du plus ancien millésime où le (code, nom) apparaît
-      - valid_to = date de l'événement qui met fin à ce (code, nom), lu dans MVTCOMMUNE
-      - les mouvements donnent les liens parent/enfant
+    Simple, readable strategy:
+      - each COMMUNE file of a vintage gives the set of communes on January 1st
+      - set valid_from = January 1st of the oldest vintage where the (code, name) appears
+      - valid_to = date of the event that ends this (code, name), read from MVTCOMMUNE
+      - the movements give the parent/child links
     """
-    # 1. Charger l'état des communes pour chaque millésime
-    snapshots: dict[int, dict[str, str]] = {}   # année -> {code: nom}
+    # 1. Load the state of communes for each vintage
+    snapshots: dict[int, dict[str, str]] = {}   # year -> {code: name}
     all_movements: list[dict] = []
 
     for y in sorted(millesimes):
@@ -182,7 +182,7 @@ def build_versions(millesimes: list[int],
 
         snap: dict[str, str] = {}
         for row in commune_rows:
-            # on ne garde que les communes "de plein exercice" (TYPECOM == COM)
+            # keep only full-status communes ("de plein exercice", TYPECOM == COM)
             if row.get("TYPECOM", "COM") != "COM":
                 continue
             code = row.get("COM") or row.get("CODGEO") or ""
@@ -196,28 +196,28 @@ def build_versions(millesimes: list[int],
             m["_millesime"] = y
         all_movements.extend(mvt_rows)
 
-    # Mode démo si rien n'a été chargé
+    # Demo mode if nothing was loaded
     if not snapshots:
-        print("  [i] Aucune source réelle disponible -> jeu de démonstration intégré.")
+        print("  [i] No real source available -> built-in demonstration dataset.")
         return demo_versions()
 
     years = sorted(snapshots)
 
-    # 2. Indexer les mouvements par (code, nom) de départ et d'arrivée.
-    #    DATE_EFF est la source de vérité des transitions : c'est la vraie date
-    #    à laquelle "commune avant" devient "commune après".
-    #    Un même (code, nom) peut commencer/finir plusieurs fois (rétablissements),
-    #    d'où des ENSEMBLES de dates, transformés en périodes à l'étape 3.
-    ends_at: dict[tuple[str, str], set[str]] = {}    # (code, nom) -> dates de fin
-    starts_at: dict[tuple[str, str], set[str]] = {}  # (code, nom) -> dates de début
-    child_links: dict[tuple[str, str], set] = {}     # (code, nom) -> {(date, code_ap)}
-    parent_links: dict[tuple[str, str], set] = {}    # (code, nom) -> {(date, code_av)}
+    # 2. Index the movements by starting and ending (code, name).
+    #    DATE_EFF is the source of truth for transitions: it is the actual date
+    #    on which "commune before" becomes "commune after".
+    #    The same (code, name) can start/end several times (re-establishments),
+    #    hence SETS of dates, turned into periods in step 3.
+    ends_at: dict[tuple[str, str], set[str]] = {}    # (code, name) -> end dates
+    starts_at: dict[tuple[str, str], set[str]] = {}  # (code, name) -> start dates
+    child_links: dict[tuple[str, str], set] = {}     # (code, name) -> {(date, code_ap)}
+    parent_links: dict[tuple[str, str], set] = {}    # (code, name) -> {(date, code_av)}
 
-    # Passe 1 — lignes identité (même code+nom COM des deux côtés) : la commune
-    # traverse l'événement. Elles ANNULENT tout début/fin croisé du même jour :
-    # une commune nouvelle qui garde code et nom du chef-lieu (Osmery 2024,
-    # Neufchâteau 2025…) ne doit pas voir son passé effacé par la ligne croisée
-    # venant de la commune absorbée.
+    # Pass 1 — identity rows (same COM code+name on both sides): the commune
+    # passes through the event. They CANCEL any cross start/end of the same day:
+    # a commune nouvelle keeping the chef-lieu's code and name (Osmery 2024,
+    # Neufchâteau 2025…) must not have its past erased by the cross row
+    # coming from the absorbed commune.
     identity: set[tuple[str, str, str]] = set()
     for m in all_movements:
         d = (m.get("DATE_EFF") or "").strip()
@@ -236,48 +236,48 @@ def build_versions(millesimes: list[int],
         d = (m.get("DATE_EFF") or "").strip()
         if len(d) != 10:
             continue
-        # Seules les communes de plein exercice (TYPECOM == COM) nous concernent.
-        # Une fusion produit AUSSI des lignes vers COMD/COMA (communes déléguées/
-        # associées) portant le même (code, nom) que la commune disparue — sans ce
-        # filtre, elles écrasent les dates de la vraie version (cas 01033 Bellegarde).
+        # Only full-status communes (TYPECOM == COM) concern us.
+        # A merger ALSO produces rows toward COMD/COMA (delegated/associated
+        # communes) carrying the same (code, name) as the vanished commune — without
+        # this filter, they overwrite the dates of the real version (case 01033 Bellegarde).
         av_is_com = (m.get("TYPECOM_AV") or "COM").strip() == "COM"
         ap_is_com = (m.get("TYPECOM_AP") or "COM").strip() == "COM"
         code_av = (m.get("COM_AV") or "").strip() if av_is_com else ""
         nom_av = (m.get("LIBELLE_AV") or m.get("NCCENR_AV") or "").strip()
         code_ap = (m.get("COM_AP") or "").strip() if ap_is_com else ""
         nom_ap = (m.get("LIBELLE_AP") or m.get("NCCENR_AP") or "").strip()
-        # Ligne identité : la commune traverse l'événement inchangée (ex. la
-        # commune absorbante d'une fusion-association, MOD 33/34). Elle ne
-        # commence ni ne finit ici — ignorer, sinon on la tue à cette date.
+        # Identity row: the commune passes through the event unchanged (e.g. the
+        # absorbing commune of a fusion-association, MOD 33/34). It neither
+        # starts nor ends here — ignore, otherwise we kill it at this date.
         if code_av and code_av == code_ap and nom_av == nom_ap:
             continue
         mod = (m.get("MOD") or "").strip()
         if code_av and code_av == code_ap:
-            # Même code, nom différent : renommage (quel que soit le MOD) —
-            # l'ancienne version finit, la nouvelle commence.
+            # Same code, different name: renaming (whatever the MOD) —
+            # the old version ends, the new one starts.
             if nom_av:
                 ends_at.setdefault((code_av, nom_av), set()).add(d)
             if nom_ap:
                 starts_at.setdefault((code_ap, nom_ap), set()).add(d)
         else:
-            # Code différent : la sémantique dépend du type d'événement — et une
-            # ligne identité du même jour l'emporte (la commune survit).
+            # Different code: the semantics depend on the event type — and an
+            # identity row of the same day wins (the commune survives).
             if (code_av and nom_av and mod in ENDS_AV_CROSS
                     and (code_av, nom_av, d) not in identity):
                 ends_at.setdefault((code_av, nom_av), set()).add(d)
             if (code_ap and nom_ap and mod in STARTS_AP_CROSS
                     and (code_ap, nom_ap, d) not in identity):
                 starts_at.setdefault((code_ap, nom_ap), set()).add(d)
-        # liens parent/enfant datés, en ignorant les auto-références (même code+nom)
+        # dated parent/child links, ignoring self-references (same code+name)
         if code_av and code_ap and (code_av, nom_av) != (code_ap, nom_ap):
             child_links.setdefault((code_av, nom_av), set()).add((d, code_ap))
             parent_links.setdefault((code_ap, nom_ap), set()).add((d, code_av))
 
-    # 3. Construire les périodes de chaque (code, nom) rencontré dans les
-    #    snapshots OU les mouvements. Le fichier des mouvements est complet
-    #    depuis 1943 : un (code, nom) sans événement entrant existe donc depuis
-    #    (au moins) COG_FLOOR — c'est ce qui rend les comptages corrects à
-    #    n'importe quelle date, même avec un seul millésime COG chargé.
+    # 3. Build the periods of each (code, name) encountered in the snapshots
+    #    OR in the movements. The movements file is complete since 1943: a
+    #    (code, name) with no incoming event therefore exists since (at least)
+    #    COG_FLOOR — this is what makes the counts correct at any date, even
+    #    with a single COG vintage loaded.
     keys: set[tuple[str, str]] = set()
     for y in years:
         for code, nom in snapshots[y].items():
@@ -292,8 +292,8 @@ def build_versions(millesimes: list[int],
 
         periods: list[tuple[str, str]] = []   # (valid_from, valid_to)
         open_from: str | None = None
-        # Premier événement = une FIN seule : la version existait avant nos
-        # données — début inconnu, borné à COG_FLOOR.
+        # First event = an END alone: the version existed before our data —
+        # unknown start, bounded at COG_FLOOR.
         if dates and dates[0] in E and dates[0] not in S:
             open_from = COG_FLOOR
         for d in dates:
@@ -302,29 +302,29 @@ def build_versions(millesimes: list[int],
                 if has_e:
                     if d > open_from:
                         periods.append((open_from, d))
-                    # fin + re-début le même jour = continuité (aller-retour de nom)
+                    # end + re-start on the same day = continuity (name round-trip)
                     open_from = d if has_s else None
-                # début seul alors que déjà ouvert : on garde le plus ancien
+                # start alone while already open: keep the oldest
             else:
                 if has_s and has_e:
-                    # début + fin le même jour sans passé : existence de durée
-                    # nulle, artefact de transition (Freigné 44225, Pont-Farcy
-                    # 50649 : changement de département + fusion simultanés).
+                    # start + end on the same day with no past: zero-duration
+                    # existence, transition artifact (Freigné 44225, Pont-Farcy
+                    # 50649: simultaneous department change + merger).
                     pass
                 elif has_s:
                     open_from = d
-                # fin seule sans période ouverte : anomalie, ignorée
+                # end alone with no open period: anomaly, ignored
         if open_from is not None:
             periods.append((open_from, FAR_FUTURE))
         if not dates:
-            # présent dans un snapshot, aucun événement : existe depuis toujours
+            # present in a snapshot, no event: has existed forever
             periods.append((COG_FLOOR, FAR_FUTURE))
 
         for vf, vt in periods:
-            # Liens datés, rattachés à la période qu'ils concernent : un parent
-            # explique le début de la période OU une absorption en cours de vie
-            # (ex. Coupy -> Bellegarde en 1971, sans fin de version) ; un enfant,
-            # une sortie en cours de vie (création détachée) OU la fin.
+            # Dated links, attached to the period they concern: a parent
+            # explains the start of the period OR an absorption during its
+            # lifetime (e.g. Coupy -> Bellegarde in 1971, with no version end);
+            # a child, a mid-life departure (detached creation) OR the end.
             parents = sorted({c for d, c in parent_links.get(k, ()) if vf <= d < vt})
             children = sorted({c for d, c in child_links.get(k, ()) if vf < d <= vt})
             versions.append(CommuneVersion(
@@ -336,7 +336,7 @@ def build_versions(millesimes: list[int],
 
 
 # --------------------------------------------------------------------------
-#  Jeu de démonstration (repris de vrais cas INSEE)
+#  Demonstration dataset (taken from real INSEE cases)
 # --------------------------------------------------------------------------
 def demo_versions() -> list[CommuneVersion]:
     def rect(x0, y0, x1, y1):
@@ -344,7 +344,7 @@ def demo_versions() -> list[CommuneVersion]:
                 "coordinates": [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]]}
 
     v = []
-    # Valserhône : fusion 2019 de 3 communes (cas réel, COM 01033)
+    # Valserhône: 2019 merger of 3 communes (real case, COM 01033)
     v.append(CommuneVersion("01033", "Bellegarde-sur-Valserine", "2003-01-01", "2019-01-01",
                             children=["01033"], geometry=rect(5.80, 46.10, 5.88, 46.16)))
     v.append(CommuneVersion("01091", "Châtillon-en-Michaille", "2003-01-01", "2019-01-01",
@@ -357,7 +357,7 @@ def demo_versions() -> list[CommuneVersion]:
                                 rect(5.80, 46.10, 5.88, 46.16)["coordinates"],
                                 rect(5.88, 46.10, 5.96, 46.16)["coordinates"],
                                 rect(5.80, 46.04, 5.88, 46.10)["coordinates"]]}))
-    # Neussargues en Pinatelle : fusion 2016 puis rétablissement 2025 (cas réel, Cantal)
+    # Neussargues en Pinatelle: 2016 merger then 2025 re-establishment (real case, Cantal)
     v.append(CommuneVersion("15148", "Celles", "2003-01-01", "2016-01-01",
                             children=["15148"], geometry=rect(6.02, 46.10, 6.09, 46.15)))
     v.append(CommuneVersion("15148", "Neussargues en Pinatelle", "2016-01-01", "2025-01-01",
@@ -368,17 +368,17 @@ def demo_versions() -> list[CommuneVersion]:
 
 
 # --------------------------------------------------------------------------
-#  Sorties : PostGIS ou GeoJSON
+#  Outputs: PostGIS or GeoJSON
 # --------------------------------------------------------------------------
 SCHEMA_SQL = """
 CREATE EXTENSION IF NOT EXISTS postgis;
 
 DROP MATERIALIZED VIEW IF EXISTS departement_geom;
 DROP TABLE IF EXISTS commune_version CASCADE;
--- Table générale des unités administratives temporelles (Step 5) : les
--- communes FR et les régions NUTS partagent le même modèle. Le nom
--- commune_version est historique — renommage en admin_unit_version envisagé
--- au durcissement pré-beta.
+-- General table of temporal administrative units (Step 5): FR communes and
+-- NUTS regions share the same model. The name commune_version is historical —
+-- a rename to admin_unit_version is being considered for the pre-beta
+-- hardening.
 CREATE TABLE commune_version (
     id               bigserial PRIMARY KEY,
     code             text        NOT NULL,
@@ -391,28 +391,28 @@ CREATE TABLE commune_version (
     children         text[]      NOT NULL DEFAULT '{}',
     geometry_vintage date,
     geometry_approx  boolean     NOT NULL DEFAULT false,
-    geom             geometry(Geometry, 4326),   -- brute (source de vérité, requêtes spatiales)
-    geom_simple      geometry(Geometry, 4326)    -- simplifiée ~50 m (servie au web)
+    geom             geometry(Geometry, 4326),   -- raw (source of truth, spatial queries)
+    geom_simple      geometry(Geometry, 4326)    -- simplified ~50 m (served to the web)
 );
 CREATE INDEX idx_cv_type_country  ON commune_version (unit_type, country);
 
--- Index temporel : accélère "quelles communes à telle date"
+-- Temporal index: speeds up "which communes at a given date"
 CREATE INDEX idx_cv_validity      ON commune_version (valid_from, valid_to);
--- Index contrat API : "ce code à telle date" (TODO Step 2)
+-- API contract index: "this code at a given date" (TODO Step 2)
 CREATE INDEX idx_cv_code_validity ON commune_version (code, valid_from, valid_to);
--- Index spatiaux : "quelle commune contient ce point"
+-- Spatial indexes: "which commune contains this point"
 CREATE INDEX idx_cv_geom          ON commune_version USING gist (geom);
 CREATE INDEX idx_cv_geom_simple   ON commune_version USING gist (geom_simple);
 """
 
-# Contours départementaux (couche de navigation de la démo / API) : union des
-# communes actuelles par département, matérialisée en fin de chargement.
+# Department outlines (navigation layer of the demo / API): union of the
+# current communes per department, materialized at the end of loading.
 DEPT_GEOM_SQL = """
 DROP MATERIALIZED VIEW IF EXISTS departement_geom;
--- Union des géométries BRUTES : les frontières partagées IGN se dissolvent
--- proprement (l'union des simplifiées engendre des milliers d'artefacts que
--- la simplification topologique ne peut plus retirer — payload 13 Mo).
--- Simplifié une fois ici pour que l'API serve léger.
+-- Union of the RAW geometries: the shared IGN borders dissolve cleanly
+-- (the union of the simplified ones generates thousands of artifacts that
+-- topological simplification can no longer remove — 13 MB payload).
+-- Simplified once here so the API serves a light payload.
 CREATE MATERIALIZED VIEW departement_geom AS
 SELECT CASE WHEN code LIKE '97%' THEN left(code, 3) ELSE left(code, 2) END AS dept,
        ST_Multi(ST_SimplifyPreserveTopology(ST_Union(geom), 0.002)) AS geom
@@ -443,19 +443,19 @@ def to_postgis(versions: list[CommuneVersion], dsn: str) -> bool:
         import psycopg2
         from psycopg2.extras import execute_batch
     except ImportError:
-        print("  [!] psycopg2 non installé -> impossible d'écrire dans PostGIS.")
+        print("  [!] psycopg2 not installed -> cannot write to PostGIS.")
         return False
     try:
         conn = psycopg2.connect(dsn)
     except Exception as e:
-        print(f"  [!] Connexion PostGIS impossible ({e}).")
+        print(f"  [!] PostGIS connection failed ({e}).")
         return False
 
     with conn, conn.cursor() as cur:
         cur.execute(SCHEMA_SQL)
         execute_batch(cur, INSERT_SQL, [version_row(v) for v in versions], page_size=200)
     conn.close()
-    print(f"  [ok] {len(versions)} versions écrites dans PostGIS.")
+    print(f"  [ok] {len(versions)} versions written to PostGIS.")
     return True
 
 
@@ -473,44 +473,44 @@ def to_geojson(versions: list[CommuneVersion], out: Path) -> None:
             }
         })
     out.write_text(json.dumps(fc, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"  [ok] {len(versions)} versions exportées -> {out}")
+    print(f"  [ok] {len(versions)} versions exported -> {out}")
 
 
 # --------------------------------------------------------------------------
-#  Contrôles qualité rapides
+#  Quick quality checks
 # --------------------------------------------------------------------------
 def sanity_checks(versions: list[CommuneVersion]) -> None:
-    print("\nContrôles :")
-    # 1. pas de valid_to <= valid_from
+    print("\nChecks:")
+    # 1. no valid_to <= valid_from
     bad = [v for v in versions if v.valid_to <= v.valid_from]
-    print(f"  périodes invalides (valid_to <= valid_from) : {len(bad)}")
-    # 2. comptages vs chiffres publiés INSEE (France métro + DROM, au 1er janvier)
+    print(f"  invalid periods (valid_to <= valid_from): {len(bad)}")
+    # 2. counts vs published INSEE figures (metropolitan France + DROM, on January 1st)
     published = {"2015-01-02": 36658, "2020-01-02": 34968, "2025-01-02": 34875}
     for d, expected in published.items():
         active = [v for v in versions if v.valid_from <= d < v.valid_to]
-        print(f"  actives au {d} : {len(active)} (INSEE publié : {expected})")
+        print(f"  active on {d}: {len(active)} (INSEE published: {expected})")
 
 
 # --------------------------------------------------------------------------
-#  Point d'entrée
+#  Entry point
 # --------------------------------------------------------------------------
 def main():
-    ap = argparse.ArgumentParser(description="Ingestion COG INSEE -> PostGIS (modèle temporel)")
+    ap = argparse.ArgumentParser(description="INSEE COG ingestion -> PostGIS (temporal model)")
     ap.add_argument("--millesimes", type=int, nargs="+", default=[2020, 2023, 2025],
-                    help="Années de COG à charger")
+                    help="COG vintage years to load")
     ap.add_argument("--data-dir", type=Path, default=None,
-                    help="Dossier de fichiers CSV locaux (commune_YYYY.csv, mvtcommune_YYYY.csv)")
+                    help="Directory of local CSV files (commune_YYYY.csv, mvtcommune_YYYY.csv)")
     ap.add_argument("--network", action="store_true",
-                    help="Autoriser le téléchargement depuis les URLs INSEE configurées")
+                    help="Allow downloading from the configured INSEE URLs")
     ap.add_argument("--dsn", default=os.environ.get("PG_DSN"),
-                    help="DSN PostGIS (ex: postgresql://user:pwd@localhost/chronocarte)")
+                    help="PostGIS DSN (e.g. postgresql://user:pwd@localhost/chronocarte)")
     ap.add_argument("--geojson", type=Path, default=Path("communes_temporel.geojson"),
-                    help="Chemin de sortie GeoJSON (fallback si pas de base)")
+                    help="GeoJSON output path (fallback when no database)")
     args = ap.parse_args()
 
-    print(f"Millésimes demandés : {args.millesimes}")
+    print(f"Requested vintages: {args.millesimes}")
     versions = build_versions(args.millesimes, args.data_dir, args.network)
-    print(f"Versions reconstruites : {len(versions)}")
+    print(f"Rebuilt versions: {len(versions)}")
 
     sanity_checks(versions)
 
@@ -520,7 +520,7 @@ def main():
     if not wrote_db:
         to_geojson(versions, args.geojson)
 
-    print("\nTerminé.")
+    print("\nDone.")
 
 
 if __name__ == "__main__":

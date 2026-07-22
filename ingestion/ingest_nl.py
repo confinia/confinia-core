@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Ingestion Pays-Bas : gemeenten des éditions annuelles CBS (via PDOK).
+Netherlands ingestion: gemeenten from the annual CBS editions (via PDOK).
 
-Source : service.pdok.nl, WFS « cbs/gebiedsindelingen/{année} », couche
-gemeente_gegeneraliseerd (statcode GM0363, statnaam). Éditions 2016→2026.
-Licence : CC BY 4.0 (CBS / Kadaster) — attribution obligatoire.
+Source: service.pdok.nl, WFS « cbs/gebiedsindelingen/{year} », layer
+gemeente_gegeneraliseerd (statcode GM0363, statnaam). Editions 2016→2026.
+License: CC BY 4.0 (CBS / Kadaster) — attribution required.
 
-Les herindelingen néerlandaises prennent effet au 1er janvier : le diff de
-snapshots annuels (ingest_snapshots.py) y est quasi exact.
+Dutch herindelingen take effect on January 1st: the diff of annual snapshots
+(ingest_snapshots.py) is nearly exact there.
 """
 from __future__ import annotations
 import argparse
@@ -41,8 +41,8 @@ def load_year(data_dir: Path, y: int, download: bool) -> dict[str, tuple]:
     p = data_dir / f"gemeente_{y}.geojson"
     if not p.exists():
         if not download:
-            sys.exit(f"{p} absent (utiliser --download).")
-        print(f"  téléchargement PDOK {y}…")
+            sys.exit(f"{p} missing (use --download).")
+        print(f"  downloading PDOK {y}…")
         with urllib.request.urlopen(URL.format(y=y), timeout=120) as r:
             p.write_bytes(r.read())
     feats = json.loads(p.read_text(encoding="utf-8"))["features"]
@@ -55,15 +55,15 @@ def load_year(data_dir: Path, y: int, download: bool) -> dict[str, tuple]:
             continue
         g = shape(f["geometry"])
         x, _ = first_coord(f["geometry"])
-        if abs(x) > 180:                       # le WFS a ignoré srsName -> RD New
+        if abs(x) > 180:                       # the WFS ignored srsName -> RD New
             g = shp_transform(T_28992.transform, g)
         out[code] = (nom, g)
-    print(f"  [ok] gemeenten {y} : {len(out)}")
+    print(f"  [ok] gemeenten {y}: {len(out)}")
     return out
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Ingestion gemeenten NL (CBS/PDOK) -> PostGIS")
+    ap = argparse.ArgumentParser(description="NL gemeenten ingestion (CBS/PDOK) -> PostGIS")
     ap.add_argument("--years", type=int, nargs="+", default=list(range(2016, 2027)))
     ap.add_argument("--data-dir", type=Path, default=Path("/data/raw/nl"))
     ap.add_argument("--download", action="store_true")
@@ -75,11 +75,11 @@ def main():
     dates = [f"{y}-01-01" for y in years]
     snapshots = {f"{y}-01-01": load_year(args.data_dir, y, args.download) for y in years}
     periods = build_periods(dates, snapshots)
-    print(f"Périodes gemeenten reconstruites : {len(periods)}")
+    print(f"Rebuilt gemeenten periods: {len(periods)}")
     sanity(periods, dates, "NL")
 
     if args.dsn == "ENV":
-        args.dsn = os.environ.get("PG_DSN") or sys.exit("--dsn sans valeur mais $PG_DSN absent.")
+        args.dsn = os.environ.get("PG_DSN") or sys.exit("--dsn without a value but $PG_DSN is unset.")
     if args.dsn:
         load_postgis(periods, "gemeente", "NL", args.dsn)
 
