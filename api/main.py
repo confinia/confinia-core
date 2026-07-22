@@ -88,6 +88,15 @@ CREATE TABLE IF NOT EXISTS public.premium_usage (
     requests   bigint NOT NULL DEFAULT 0,
     updated_at timestamptz NOT NULL DEFAULT now()
 );
+-- Daily premium counters for PAID tiers (issue #19 phase 3): paid plans get
+-- a per-day allowance instead of unlimited; free callers keep the lifetime
+-- 9-report allowance above.
+CREATE TABLE IF NOT EXISTS public.premium_usage_daily (
+    caller   text NOT NULL,
+    day      date NOT NULL,
+    requests bigint NOT NULL DEFAULT 0,
+    PRIMARY KEY (caller, day)
+);
 -- Abonnements Polar (Merchant of Record, issue #8) : état par souscription,
 -- alimenté par le webhook. Le palier d'un email = sa meilleure souscription
 -- active ; appliqué aux clés existantes ET aux clés créées ensuite.
@@ -634,6 +643,8 @@ def export_ohm(
 # offertes, la 10e exige un palier payant -> 402 avec pointeur /pricing tant
 # que le checkout MoR (issue #8) n'est pas branché.
 PREMIUM_FREE = 9
+PRO_DAILY = int(os.environ.get("PRO_REPORTS_PER_DAY", "50"))
+ENTERPRISE_DAILY = int(os.environ.get("ENTERPRISE_REPORTS_PER_DAY", "500"))
 PRICING_URL = "https://www.confinia.io/pricing"
 
 
@@ -649,7 +660,25 @@ def premium_gate(request: Request) -> dict:
             row = cur.fetchone()
         if row and row[0]:
             if row[1] in ("pro", "enterprise"):
-                return {"used": None, "free_limit": None, "remaining": "unlimited"}
+                # Paid tiers: per-DAY allowance (founder model: several per day).
+                cap = PRO_DAILY if row[1] == "pro" else ENTERPRISE_DAILY
+                with ops_cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO public.premium_usage_daily (caller, day, requests) "
+                        "VALUES (%s, CURRENT_DATE, 1) "
+                        "ON CONFLICT (caller, day) DO UPDATE SET "
+                        " requests = premium_usage_daily.requests + 1 RETURNING requests",
+                        (f"key:{key}",))
+                    used = cur.fetchone()[0]
+                if used > cap:
+                    raise HTTPException(402, {
+                        "detail": f"Daily allowance of the {row[1]} tier reached "
+                                  f"({cap} premium reports per day).",
+                        "pricing": PRICING_URL,
+                        "note": "Resets at midnight UTC; the Enterprise tier has a "
+                                "higher allowance."})
+                return {"tier": row[1], "used_today": used, "daily_limit": cap,
+                        "remaining": cap - used}
             caller = f"key:{key}"
     if caller is None:
         ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \

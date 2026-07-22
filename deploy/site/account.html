@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Your account — Confinia</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #10151d; color: #e8eaed;
+         font: 16px/1.65 system-ui, -apple-system, sans-serif; }
+  main { max-width: 44rem; margin: 0 auto; padding: 3rem 1.5rem; }
+  h1 { font-size: 1.9rem; margin: 0 0 1rem; } h1 span { color: #7ab8ff; }
+  .card { border: 1px solid #26314a; border-radius: 12px; background: #0b0f16;
+          padding: 1.2rem; margin: 1rem 0; }
+  .row { display: flex; justify-content: space-between; gap: 1rem; margin: .35rem 0; }
+  .row b { color: #9fb3d1; font-weight: 600; }
+  code { background: #10151d; border: 1px solid #33405a; border-radius: 6px;
+         padding: .15rem .4rem; font-size: .85rem; word-break: break-all; }
+  .btn { display: inline-block; border: 1px solid #33405a; border-radius: 8px;
+         padding: .55rem 1rem; color: #7ab8ff; text-decoration: none; cursor: pointer;
+         background: none; font: inherit; }
+  .btn.primary { background: #7ab8ff; color: #10151d; border-color: #7ab8ff; }
+  .btn:hover { border-color: #7ab8ff; }
+  .tier { display: inline-block; font-size: .75rem; text-transform: uppercase;
+          letter-spacing: .04em; border-radius: 99px; padding: .1rem .6rem;
+          background: #26314a; color: #9fb3d1; }
+  .tier.pro, .tier.enterprise { background: #7ab8ff; color: #10151d; }
+  a { color: #7ab8ff; } .muted { opacity: .7; font-size: .9rem; }
+</style>
+</head>
+<body><main>
+<h1><span>Confinia</span> · your account</h1>
+<div id="content"><p class="muted">Signing you in…</p></div>
+<script type="module">
+// Public PKCE client; no secret. Uses the confinia realm under /auth.
+const ISS = location.origin + "/auth/realms/confinia";
+const CLIENT = "confinia-web";
+const REDIRECT = location.origin + "/account.html";
+const PRO_CHECKOUT = "https://buy.polar.sh/polar_cl_VYpdGBRjeH4Pn7vvD1dNbN450Yncw9sOHwqLf154vRQ";
+const ENT_CHECKOUT = "https://buy.polar.sh/polar_cl_Z6irg2Ji3tuuvlKjUx6gjW4iEIw6fNRK49evF3AKe7L";
+const API = "/api";
+const el = document.getElementById("content");
+
+const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf)))
+  .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+async function sha256(s) { return crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); }
+function rand(n) { const a = new Uint8Array(n); crypto.getRandomValues(a);
+  return b64url(a.buffer).slice(0, n); }
+
+async function login() {
+  const verifier = rand(64);
+  sessionStorage.setItem("pkce_verifier", verifier);
+  const challenge = b64url(await sha256(verifier));
+  const p = new URLSearchParams({
+    client_id: CLIENT, response_type: "code", scope: "openid profile email",
+    redirect_uri: REDIRECT, code_challenge: challenge, code_challenge_method: "S256",
+  });
+  location.href = `${ISS}/protocol/openid-connect/auth?${p}`;
+}
+
+async function exchange(code) {
+  const verifier = sessionStorage.getItem("pkce_verifier");
+  const r = await fetch(`${ISS}/protocol/openid-connect/token`, {
+    method: "POST", headers: {"content-type": "application/x-www-form-urlencoded"},
+    body: new URLSearchParams({
+      grant_type: "authorization_code", client_id: CLIENT, code,
+      redirect_uri: REDIRECT, code_verifier: verifier }),
+  });
+  if (!r.ok) throw new Error("token exchange failed");
+  return r.json();
+}
+
+function claims(jwt) { return JSON.parse(atob(jwt.split(".")[1].replace(/-/g,"+").replace(/_/g,"/"))); }
+
+async function render(tok) {
+  const c = claims(tok.id_token);
+  const email = c.email, org = c.organization || "—";
+  // Bind an API key to the signed-in email (idempotent-ish: shows the tier).
+  let key = null, tier = "free";
+  try {
+    const k = await fetch(`${API}/v1/keys`, {method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({email, note: "account page"})}).then(x => x.json());
+    key = k.key; tier = k.tier;
+  } catch {}
+  el.innerHTML = `
+    <div class="card">
+      <div class="row"><b>Email</b><span>${email}</span></div>
+      <div class="row"><b>Organization</b><span>${org}</span></div>
+      <div class="row"><b>Plan</b><span class="tier ${tier}">${tier}</span></div>
+    </div>
+    <div class="card">
+      <b>API key</b>
+      <p class="muted">Send it as the <code>X-API-Key</code> header.</p>
+      ${key ? `<code>${key}</code>` : `<p class="muted">Key service unavailable, retry later.</p>`}
+    </div>
+    ${tier === "free" ? `
+    <div class="card">
+      <b>Upgrade</b>
+      <p class="muted">Checkout is handled by Polar. Use <b>${email}</b> as the
+      billing email so your key upgrades automatically within a minute.</p>
+      <p><a class="btn primary" href="${PRO_CHECKOUT}">Subscribe · Pro €49/mo</a>
+         <a class="btn" href="${ENT_CHECKOUT}">Enterprise €249/mo</a></p>
+    </div>` : `
+    <div class="card"><b>Thank you</b>
+      <p class="muted">Your ${tier} plan is active. Manage billing from the
+      receipt Polar emailed you.</p></div>`}
+    <p><button class="btn" id="logout">Sign out</button>
+       <a class="btn" href="/pricing">Pricing</a>
+       <a class="btn" href="/">Demo</a></p>`;
+  document.getElementById("logout").onclick = () => {
+    sessionStorage.clear();
+    location.href = `${ISS}/protocol/openid-connect/logout?post_logout_redirect_uri=`
+      + encodeURIComponent(location.origin + "/") + `&client_id=${CLIENT}`;
+  };
+}
+
+(async () => {
+  const q = new URLSearchParams(location.search);
+  if (q.get("code")) {
+    try {
+      const tok = await exchange(q.get("code"));
+      history.replaceState({}, "", REDIRECT);
+      await render(tok);
+    } catch (e) {
+      el.innerHTML = `<p>Sign-in failed. <button class="btn" id="retry">Try again</button></p>`;
+      document.getElementById("retry").onclick = login;
+    }
+  } else {
+    el.innerHTML = `<div class="card"><b>Sign in to see your API key, plan and
+      organization.</b><p style="margin-top:1rem"><button class="btn primary"
+      id="go">Sign in / Create account</button></p></div>`;
+    document.getElementById("go").onclick = login;
+  }
+})();
+</script>
+</main></body></html>
