@@ -140,15 +140,22 @@ jobs:
         run: pytest -v tests/test_keycloak.py
       - name: Enable direct grant on confinia-web (CI only, for token minting)
         run: |
-          TOKEN=$(curl -s http://127.0.0.1:8180/auth/realms/master/protocol/openid-connect/token \
+          KC=http://127.0.0.1:8180/auth
+          TOKEN=$(curl -s $KC/realms/master/protocol/openid-connect/token \
             -d grant_type=password -d client_id=admin-cli \
             -d username=admin -d password=citest-admin | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
+          # Full GET -> set flag -> PUT (a partial PUT drops fields and is rejected).
           CID=$(curl -s -H "Authorization: Bearer $TOKEN" \
-            "http://127.0.0.1:8180/auth/admin/realms/confinia/clients?clientId=confinia-web" \
+            "$KC/admin/realms/confinia/clients?clientId=confinia-web" \
             | python3 -c 'import sys,json;print(json.load(sys.stdin)[0]["id"])')
+          curl -s -H "Authorization: Bearer $TOKEN" \
+            "$KC/admin/realms/confinia/clients/$CID" \
+            | python3 -c 'import sys,json;c=json.load(sys.stdin);c["directAccessGrantsEnabled"]=True;print(json.dumps(c))' > /tmp/client.json
           curl -s -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-            "http://127.0.0.1:8180/auth/admin/realms/confinia/clients/$CID" \
-            -d '{"clientId":"confinia-web","publicClient":true,"standardFlowEnabled":true,"directAccessGrantsEnabled":true}'
+            "$KC/admin/realms/confinia/clients/$CID" --data-binary @/tmp/client.json
+          # sanity: fail the job if the flag did not take
+          curl -s -H "Authorization: Bearer $TOKEN" "$KC/admin/realms/confinia/clients/$CID" \
+            | python3 -c 'import sys,json; assert json.load(sys.stdin)["directAccessGrantsEnabled"] is True, "direct grant not enabled"; print("direct grant ON")'
       - name: Load fixture + start the API
         run: |
           python - <<'PY'

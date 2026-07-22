@@ -38,8 +38,7 @@ def test_bearer_authenticates(base):
     tok = requests.post(f"{KC}/realms/confinia/protocol/openid-connect/token", data={
         "grant_type": "password", "client_id": "confinia-web",
         "username": email, "password": pw, "scope": "openid email"})
-    if tok.status_code != 200:
-        pytest.skip("direct grant not enabled for confinia-web in this realm")
+    assert tok.status_code == 200, f"token mint failed: {tok.status_code} {tok.text[:200]}"
     access = tok.json()["access_token"]
     r = requests.get(f"{base}/v1/changes",
                      params={"bbox": "4.99,45.99,5.03,46.02"},
