@@ -67,6 +67,9 @@ jobs:
       - name: Polar pro journey (TEST_POLAR.md)
         if: always()
         run: pytest -v tests/test_polar.py
+      - name: Python client (issue #22)
+        if: always()
+        run: pytest -v tests/test_python_client.py
       - name: API log on failure
         if: failure()
         run: tail -80 /tmp/api.log

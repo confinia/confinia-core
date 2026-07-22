@@ -1,0 +1,24 @@
+[project]
+name = "confinia"
+version = "0.1.0"
+description = "Python client for the Confinia temporal administrative-boundaries API"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+dependencies = ["requests>=2.28"]
+
+[project.optional-dependencies]
+pandas = ["pandas>=1.5"]
+geo = ["geopandas>=0.12", "shapely>=2.0"]
+
+[project.urls]
+Homepage = "https://www.confinia.io"
+Source = "https://github.com/confinia/confinia-core"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["confinia*"]
