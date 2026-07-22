@@ -1,0 +1,13 @@
+Package: confinia
+Type: Package
+Title: Client for the Confinia Temporal Administrative-Boundaries API
+Version: 0.1.0
+Authors@R: person("Confinia", email = "contact@confinia.io", role = c("aut", "cre"))
+Description: Thin client for the Confinia API: which administrative unit
+    existed at a given date, with full lineage and per-source provenance.
+    Returns data.frames (and sf objects when sf is installed).
+License: Apache License (>= 2)
+Encoding: UTF-8
+Imports: httr2, jsonlite
+Suggests: sf
+RoxygenNote: 7.3.1

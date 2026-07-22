@@ -77,6 +77,19 @@ jobs:
         if: failure()
         run: tail -80 /tmp/api.log
 
+  # R client smoke test (issue #22): hits the live read-only API.
+  r-client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: r-lib/actions/setup-r@v2
+      - name: System libs for httr2
+        run: sudo apt-get update -q && sudo apt-get install -y -q libcurl4-openssl-dev libssl-dev
+      - name: Install client deps
+        run: Rscript -e 'install.packages(c("httr2","jsonlite"), repos="https://cloud.r-project.org")'
+      - name: R client smoke (issue #22)
+        run: Rscript clients/r/tests/smoke.R
+
   # Identity journey (issue #19): the production bootstrap script against a
   # throwaway Keycloak, then assertions on realm, profile and client.
   keycloak:
