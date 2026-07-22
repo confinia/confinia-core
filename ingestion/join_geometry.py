@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
 """
-Raccord des géométries IGN Admin Express sur le modèle temporel COG.
+Joining IGN Admin Express geometries onto the COG temporal model.
 
-Entrées :
-  - les versions temporelles produites par ingest_cog.py (rejouées via import)
-  - un ou plusieurs millésimes Admin Express, chacun daté :
-      * Shapefile COMMUNE (éditions <= 2024, champ INSEE_COM ; Lambert-93 reprojeté)
-      * GeoParquet commune (édition 4.0, champs code_insee / geometrie WKB, WGS84)
+Inputs:
+  - the temporal versions produced by ingest_cog.py (replayed via import)
+  - one or more Admin Express vintages, each dated:
+      * COMMUNE Shapefile (editions <= 2024, INSEE_COM field; Lambert-93 reprojected)
+      * commune GeoParquet (edition 4.0, code_insee / geometrie WKB fields, WGS84)
 
-Principe d'appariement :
-  - pour chaque version [valid_from, valid_to), on prend le millésime dont la
-    date de référence tombe DANS la période (le plus récent si plusieurs) —
-    c'est ce qui rend le réemploi de code inoffensif : 01033 pris dans
-    l'édition 2018 est Bellegarde, dans l'édition 2019 c'est Valserhône ;
-  - sinon, la version hérite de la géométrie du millésime le plus proche qui
-    connaît son code, marquée `geometry_approx: true` ;
-  - sinon, géométrie absente (signalée).
+Matching principle:
+  - for each version [valid_from, valid_to), take the vintage whose reference
+    date falls WITHIN the period (the most recent one if several) — this is
+    what makes code reuse harmless: 01033 taken from the 2018 edition is
+    Bellegarde, from the 2019 edition it is Valserhône;
+  - otherwise, the version inherits the geometry of the closest vintage that
+    knows its code, flagged `geometry_approx: true`;
+  - otherwise, no geometry (reported).
 
-Chaque géométrie sort en deux qualités : brute (`--geojson-raw`) et simplifiée
-pour le web (shapely simplify, topologie préservée par géométrie).
+Each geometry is output in two qualities: raw (`--geojson-raw`) and simplified
+for the web (shapely simplify, topology preserved per geometry).
 
-Exemples :
+Examples:
   python3 join_geometry.py \
     --millesimes 2025 --data-dir data/raw/insee \
     --shp 2018-01-01=data/raw/ae2018/extract/**/COMMUNE.shp \
@@ -48,17 +48,17 @@ sys.path.insert(0, str(Path(__file__).parent))
 from ingest_cog import (CommuneVersion, build_versions, FAR_FUTURE,  # noqa: E402
                         SCHEMA_SQL, INSERT_SQL, DEPT_GEOM_SQL, version_row)
 
-SIMPLIFY_TOLERANCE_DEG = 0.0005  # ~50 m : suffisant pour l'affichage web communal
+SIMPLIFY_TOLERANCE_DEG = 0.0005  # ~50 m: sufficient for commune-level web display
 
 
 # --------------------------------------------------------------------------
-#  Chargement des millésimes de géométrie
+#  Loading the geometry vintages
 # --------------------------------------------------------------------------
 def load_shp_vintage(path_pattern: str) -> dict[str, object]:
-    """COMMUNE.shp d'une édition Admin Express -> {code_insee: shapely geometry (WGS84)}."""
+    """COMMUNE.shp of an Admin Express edition -> {insee_code: shapely geometry (WGS84)}."""
     matches = glob.glob(path_pattern, recursive=True)
     if not matches:
-        raise FileNotFoundError(f"Aucun shapefile ne correspond à {path_pattern}")
+        raise FileNotFoundError(f"No shapefile matches {path_pattern}")
     shp_path = matches[0]
 
     cpg_path = Path(shp_path[:-4] + ".cpg")
@@ -68,7 +68,7 @@ def load_shp_vintage(path_pattern: str) -> dict[str, object]:
         if "1252" in cpg or "ANSI" in cpg or "LATIN" in cpg:
             enc = "latin-1"
 
-    # Reprojection si l'édition est en Lambert-93 (le .prj fait foi)
+    # Reproject if the edition is in Lambert-93 (the .prj is authoritative)
     transformer = None
     prj_path = Path(shp_path[:-4] + ".prj")
     if prj_path.exists():
@@ -85,32 +85,32 @@ def load_shp_vintage(path_pattern: str) -> dict[str, object]:
             if transformer:
                 g = shp_transform(transformer.transform, g)
             geoms[rec[code_idx]] = g
-    print(f"  [ok] {len(geoms)} communes chargées depuis {shp_path}")
+    print(f"  [ok] {len(geoms)} communes loaded from {shp_path}")
     return geoms
 
 
 def load_parquet_vintage(path: str) -> dict[str, object]:
-    """commune.parquet (Admin Express 4.0, GeoParquet WGS84) -> {code_insee: geometry}."""
+    """commune.parquet (Admin Express 4.0, GeoParquet WGS84) -> {insee_code: geometry}."""
     import pyarrow.parquet as pq
     t = pq.read_table(path, columns=["code_insee", "geometrie"])
     geoms = {}
     for code, wkb in zip(t["code_insee"].to_pylist(), t["geometrie"].to_pylist()):
         if code and wkb:
             geoms[code] = from_wkb(wkb)
-    print(f"  [ok] {len(geoms)} communes chargées depuis {path}")
+    print(f"  [ok] {len(geoms)} communes loaded from {path}")
     return geoms
 
 
 # --------------------------------------------------------------------------
-#  Appariement version <-> millésime
+#  Matching version <-> vintage
 # --------------------------------------------------------------------------
 def pick_vintage(v: CommuneVersion, vintages: list[tuple[str, dict]]) -> tuple[str, bool] | None:
-    """Choisit le millésime pour une version. Retourne (ref_date, approx) ou None.
+    """Chooses the vintage for a version. Returns (ref_date, approx) or None.
 
-    Exact : la date de référence du millésime tombe dans [valid_from, valid_to)
-            ET le millésime connaît le code (le plus récent de ces millésimes).
-    Approx : sinon, le millésime connaissant le code dont la date est la plus
-             proche de la période de validité.
+    Exact: the vintage's reference date falls within [valid_from, valid_to)
+           AND the vintage knows the code (the most recent of those vintages).
+    Approx: otherwise, the vintage knowing the code whose date is closest to
+            the validity period.
     """
     exact = [d for d, g in vintages if v.valid_from <= d < v.valid_to and v.code in g]
     if exact:
@@ -133,7 +133,7 @@ def pick_vintage(v: CommuneVersion, vintages: list[tuple[str, dict]]) -> tuple[s
 def attach_geometries(versions: list[CommuneVersion],
                       vintages: list[tuple[str, dict]],
                       simplify_tol: float) -> tuple[list[dict], list[dict]]:
-    """Retourne (features_simplifiées, features_brutes) en GeoJSON."""
+    """Returns (simplified_features, raw_features) as GeoJSON."""
     by_date = dict(vintages)
     simple_feats, raw_feats = [], []
     missing = 0
@@ -160,27 +160,27 @@ def attach_geometries(versions: list[CommuneVersion],
         raw_feats.append({"type": "Feature", "properties": props,
                           "geometry": mapping(raw) if raw is not None else None})
     if missing:
-        print(f"  [!] {missing} versions sans géométrie (code absent de tous les millésimes)")
+        print(f"  [!] {missing} versions without geometry (code absent from every vintage)")
     return simple_feats, raw_feats
 
 
 # --------------------------------------------------------------------------
-#  Chargement PostGIS (streaming, brute + simplifiée)
+#  PostGIS loading (streaming, raw + simplified)
 # --------------------------------------------------------------------------
 def stream_to_postgis(versions: list[CommuneVersion],
                       vintages: list[tuple[str, dict]],
                       simplify_tol: float, dsn: str) -> bool:
-    """Charge les versions + géométries dans PostGIS par lots (mémoire bornée)."""
+    """Loads the versions + geometries into PostGIS in batches (bounded memory)."""
     try:
         import psycopg2
         from psycopg2.extras import execute_batch
     except ImportError:
-        print("  [!] psycopg2 non installé -> pas de chargement PostGIS.")
+        print("  [!] psycopg2 not installed -> no PostGIS loading.")
         return False
     try:
         conn = psycopg2.connect(dsn)
     except Exception as e:
-        print(f"  [!] Connexion PostGIS impossible ({e}).")
+        print(f"  [!] PostGIS connection failed ({e}).")
         return False
 
     by_date = dict(vintages)
@@ -201,59 +201,59 @@ def stream_to_postgis(versions: list[CommuneVersion],
             else:
                 missing += 1
             batch.append(version_row(v))
-            v.geometry = v.geometry_simple = None   # libère la mémoire au fil de l'eau
+            v.geometry = v.geometry_simple = None   # free memory as we go
             if len(batch) >= 200:
                 execute_batch(cur, INSERT_SQL, batch, page_size=50)
                 total += len(batch)
                 batch = []
                 if total % 5000 < 200:
-                    print(f"  ... {total} versions chargées")
+                    print(f"  ... {total} versions loaded")
         if batch:
             execute_batch(cur, INSERT_SQL, batch, page_size=50)
             total += len(batch)
-        print("  ... matérialisation des contours départementaux (union des communes)")
+        print("  ... materializing department outlines (union of communes)")
         cur.execute(DEPT_GEOM_SQL)
     conn.close()
-    print(f"  [ok] {total} versions chargées dans PostGIS "
-          f"({approx_n} géométries approx, {missing} sans géométrie)")
+    print(f"  [ok] {total} versions loaded into PostGIS "
+          f"({approx_n} approx geometries, {missing} without geometry)")
     return True
 
 
 # --------------------------------------------------------------------------
-#  Point d'entrée
+#  Entry point
 # --------------------------------------------------------------------------
 def parse_vintage_arg(s: str) -> tuple[str, str]:
     d, _, p = s.partition("=")
-    date.fromisoformat(d)  # valide le format
+    date.fromisoformat(d)  # validates the format
     return d, p
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Raccord géométries Admin Express sur le modèle temporel COG")
+    ap = argparse.ArgumentParser(description="Join Admin Express geometries onto the COG temporal model")
     ap.add_argument("--millesimes", type=int, nargs="+", default=[2025])
     ap.add_argument("--data-dir", type=Path, required=True,
-                    help="Dossier des CSV INSEE (commune_YYYY.csv, mvtcommune_YYYY.csv)")
+                    help="Directory of INSEE CSVs (commune_YYYY.csv, mvtcommune_YYYY.csv)")
     ap.add_argument("--shp", action="append", default=[], metavar="DATE=GLOB",
-                    help="Millésime shapefile : 2019-01-01=chemin/**/COMMUNE.shp")
+                    help="Shapefile vintage: 2019-01-01=path/**/COMMUNE.shp")
     ap.add_argument("--parquet", action="append", default=[], metavar="DATE=PATH",
-                    help="Millésime GeoParquet : 2026-01-01=commune.parquet")
-    ap.add_argument("--dept", default=None, help="Limiter la sortie à un département (ex: 01)")
+                    help="GeoParquet vintage: 2026-01-01=commune.parquet")
+    ap.add_argument("--dept", default=None, help="Restrict the output to one department (e.g. 01)")
     ap.add_argument("--simplify", type=float, default=SIMPLIFY_TOLERANCE_DEG)
     ap.add_argument("--geojson", type=Path, default=None,
-                    help="Sortie GeoJSON simplifiée (optionnel)")
+                    help="Simplified GeoJSON output (optional)")
     ap.add_argument("--geojson-raw", type=Path, default=None,
-                    help="Sortie GeoJSON avec géométries brutes (optionnel)")
+                    help="GeoJSON output with raw geometries (optional)")
     ap.add_argument("--dsn", nargs="?", const="ENV", default=None, metavar="DSN",
-                    help="charge versions + géométries dans PostGIS ; sans valeur, "
-                         "utilise $PG_DSN (jamais implicite : join-01 ne doit pas "
-                         "écraser la table pleine France)")
+                    help="load versions + geometries into PostGIS; without a value, "
+                         "uses $PG_DSN (never implicit: join-01 must not "
+                         "overwrite the full-France table)")
     args = ap.parse_args()
     if args.dsn == "ENV":
-        args.dsn = os.environ.get("PG_DSN") or sys.exit("--dsn sans valeur mais $PG_DSN absent.")
+        args.dsn = os.environ.get("PG_DSN") or sys.exit("--dsn without a value but $PG_DSN is unset.")
     if not args.geojson and not args.geojson_raw and not args.dsn:
-        sys.exit("Aucune sortie demandée (--geojson, --geojson-raw ou --dsn).")
+        sys.exit("No output requested (--geojson, --geojson-raw or --dsn).")
 
-    print("Chargement des millésimes de géométrie :")
+    print("Loading geometry vintages:")
     vintages: list[tuple[str, dict]] = []
     for spec in args.shp:
         d, p = parse_vintage_arg(spec)
@@ -262,27 +262,27 @@ def main():
         d, p = parse_vintage_arg(spec)
         vintages.append((d, load_parquet_vintage(p)))
     if not vintages:
-        sys.exit("Aucun millésime de géométrie fourni (--shp / --parquet).")
+        sys.exit("No geometry vintage provided (--shp / --parquet).")
     vintages.sort()
 
     versions = build_versions(args.millesimes, args.data_dir, use_network=False)
     if args.dept:
         versions = [v for v in versions if v.code.startswith(args.dept)]
-    print(f"Versions temporelles : {len(versions)}" + (f" (département {args.dept})" if args.dept else ""))
+    print(f"Temporal versions: {len(versions)}" + (f" (department {args.dept})" if args.dept else ""))
 
     if args.geojson or args.geojson_raw:
         simple_feats, raw_feats = attach_geometries(versions, vintages, args.simplify)
         with_geom = sum(1 for f in simple_feats if f["geometry"])
         approx = sum(1 for f in simple_feats if f["properties"]["geometry_approx"])
-        print(f"Géométrie attachée : {with_geom}/{len(simple_feats)} (dont {approx} approx héritées)")
+        print(f"Geometry attached: {with_geom}/{len(simple_feats)} (including {approx} inherited approx)")
         if args.geojson:
             args.geojson.write_text(json.dumps(
                 {"type": "FeatureCollection", "features": simple_feats}, ensure_ascii=False), encoding="utf-8")
-            print(f"  [ok] simplifié -> {args.geojson}")
+            print(f"  [ok] simplified -> {args.geojson}")
         if args.geojson_raw:
             args.geojson_raw.write_text(json.dumps(
                 {"type": "FeatureCollection", "features": raw_feats}, ensure_ascii=False), encoding="utf-8")
-            print(f"  [ok] brut      -> {args.geojson_raw}")
+            print(f"  [ok] raw        -> {args.geojson_raw}")
 
     if args.dsn:
         if not stream_to_postgis(versions, vintages, args.simplify, args.dsn):

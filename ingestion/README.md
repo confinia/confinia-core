@@ -1,31 +1,31 @@
-# Ingestion COG INSEE → PostGIS (modèle temporel)
+# INSEE COG ingestion → PostGIS (temporal model)
 
-Script d'ingestion du Code Officiel Géographique de l'INSEE vers un modèle
-temporel `valid_from` / `valid_to` interrogeable par date, avec les liens
-parent/enfant reconstruits à partir des mouvements de communes.
+Ingestion script for INSEE's Code Officiel Géographique into a temporal
+`valid_from` / `valid_to` model queryable by date, with parent/child links
+rebuilt from the commune movements.
 
-## Ce que fait le script
+## What the script does
 
-1. Lit, pour plusieurs millésimes, deux fichiers INSEE :
-   - le fichier **COMMUNE** (état des communes au 1er janvier du millésime)
-   - le fichier **MVTCOMMUNE** (mouvements : fusions, créations, renommages…)
-2. Reconstruit une table temporelle : une ligne = un couple `(code, nom)`
-   valide sur une période `[valid_from, valid_to)`.
-   La **date d'effet** (`DATE_EFF`) des mouvements est la source de vérité des
-   transitions — pas la date du millésime.
-3. Déduit les liens `parents` / `children` (d'où vient une commune, ce qui la remplace).
-4. Charge le résultat dans **PostGIS**, ou l'exporte en **GeoJSON** si aucune base
-   n'est fournie.
+1. Reads, for several vintages, two INSEE files:
+   - the **COMMUNE** file (state of the communes on January 1st of the vintage)
+   - the **MVTCOMMUNE** file (movements: mergers, creations, renamings…)
+2. Rebuilds a temporal table: one row = one `(code, name)` pair valid over a
+   `[valid_from, valid_to)` period.
+   The **effective date** (`DATE_EFF`) of the movements is the source of truth
+   for transitions — not the vintage date.
+3. Derives the `parents` / `children` links (where a commune comes from, what replaces it).
+4. Loads the result into **PostGIS**, or exports it to **GeoJSON** if no
+   database is provided.
 
-## Lancement
+## Running it
 
-Mode démonstration (aucune dépendance, jeu de cas réels intégré) :
+Demonstration mode (no dependencies, built-in set of real cases):
 
 ```bash
 python3 ingest_cog.py
 ```
 
-Sur de vrais fichiers INSEE téléchargés localement :
+On real INSEE files downloaded locally:
 
 ```bash
 python3 ingest_cog.py \
@@ -34,40 +34,40 @@ python3 ingest_cog.py \
   --geojson communes_temporel.geojson
 ```
 
-Les fichiers locaux doivent être nommés `commune_YYYY.csv` et `mvtcommune_YYYY.csv`.
+Local files must be named `commune_YYYY.csv` and `mvtcommune_YYYY.csv`.
 
-Vers PostGIS :
+Into PostGIS:
 
 ```bash
 export PG_DSN="postgresql://user:pwd@localhost/chronocarte"
 python3 ingest_cog.py --millesimes 2015 2020 2025 --data-dir ./insee_files
 ```
 
-## Schéma produit
+## Produced schema
 
 ```sql
 CREATE TABLE commune_version (
     id               bigserial PRIMARY KEY,
-    code             text NOT NULL,          -- code INSEE
-    nom              text NOT NULL,          -- libellé
-    valid_from       date NOT NULL,          -- début de validité
-    valid_to         date NOT NULL,          -- fin (9999-01-01 = toujours valide)
-    parents          text[] DEFAULT '{}',    -- codes dont cette version est issue
-    children         text[] DEFAULT '{}',    -- codes qui la remplacent
-    geometry_vintage date,                   -- édition IGN utilisée
-    geometry_approx  boolean DEFAULT false,  -- héritée d'une édition voisine
-    geom             geometry(Geometry, 4326),   -- brute (requêtes spatiales)
-    geom_simple      geometry(Geometry, 4326)    -- simplifiée ~50 m (web)
+    code             text NOT NULL,          -- INSEE code
+    nom              text NOT NULL,          -- name
+    valid_from       date NOT NULL,          -- start of validity
+    valid_to         date NOT NULL,          -- end (9999-01-01 = still valid)
+    parents          text[] DEFAULT '{}',    -- codes this version originates from
+    children         text[] DEFAULT '{}',    -- codes that replace it
+    geometry_vintage date,                   -- IGN edition used
+    geometry_approx  boolean DEFAULT false,  -- inherited from a neighboring edition
+    geom             geometry(Geometry, 4326),   -- raw (spatial queries)
+    geom_simple      geometry(Geometry, 4326)    -- simplified ~50 m (web)
 );
 ```
 
-Index créés : `(valid_from, valid_to)`, `(code, valid_from, valid_to)`, et
-GiST sur `geom` et `geom_simple`. Le chargement recrée la table (DROP+CREATE)
-dans une transaction : les requêtes voient l'ancien état jusqu'au commit.
+Indexes created: `(valid_from, valid_to)`, `(code, valid_from, valid_to)`, and
+GiST on `geom` and `geom_simple`. Loading recreates the table (DROP+CREATE)
+inside a transaction: queries see the old state until the commit.
 
-## Les deux requêtes cibles (une fois en base)
+## The two target queries (once in the database)
 
-Quelle commune contient ce point à cette date :
+Which commune contains this point at this date:
 
 ```sql
 SELECT code, nom FROM commune_version
@@ -75,66 +75,66 @@ WHERE valid_from <= '2015-06-01' AND valid_to > '2015-06-01'
   AND ST_Contains(geom, ST_SetSRID(ST_Point(5.83, 46.11), 4326));
 ```
 
-Historique complet d'un code :
+Full history of a code:
 
 ```sql
 SELECT nom, valid_from, valid_to, parents, children
 FROM commune_version WHERE code = '01033' ORDER BY valid_from;
 ```
 
-## Raccord géométrie IGN (`join_geometry.py`)
+## IGN geometry join (`join_geometry.py`)
 
-Joint les polygones **Admin Express COG édition** (IGN, Licence Ouverte 2.0 —
-attribution « IGN — Admin Express ») au modèle temporel : appariement par code
-INSEE **dans la période de validité de chaque version** (rend le réemploi de
-code inoffensif), héritage du millésime le plus proche marqué
-`geometry_approx: true`, sorties brute + simplifiée (~50 m). Sources SHP
-(≤ 2024, reprojection Lambert-93 auto) et GeoParquet (≥ 2025). Catalogue des
-éditions 2017→2026 : `data.geopf.fr/telechargement/resource/ADMIN-EXPRESS-COG`.
+Joins the **Admin Express COG édition** polygons (IGN, Licence Ouverte 2.0 —
+attribution « IGN — Admin Express ») to the temporal model: matching by INSEE
+code **within the validity period of each version** (makes code reuse
+harmless), inheritance from the closest vintage flagged
+`geometry_approx: true`, raw + simplified (~50 m) outputs. SHP sources
+(≤ 2024, automatic Lambert-93 reprojection) and GeoParquet (≥ 2025). Catalog
+of the 2017→2026 editions: `data.geopf.fr/telechargement/resource/ADMIN-EXPRESS-COG`.
 
-Sorties : `--geojson` / `--geojson-raw` (extraits, fixtures) et/ou **`--dsn`**
-(chargement PostGIS streaming, brute + simplifiée par version — c'est la voie
-de production, cible `load-fr` du `Makefile`). `--dsn` sans valeur lit
-`$PG_DSN` ; il n'est jamais implicite, pour qu'un extrait départemental
-(`join-01`) n'écrase pas la table pleine France.
+Outputs: `--geojson` / `--geojson-raw` (extracts, fixtures) and/or **`--dsn`**
+(streaming PostGIS loading, raw + simplified per version — this is the
+production path, `load-fr` target of the `Makefile`). `--dsn` without a value
+reads `$PG_DSN`; it is never implicit, so that a departmental extract
+(`join-01`) does not overwrite the full-France table.
 
-Test de non-régression sur la fusion Valserhône (dept 01) : `verify_ain.py` —
-voir les cibles `join-01` / `verify-01` du `Makefile` racine. Tout s'exécute en
-conteneur (règles dans `DEV.md`).
+Non-regression test on the Valserhône merger (dept 01): `verify_ain.py` —
+see the `join-01` / `verify-01` targets of the root `Makefile`. Everything runs
+in a container (rules in `DEV.md`).
 
-## Sémantique des mouvements (acquise sur données réelles)
+## Movement semantics (learned on real data)
 
-- Filtrer sur `TYPECOM == COM` (les fusions émettent aussi des lignes COMD/COMA).
-- Ligne identité (même code+nom AV/AP) : la commune traverse l'événement — ni début ni fin.
-- Même code, nom différent : renommage — fin + début, quel que soit le MOD.
-- Code différent : **le MOD décide** — fin de l'AV pour {30, 31, 32, 33, 41, 50}
-  (suppression, fusions côté absorbé, changements de code) ; début de l'AP pour
-  {20, 21, 32, 41, 50} (création, rétablissement, commune nouvelle). Une
-  création (20) ne tue pas la commune source ; une fusion (31/33) ne
-  (re)démarre pas l'absorbeur.
-- Un (code, nom) peut avoir **plusieurs périodes** (rétablissements — Celles 15148).
-- **La ligne identité annule les débuts/fins croisés du même jour** : une
-  commune nouvelle qui garde code et nom du chef-lieu (Osmery 18173 en 2024,
-  Neufchâteau 88321 en 2025) traverse l'événement — la ligne croisée venue de
-  la commune absorbée ne doit pas réinitialiser son histoire.
-- **Début + fin le même jour sans passé = existence de durée nulle, ignorée**
-  (changement de département + fusion simultanés : Freigné 44225,
-  Pont-Farcy 50649 en 2018). Fin + re-début le même jour avec un passé =
-  continuité (aller-retour de nom).
-- Début inconnu (aucun événement entrant) : borné à `1943-01-01` — le fichier
-  des mouvements est complet depuis 1943, ce qui rend les comptages corrects à
-  toute date avec un seul millésime COG chargé. **Vérifié vs INSEE publié :
-  2015 : 36 658 / 2020 : 34 968 / 2025 : 34 875 — exacts tous les trois**, et
-  diff nulle (0 manquante, 0 en trop) contre le snapshot complet COG 2019.
+- Filter on `TYPECOM == COM` (mergers also emit COMD/COMA rows).
+- Identity row (same code+name AV/AP): the commune passes through the event — neither start nor end.
+- Same code, different name: renaming — end + start, whatever the MOD.
+- Different code: **the MOD decides** — end of the AV for {30, 31, 32, 33, 41, 50}
+  (abolition, mergers on the absorbed side, code changes); start of the AP for
+  {20, 21, 32, 41, 50} (creation, re-establishment, commune nouvelle). A
+  creation (20) does not kill the source commune; a merger (31/33) does not
+  (re)start the absorber.
+- A (code, name) can have **several periods** (re-establishments — Celles 15148).
+- **The identity row cancels the cross starts/ends of the same day**: a
+  commune nouvelle keeping the chef-lieu's code and name (Osmery 18173 in 2024,
+  Neufchâteau 88321 in 2025) passes through the event — the cross row coming
+  from the absorbed commune must not reset its history.
+- **Start + end on the same day with no past = zero-duration existence, ignored**
+  (simultaneous department change + merger: Freigné 44225,
+  Pont-Farcy 50649 in 2018). End + re-start on the same day with a past =
+  continuity (name round-trip).
+- Unknown start (no incoming event): bounded at `1943-01-01` — the movements
+  file is complete since 1943, which makes the counts correct at any date with
+  a single COG vintage loaded. **Verified vs published INSEE figures:
+  2015: 36,658 / 2020: 34,968 / 2025: 34,875 — all three exact**, and a null
+  diff (0 missing, 0 extra) against the complete COG 2019 snapshot.
 
-## Limites connues (à traiter ensuite)
+## Known limitations (to address next)
 
-- **Géométrie** : le COG ne contient pas les polygones. Il faut joindre le
-  contour IGN Admin Express du millésime correspondant (Shapefile/GeoPackage).
-  Le script accepte déjà une géométrie GeoJSON par version ; le raccord IGN
-  reste à brancher.
-- **Communes disparues avant le plus ancien millésime chargé** : leur date de
-  début réelle est inconnue ; le script la borne à `1943-01-01` (borne basse du
-  COG) et le signale. Charger un millésime plus ancien lève l'ambiguïté.
-- **URLs INSEE** : instables d'un millésime à l'autre, à renseigner dans le
-  dictionnaire `INSEE_SOURCES` en tête de fichier.
+- **Geometry**: the COG does not contain the polygons. The IGN Admin Express
+  outline of the matching vintage must be joined (Shapefile/GeoPackage).
+  The script already accepts a GeoJSON geometry per version; the IGN join
+  remains to be wired up.
+- **Communes that disappeared before the oldest loaded vintage**: their real
+  start date is unknown; the script bounds it at `1943-01-01` (lower bound of
+  the COG) and reports it. Loading an older vintage removes the ambiguity.
+- **INSEE URLs**: unstable from one vintage to the next, to be filled in the
+  `INSEE_SOURCES` dictionary at the top of the file.

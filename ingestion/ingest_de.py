@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-Ingestion Allemagne : Gemeinden des éditions annuelles BKG VG250 (Stand 01.01).
+Germany ingestion: Gemeinden from the annual BKG VG250 editions (Stand 01.01).
 
-Source : daten.gdz.bkg.bund.de, archives 2016→2025 (~70 Mo/édition, shapefile
-UTM32s). Couche VG250_GEM : AGS (8 chiffres), GEN (nom), GF (4 = territoire
-avec structure — on ne garde que ceux-là pour éviter les doublons plans d'eau).
+Source: daten.gdz.bkg.bund.de, archives 2016→2025 (~70 MB/edition, UTM32s
+shapefile). VG250_GEM layer: AGS (8 digits), GEN (name), GF (4 = territory
+with structure — we keep only those to avoid water-body duplicates).
 
-Licence : Datenlizenz Deutschland – Namensnennung 2.0 (dl-de/by-2-0).
-Attribution obligatoire : « © GeoBasis-DE / BKG (ANNÉE), dl-de/by-2-0 »
-+ mention de modification (reprojection, simplification).
+License: Datenlizenz Deutschland – Namensnennung 2.0 (dl-de/by-2-0).
+Attribution required: « © GeoBasis-DE / BKG (YEAR), dl-de/by-2-0 »
++ modification notice (reprojection, simplification).
 
-Modèle temporel : diff de snapshots (voir ingest_snapshots.py) — transitions
-approchées aux 1ers janvier ; les Gebietsänderungen Destatis affineront.
+Temporal model: snapshot diff (see ingest_snapshots.py) — transitions
+approximated to January 1st; the Destatis Gebietsänderungen will refine them.
 """
 from __future__ import annotations
 import argparse
@@ -39,8 +39,8 @@ def load_year(data_dir: Path, y: int, download: bool) -> dict[str, tuple]:
     z = data_dir / f"vg250_{y}.zip"
     if not z.exists():
         if not download:
-            sys.exit(f"{z} absent (utiliser --download).")
-        print(f"  téléchargement VG250 {y}…")
+            sys.exit(f"{z} missing (use --download).")
+        print(f"  downloading VG250 {y}…")
         urllib.request.urlretrieve(URL.format(y=y), z)
 
     with zipfile.ZipFile(z) as zf:
@@ -50,12 +50,12 @@ def load_year(data_dir: Path, y: int, download: bool) -> dict[str, tuple]:
             if m:
                 members[m.group(1).lower()] = n
         if not {"shp", "shx", "dbf"} <= set(members):
-            sys.exit(f"VG250_GEM introuvable dans {z} ({sorted(members)})")
+            sys.exit(f"VG250_GEM not found in {z} ({sorted(members)})")
         shp = io.BytesIO(zf.read(members["shp"]))
         shx = io.BytesIO(zf.read(members["shx"]))
         dbf = io.BytesIO(zf.read(members["dbf"]))
-        # Encodage : le .cpg fait foi (éditions récentes en UTF-8 — « München »,
-        # pas « MÃ¼nchen ») ; à défaut, latin-1.
+        # Encoding: the .cpg is authoritative (recent editions in UTF-8 —
+        # « München », not « MÃ¼nchen »); otherwise, latin-1.
         enc = "latin-1"
         if "cpg" in members:
             cpg = zf.read(members["cpg"]).decode("ascii", "ignore").strip().upper()
@@ -70,7 +70,7 @@ def load_year(data_dir: Path, y: int, download: bool) -> dict[str, tuple]:
         i_gf = fields.index("GF") if "GF" in fields else None
         for rec, sh in zip(r.iterRecords(), r.iterShapes()):
             if i_gf is not None and rec[i_gf] != 4:
-                continue                      # que le territoire avec structure
+                continue                      # only territory with structure
             ags = str(rec[i_ags]).strip()
             if not ags:
                 continue
@@ -81,12 +81,12 @@ def load_year(data_dir: Path, y: int, download: bool) -> dict[str, tuple]:
     for ags, (nom,) in per_ags.items():
         gs = parts[ags]
         out[ags] = (nom, gs[0] if len(gs) == 1 else unary_union(gs))
-    print(f"  [ok] VG250 {y} : {len(out)} Gemeinden")
+    print(f"  [ok] VG250 {y}: {len(out)} Gemeinden")
     return out
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Ingestion Gemeinden DE (BKG VG250) -> PostGIS")
+    ap = argparse.ArgumentParser(description="DE Gemeinden ingestion (BKG VG250) -> PostGIS")
     ap.add_argument("--years", type=int, nargs="+", default=list(range(2016, 2026)))
     ap.add_argument("--data-dir", type=Path, default=Path("/data/raw/de"))
     ap.add_argument("--download", action="store_true")
@@ -98,11 +98,11 @@ def main():
     dates = [f"{y}-01-01" for y in years]
     snapshots = {f"{y}-01-01": load_year(args.data_dir, y, args.download) for y in years}
     periods = build_periods(dates, snapshots)
-    print(f"Périodes Gemeinden reconstruites : {len(periods)}")
+    print(f"Rebuilt Gemeinden periods: {len(periods)}")
     sanity(periods, dates, "DE")
 
     if args.dsn == "ENV":
-        args.dsn = os.environ.get("PG_DSN") or sys.exit("--dsn sans valeur mais $PG_DSN absent.")
+        args.dsn = os.environ.get("PG_DSN") or sys.exit("--dsn without a value but $PG_DSN is unset.")
     if args.dsn:
         load_postgis(periods, "gemeinde", "DE", args.dsn)
 

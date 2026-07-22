@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 """
-Ingestion des régions NUTS (Eurostat GISCO) vers le modèle temporel.
+Ingestion of the NUTS regions (Eurostat GISCO) into the temporal model.
 
-Source : gisco-services.ec.europa.eu, couches NUTS_RG_20M_<année>_4326.geojson
-(7 versions : 2003, 2006, 2010, 2013, 2016, 2021, 2024 — attributs NUTS_ID,
-LEVL_CODE 0..3, CNTR_CODE, NUTS_NAME). © EuroGeographics pour les limites
-administratives — attribution obligatoire.
+Source: gisco-services.ec.europa.eu, NUTS_RG_20M_<year>_4326.geojson layers
+(7 versions: 2003, 2006, 2010, 2013, 2016, 2021, 2024 — attributes NUTS_ID,
+LEVL_CODE 0..3, CNTR_CODE, NUTS_NAME). © EuroGeographics for the administrative
+boundaries — attribution required.
 
-Modèle : une ligne = un (code, nom) valide sur [valid_from, valid_to), avec
-unit_type = nuts0..nuts3 et country = CNTR_CODE. Les dates de transition sont
-les dates d'entrée en application officielles des versions NUTS (pas les
-millésimes). Les versions consécutives où (code, nom) est inchangé fusionnent
-en une seule période ; la géométrie retenue est celle de la dernière version
-de la période (geometry_vintage la date correspondante).
+Model: one row = one (code, name) valid over [valid_from, valid_to), with
+unit_type = nuts0..nuts3 and country = CNTR_CODE. The transition dates are the
+official entry-into-force dates of the NUTS versions (not the vintages).
+Consecutive versions where (code, name) is unchanged are merged into a single
+period; the retained geometry is that of the last version of the period
+(geometry_vintage set to the corresponding date).
 
-Limites v1 (documentées) : parents = père hiérarchique (préfixe du code),
-children vides — les correspondances entre versions (splits/merges NUTS)
-viendront des tables de correspondance Eurostat plus tard.
+v1 limitations (documented): parents = hierarchical parent (code prefix),
+children empty — the correspondences between versions (NUTS splits/merges)
+will come from the Eurostat correspondence tables later.
 """
 from __future__ import annotations
 import argparse
@@ -28,9 +28,9 @@ from pathlib import Path
 
 FAR_FUTURE = "9999-01-01"
 
-# Dates d'entrée en application officielles des versions NUTS.
+# Official entry-into-force dates of the NUTS versions.
 APPLICATION = {
-    2003: "2003-07-11",   # règlement (CE) n° 1059/2003
+    2003: "2003-07-11",   # regulation (EC) No 1059/2003
     2006: "2008-01-01",
     2010: "2012-01-01",
     2013: "2015-01-01",
@@ -55,8 +55,8 @@ def load_version(data_dir: Path, y: int, download: bool) -> dict[str, tuple]:
     p = data_dir / f"NUTS_RG_20M_{y}_4326.geojson"
     if not p.exists():
         if not download:
-            sys.exit(f"{p} absent (utiliser --download).")
-        print(f"  téléchargement GISCO {y}…")
+            sys.exit(f"{p} missing (use --download).")
+        print(f"  downloading GISCO {y}…")
         urllib.request.urlretrieve(GISCO_URL.format(y=y), p)
     feats = json.loads(p.read_text(encoding="utf-8"))["features"]
     out = {}
@@ -64,12 +64,12 @@ def load_version(data_dir: Path, y: int, download: bool) -> dict[str, tuple]:
         pr = f["properties"]
         out[pr["NUTS_ID"]] = (int(pr["LEVL_CODE"]), pr["CNTR_CODE"],
                               pr.get("NUTS_NAME") or pr["NUTS_ID"], f["geometry"])
-    print(f"  [ok] NUTS {y} : {len(out)} unités")
+    print(f"  [ok] NUTS {y}: {len(out)} units")
     return out
 
 
 def build_rows(versions: list[int], snapshots: dict[int, dict]) -> list[tuple]:
-    """Fusionne les versions consécutives inchangées en périodes temporelles."""
+    """Merges consecutive unchanged versions into temporal periods."""
     codes = sorted({c for s in snapshots.values() for c in s})
     rows = []
     for code in codes:
@@ -77,7 +77,7 @@ def build_rows(versions: list[int], snapshots: dict[int, dict]) -> list[tuple]:
         for i, y in enumerate(versions):
             here = snapshots[y].get(code)
             prev = snapshots[run[-1]][code] if run else None
-            if here and (not run or here[2] == prev[2]):     # même nom -> continuité
+            if here and (not run or here[2] == prev[2]):     # same name -> continuity
                 run.append(y)
             else:
                 if run:
@@ -100,40 +100,40 @@ def _row(code: str, run: list[int], versions: list[int], snapshots: dict) -> tup
 
 
 def sanity(rows: list[tuple]) -> None:
-    print("\nContrôles :")
+    print("\nChecks:")
     for d in ("2013-06-01", "2022-06-01", "2025-06-01"):
         for lvl in ("nuts1", "nuts2", "nuts3"):
             n = sum(1 for r in rows if r[2] == lvl and r[4] <= d < r[5])
             fr = sum(1 for r in rows if r[2] == lvl and r[3] == "FR" and r[4] <= d < r[5])
-            print(f"  {d} {lvl}: {n} (dont FR {fr})", end="")
+            print(f"  {d} {lvl}: {n} (of which FR {fr})", end="")
         print()
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Ingestion NUTS GISCO -> PostGIS (modèle temporel)")
+    ap = argparse.ArgumentParser(description="GISCO NUTS ingestion -> PostGIS (temporal model)")
     ap.add_argument("--versions", type=int, nargs="+", default=sorted(APPLICATION))
     ap.add_argument("--data-dir", type=Path, default=Path("/data/raw/nuts"))
     ap.add_argument("--download", action="store_true",
-                    help="télécharger les versions manquantes depuis GISCO")
+                    help="download the missing versions from GISCO")
     ap.add_argument("--dsn", nargs="?", const="ENV", default=None, metavar="DSN",
-                    help="charge dans PostGIS ; sans valeur, utilise $PG_DSN")
+                    help="load into PostGIS; without a value, uses $PG_DSN")
     args = ap.parse_args()
     args.data_dir.mkdir(parents=True, exist_ok=True)
 
     versions = sorted(args.versions)
     unknown = [y for y in versions if y not in APPLICATION]
     if unknown:
-        sys.exit(f"Versions sans date d'application connue : {unknown}")
+        sys.exit(f"Versions with no known entry-into-force date: {unknown}")
 
     snapshots = {y: load_version(args.data_dir, y, args.download) for y in versions}
     rows = build_rows(versions, snapshots)
-    print(f"Périodes NUTS reconstruites : {len(rows)}")
+    print(f"Rebuilt NUTS periods: {len(rows)}")
     sanity(rows)
 
     if args.dsn == "ENV":
-        args.dsn = os.environ.get("PG_DSN") or sys.exit("--dsn sans valeur mais $PG_DSN absent.")
+        args.dsn = os.environ.get("PG_DSN") or sys.exit("--dsn without a value but $PG_DSN is unset.")
     if not args.dsn:
-        print("\n(pas de --dsn : aucune écriture en base)")
+        print("\n(no --dsn: nothing written to the database)")
         return
 
     import psycopg2
@@ -143,7 +143,7 @@ def main():
         cur.execute("DELETE FROM commune_version WHERE unit_type LIKE 'nuts%'")
         execute_batch(cur, NUTS_INSERT, rows, page_size=100)
     conn.close()
-    print(f"  [ok] {len(rows)} périodes NUTS écrites dans PostGIS.")
+    print(f"  [ok] {len(rows)} NUTS periods written to PostGIS.")
 
 
 if __name__ == "__main__":
