@@ -303,9 +303,82 @@ def rate_limited(ip: str) -> bool:
     return w[1] > RATE_PER_SEC or w[3] > RATE_PER_MIN
 
 
+# Keycloak Bearer JWT (issue #36): accept a realm-issued token as an
+# alternative to X-API-Key. Verified against the realm JWKS; the token email
+# resolves to (or creates) the caller's key, and the organization claim rides
+# along as the tenant dimension. Optional: absent config = feature off.
+KC_ISSUER = os.environ.get("KC_ISSUER", "")   # e.g. https://www.confinia.io/auth/realms/confinia
+_JWKS: dict = {}
+
+
+def _jwks():
+    global _JWKS
+    if _JWKS or not KC_ISSUER:
+        return _JWKS
+    try:
+        import urllib.request
+        conf = json.loads(urllib.request.urlopen(
+            f"{KC_ISSUER}/.well-known/openid-configuration", timeout=5).read())
+        keys = json.loads(urllib.request.urlopen(conf["jwks_uri"], timeout=5).read())
+        _JWKS = {k["kid"]: k for k in keys["keys"]}
+    except Exception:
+        _JWKS = {}
+    return _JWKS
+
+
+def bearer_identity(request: Request) -> dict | None:
+    """Validate a Bearer JWT and return {email, organization} or None."""
+    auth = request.headers.get("authorization", "")
+    if not auth.startswith("Bearer ") or not KC_ISSUER:
+        return None
+    token = auth[7:]
+    try:
+        import jwt  # PyJWT
+        from jwt import PyJWK
+        kid = jwt.get_unverified_header(token).get("kid")
+        jwk = _jwks().get(kid)
+        if jwk is None:
+            _JWKS.clear()               # rotation: refetch once
+            jwk = _jwks().get(kid)
+        if jwk is None:
+            return None
+        claims = jwt.decode(token, PyJWK.from_dict(jwk).key,
+                            algorithms=["RS256"], issuer=KC_ISSUER,
+                            options={"verify_aud": False})
+        email = (claims.get("email") or "").strip().lower()
+        return {"email": email, "organization": claims.get("organization")} if email else None
+    except Exception:
+        return None
+
+
+def key_for_email(email: str) -> str | None:
+    """The (active) API key of an email, creating one if none exists — so a
+    Bearer-authenticated caller is metered exactly like an X-API-Key caller."""
+    try:
+        with ops_cursor() as cur:
+            cur.execute("SELECT key::text FROM public.api_key "
+                        "WHERE email=%s AND active ORDER BY created_at LIMIT 1", (email,))
+            row = cur.fetchone()
+            if row:
+                return row[0]
+            cur.execute("SELECT tier FROM public.polar_subscription "
+                        "WHERE email=%s AND status=ANY(%s)", (email, list(POLAR_ACTIVE)))
+            tiers = {t for (t,) in cur.fetchall()}
+            tier = "enterprise" if "enterprise" in tiers else "pro" if "pro" in tiers else "free"
+            cur.execute("INSERT INTO public.api_key (email, note, tier) "
+                        "VALUES (%s, 'via keycloak', %s) RETURNING key::text", (email, tier))
+            return cur.fetchone()[0]
+    except Exception:
+        return None
+
+
 def meter_key(request: Request) -> str | None:
-    """Valide la clé API éventuelle et compte l'usage du jour. Fail-open."""
+    """Validate the API key or Bearer JWT and count today's usage. Fail-open."""
     key = request.headers.get("x-api-key") or request.query_params.get("api_key")
+    if not key:
+        ident = bearer_identity(request)
+        if ident:
+            key = key_for_email(ident["email"])
     if not key:
         return None
     try:
