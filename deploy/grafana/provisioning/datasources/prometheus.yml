@@ -8,7 +8,7 @@ datasources:
   # Product metric: usage per API key (api_key / api_usage) plus the revenue
   # tables. Credentials injected from deploy/secrets.env (grafana container
   # env). Host ops-db = the shared ops instance holding the precious state.
-  - name: Postgres-ops
+  - name: Postgres
     uid: confinia-pg
     type: postgres
     access: proxy
