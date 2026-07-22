@@ -37,6 +37,7 @@ echo "==== [$COLOR] registre des sources + backfill"
 PSQL < ingestion/sources.sql
 RUN /app/ingest_trf.py --data-dir /data/raw/trf/communes
 RUN /app/ingest_trf_dept.py --data-dir /data/raw/trf/departements
+RUN /app/ingest_trf_supra.py --data-dir /data/raw/trf
 RUN /app/ingest_ons.py --data-dir /data/raw/uk/chd
 RUN /app/ingest_nz.py --download --data-dir /data/raw/nz
 echo "==== [$COLOR] réconciliation UK"
