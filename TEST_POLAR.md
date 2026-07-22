@@ -44,6 +44,6 @@ secret partagé dans `deploy/secrets.env`) et le checkout hébergé
 
 | Date (UTC) | Déclencheur | Résultat | Détail |
 |---|---|---|---|
-| _en attente du premier passage CI_ | | | |
+| 2026-07-22 10:16 | pull request #24 (premier passage) | ✅ **8/8 réussis** (0.06 s) | [run 29911277810](https://github.com/confinia/confinia-core/actions/runs/29911277810) : refus non signé/signature altérée, produit inconnu ignoré, achat → pro (clés existantes ET futures), premium illimité, enterprise > pro, résiliation → free |
 
 Historique complet : onglet Actions du dépôt, workflow `subscription-tests`.

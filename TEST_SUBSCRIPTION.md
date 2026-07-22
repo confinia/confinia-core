@@ -38,6 +38,6 @@ FastAPI face à un PostGIS éphémère chargé d'un jeu de communes de test
 
 | Date (UTC) | Déclencheur | Résultat | Détail |
 |---|---|---|---|
-| _en attente du premier passage CI_ | | | |
+| 2026-07-22 10:16 | pull request #24 (premier passage) | ✅ **7/7 réussis** (0.16 s) | [run 29911277810](https://github.com/confinia/confinia-core/actions/runs/29911277810) : santé, inscription, email invalide refusé, metering, événement de fusion, quota 9 puis 402, rapports SVG/PDF |
 
 Historique complet : onglet Actions du dépôt, workflow `subscription-tests`.
