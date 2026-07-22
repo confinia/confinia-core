@@ -951,6 +951,52 @@ def commune_report_pdf(request: Request, code: str, country: str = "FR"):
         "X-Premium-Remaining": str(quota.get("remaining"))})
 
 
+@app.get("/v1/passage")
+def passage(
+    code: str = Query(..., description="Source unit code"),
+    date_from: date = Query(..., alias="from",
+                            description="Vintage the value is expressed in"),
+    date_to: date = Query(..., alias="to", description="Target date"),
+    country: str = Query("FR"),
+):
+    """Correspondence table from a source unit (as it existed at `from`) to the
+    unit(s) covering the same territory at `to`, with weights = share of the
+    source area falling in each target (geometric weighting; population-municipale
+    weighting is the documented next step, see issue #21). This is the COGugaison
+    operation as an API. Credit: methodology follows COGugaison (Kim Antunez)."""
+    with cursor() as cur:
+        cur.execute(
+            "SELECT geom FROM commune_version WHERE code=%s AND country=%s "
+            " AND unit_type = ANY(%s) AND valid_from <= %s AND valid_to > %s "
+            "LIMIT 1",
+            (code, country.upper(), list(MUNICIPAL_TYPES), date_from, date_from))
+        src = cur.fetchone()
+        if not src or not src[0]:
+            raise HTTPException(404, f"No source unit {country}/{code} at {date_from}")
+        cur.execute(
+            "SELECT code, nom, "
+            " ST_Area(ST_Intersection(geom, %s)::geography) AS inter, "
+            " ST_Area(%s::geography) AS total "
+            "FROM commune_version "
+            "WHERE country=%s AND unit_type = ANY(%s) "
+            " AND valid_from <= %s AND valid_to > %s "
+            " AND ST_Intersects(geom, %s) "
+            "ORDER BY inter DESC",
+            (src[0], src[0], country.upper(), list(MUNICIPAL_TYPES),
+             date_to, date_to, src[0]))
+        rows = cur.fetchall()
+    targets = [{"code": c, "nom": n, "weight": round(inter / total, 6)}
+               for c, n, inter, total in rows if total and inter / total > 0.005]
+    ssum = sum(t["weight"] for t in targets) or 1.0
+    for t in targets:
+        t["weight"] = round(t["weight"] / ssum, 6)   # normalize to 1
+    return {"source": {"code": code, "at": date_from.isoformat()},
+            "target_date": date_to.isoformat(), "weighting": "area",
+            "targets": targets,
+            "note": "Area weighting; population-municipale weighting planned "
+                    "(issue #21). Method follows COGugaison (Kim Antunez)."}
+
+
 @app.get("/healthz")
 def healthz():
     with cursor() as cur:
