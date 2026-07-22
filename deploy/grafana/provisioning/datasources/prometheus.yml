@@ -5,13 +5,14 @@ datasources:
     access: proxy
     url: http://prometheus:9090
     isDefault: true
-  # Métrique produit : usage par clé API (tables api_key / api_usage).
-  # Identifiants injectés par deploy/secrets.env (env du conteneur grafana).
-  - name: Postgres
+  # Product metric: usage per API key (api_key / api_usage) plus the revenue
+  # tables. Credentials injected from deploy/secrets.env (grafana container
+  # env). Host ops-db = the shared ops instance holding the precious state.
+  - name: Postgres-ops
     uid: confinia-pg
     type: postgres
     access: proxy
-    url: db:5432
+    url: ops-db:5432
     user: $POSTGRES_USER
     jsonData:
       database: confinia
@@ -19,3 +20,17 @@ datasources:
       postgresVersion: 1600
     secureJsonData:
       password: $POSTGRES_PASSWORD
+  # Identities: the keycloak database lives in the SAME ops instance; a
+  # Postgres datasource binds to one database, hence this second entry.
+  - name: Postgres-keycloak
+    uid: confinia-kc
+    type: postgres
+    access: proxy
+    url: ops-db:5432
+    user: $KC_DB_USERNAME
+    jsonData:
+      database: keycloak
+      sslmode: disable
+      postgresVersion: 1600
+    secureJsonData:
+      password: $KC_DB_PASSWORD
