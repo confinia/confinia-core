@@ -29,44 +29,21 @@ re-establishment).
 | Surface | Role |
 |---|---|
 | `api.confinia.io` | the public versioned API (`/v1/...`), GeoJSON |
-| `www.confinia.io` | the time-slider demo as homepage; `/about` (pitch), `/pricing` (purchase), `/commune/<code>` (detailed record), `/blog`, `/grafana` (application observability), `/auth` (identity) |
+| `www.confinia.io` | the time-slider demo as homepage; `/about` (pitch), `/pricing`, `/commune/<code>` (detailed record), `/blog`, `/grafana` (application observability), `/auth` (identity) |
 | `confinia.github.io` | public mirror of the demo: historical target of every published link, always shipped together with the VM mirror |
 | `staging.confinia.io` + `staging.api.confinia.io` | human validation gate before promotion, basic auth, always serving the passive color |
 
-## 3. The business model (fully self-service)
-
-The service must run **entirely self-service, with no human in the loop**:
-discovery, purchase, provisioning, upgrade and churn all happen without
-manual action.
-
-- **Free**: the whole API, fair-use rate limits, 9 premium reports
-  included (lifetime, per caller), source attribution required.
-- **Pro (49 EUR/month, launch price)** and **Enterprise (249 EUR/month)**:
-  self-service purchase through Polar as merchant of record (checkout,
-  EU VAT, invoices, dunning and compliance handled by the MoR).
-- Premium products are **unit-value artifacts**: area-change report
-  (`/v1/changes`), downloadable citable commune record (SVG/PDF), bulk
-  exports (planned). Pattern: a free taste (9 reports), then paid
-  (HTTP 402 pointing to `/pricing`).
-- Provisioning is automatic both ways: signed Polar webhook applies the
-  purchased tier to every key of the buyer's email (existing and future);
-  cancellation demotes back to free.
-- Paid tiers will move from "unlimited" to **per-day allowances**; the
-  `/pricing` copy must be aligned on the day that changes (issue #19,
-  phase 3).
-
-## 4. Identity and organizations (issue #19)
+## 3. Identity and organizations (issue #19)
 
 - Sign-up and sign-in from the frontend, managed by **Keycloak**
   (realm `confinia`, served under `www.confinia.io/auth`).
 - At registration the user **declares an organization** (company, tenant):
   mandatory profile attribute.
 - Once signed in: account page (profile, API key bound to the token's
-  email, Polar checkout prefilled with that email so the webhook links the
-  purchase automatically).
+  email).
 - The organization eventually becomes the tenant dimension in metering.
 
-## 5. Operations
+## 4. Operations
 
 - **Full blue/green**: two complete stacks (each with its own geo
   database); the geo database is a rebuildable artifact produced by
@@ -83,6 +60,6 @@ manual action.
   countries via GeoIP, unique visitors via salted daily hashes; 404s
   tracked in Grafana and fed back into the edge filters (see
   MONITORING.md).
-- **Automated tests of the revenue journeys** (issue #18): signup and
-  Polar provisioning tested end to end in CI (TEST_SUBSCRIPTION.md,
+- **Automated journey tests** (issue #18): signup and subscription
+  provisioning tested end to end in CI (TEST_SUBSCRIPTION.md,
   TEST_POLAR.md).
