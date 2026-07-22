@@ -1,49 +1,49 @@
-# TEST_POLAR — le parcours d'abonnement à un compte Pro
+# TEST_POLAR — the Pro subscription journey
 
-Ce document décrit COMMENT le parcours « un utilisateur s'abonne au palier
-Pro » est validé, et porte les DERNIERS résultats de la validation
-automatisée. Polar (le Merchant of Record) est simulé par des **webhooks
-signés avec les mêmes mathématiques que la production** (Standard Webhooks :
-HMAC-SHA256 de `id.timestamp.corps`, secret base64) ; l'application, la
-vérification de signature et le provisioning testés sont EXACTEMENT le code
-qui tourne en production. Secret et identifiants produits sont des valeurs
-de test dédiées au CI.
+This document describes HOW the "a user subscribes to a Pro account"
+journey is validated, and carries the LATEST results of the automated
+validation. Polar (the merchant of record) is simulated with **webhooks
+signed with the exact same mathematics as production** (Standard
+Webhooks: HMAC-SHA256 of `id.timestamp.body`, base64 secret); the
+application, the signature verification and the provisioning under test
+are EXACTLY the code running in production. The secret and product ids
+are dedicated CI test values.
 
-## Le parcours couvert
+## The journey covered
 
-1. **Sécurité d'abord** : un webhook non signé est refusé (401), une
-   signature altérée est refusée (401), un produit inconnu est ignoré sans
-   effet de bord.
-2. **Achat** : webhook `subscription.active` (produit Pro) pour un email →
-   la clé EXISTANTE de cet email passe en palier `pro`.
-3. **Ordre indifférent** : une clé créée APRÈS l'achat naît directement
-   en `pro` (l'acheteur peut payer d'abord et créer sa clé ensuite).
-4. **Effet du palier** : avec une clé pro, `/v1/changes` répond
-   `remaining: unlimited` (plus de quota).
-5. **Hiérarchie** : un abonnement Enterprise actif prime sur le Pro ; sa
-   résiliation seule redescend au Pro encore actif.
-6. **Résiliation** : webhook `subscription.revoked` du Pro → l'email
-   retombe en `free`, ses clés redeviennent des appelants sous quota.
+1. **Security first**: an unsigned webhook is rejected (401), a tampered
+   signature is rejected (401), an unknown product is ignored with no
+   side effect.
+2. **Purchase**: a `subscription.active` webhook (Pro product) for an
+   email → the EXISTING key of that email moves to the `pro` tier.
+3. **Order-independent**: a key created AFTER the purchase is born `pro`
+   (buyers can pay first and create their key later).
+4. **Tier effect**: with a pro key, `/v1/changes` answers
+   `remaining: unlimited` (no quota).
+5. **Hierarchy**: an active Enterprise subscription outranks Pro;
+   cancelling only the Enterprise falls back to the still-active Pro.
+6. **Cancellation**: a `subscription.revoked` webhook for the Pro → the
+   email drops to `free`, its keys become quota-bound callers again.
 
-Non couvert ici (dépend de l'infrastructure réelle, vérifié à la main lors
-du câblage du 2026-07-21) : la livraison des webhooks par Polar jusqu'à
-`https://api.confinia.io/polar/webhook` (endpoint configuré chez Polar,
-secret partagé dans `deploy/secrets.env`) et le checkout hébergé
-(`buy.polar.sh`, liens sur `/pricing`).
+Not covered here (depends on live infrastructure, hand-verified during
+the 2026-07-21 wiring): actual webhook delivery by Polar to
+`https://api.confinia.io/polar/webhook` (endpoint configured at Polar,
+shared secret in `deploy/secrets.env`) and the hosted checkout
+(`buy.polar.sh`, links on `/pricing`).
 
-## Où et quand ça tourne
+## Where and when it runs
 
-- **CI GitHub Actions** : workflow
-  [`subscription-tests`](.github/workflows/subscription-tests.yml), étape
-  « Polar pro journey ». Déclencheurs : chaque push sur `main`, chaque pull
-  request, un passage hebdomadaire (lundi 05:17 UTC), et à la demande.
-- **Fichiers** : [`tests/test_polar.py`](tests/test_polar.py), fixtures
-  communes avec le parcours d'inscription.
+- **GitHub Actions CI**: workflow
+  [`subscription-tests`](.github/workflows/subscription-tests.yml),
+  "Polar pro journey" step. Triggers: every push to `main`, every pull
+  request, weekly (Monday 05:17 UTC), and on demand.
+- **Files**: [`tests/test_polar.py`](tests/test_polar.py), shared
+  fixtures with the signup journey.
 
-## Derniers résultats
+## Latest results
 
-| Date (UTC) | Déclencheur | Résultat | Détail |
+| Date (UTC) | Trigger | Result | Detail |
 |---|---|---|---|
-| 2026-07-22 10:16 | pull request #24 (premier passage) | ✅ **8/8 réussis** (0.06 s) | [run 29911277810](https://github.com/confinia/confinia-core/actions/runs/29911277810) : refus non signé/signature altérée, produit inconnu ignoré, achat → pro (clés existantes ET futures), premium illimité, enterprise > pro, résiliation → free |
+| 2026-07-22 10:16 | pull request #24 (first run) | ✅ **8/8 passed** (0.06 s) | [run 29911277810](https://github.com/confinia/confinia-core/actions/runs/29911277810): unsigned/tampered rejected, unknown product ignored, purchase upgrades existing AND future keys, unlimited premium, enterprise outranks pro, cancellation demotes |
 
-Historique complet : onglet Actions du dépôt, workflow `subscription-tests`.
+Full history: repository Actions tab, `subscription-tests` workflow.

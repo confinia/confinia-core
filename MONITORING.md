@@ -1,73 +1,74 @@
-# MONITORING — ce qui est surveillé, et comment
+# MONITORING — what is watched, and how
 
-Règle de fond (posture GDPR) : **aucune adresse IP n'est jamais stockée**.
-Les dimensions sont bornées (pays, route, statut, événement) ; tout ce qui
-identifierait une personne est réduit à des condensés salés irréversibles.
+Ground rule (GDPR posture): **no IP address is ever stored**. Dimensions
+are bounded (country, route, status, event); anything that could identify
+a person is reduced to irreversible salted hashes.
 
-## Deux étages
+## Two layers
 
-| Étage | Outil | Ce qu'il regarde |
+| Layer | Tool | What it watches |
 |---|---|---|
-| **Plateforme** (autre session, repo `platform`) | grafana.confinia.io | la VM elle-même : CPU, RAM, disque, réseau, IO ; sondes blackbox des vhosts |
-| **Application** (ce repo) | www.confinia.io/grafana | tout ce qui suit |
+| **Platform** (separate repo `platform`) | grafana.confinia.io | the VM itself: CPU, RAM, disk, network, IO; blackbox probes of the vhosts |
+| **Application** (this repo) | www.confinia.io/grafana | everything below |
 
-Chaîne applicative : l'API émet des métriques **OpenTelemetry** → collector
-(port 4318) → **Prometheus** (rétention 180 jours, tendances longues) →
-**Grafana applicatif** (provisionné par `deploy/grafana/provisioning/`,
-mot de passe admin dans `deploy/secrets.env`, inscriptions fermées).
+Application chain: the API emits **OpenTelemetry** metrics → collector
+(port 4318) → **Prometheus** (180-day retention for long usage trends) →
+**application Grafana** (provisioned from `deploy/grafana/provisioning/`,
+admin password in `deploy/secrets.env`, sign-up disabled).
 
-## Les données surveillées
+## What is monitored
 
-### Trafic API — compteur `confinia.requests`
-Une série par (route, méthode, statut, pays, client, keyed) :
-- **route** : le gabarit FastAPI (`/v1/units`…), jamais l'URL brute ; les
-  404 passent par un garde de cardinalité (`label_404`) qui regroupe les
-  chemins inconnus ;
-- **pays** : GeoIP (DB-IP Country Lite, CC BY 4.0) sur l'IP en transit,
-  jamais persistée ;
-- **client** : `demo` / `site` / `direct`, déduit d'Origin/Referer (borné) ;
-- **keyed** : la requête portait-elle une clé API valide.
-Panneaux : req/s par route, p50/p95 (`X-Response-Time-Ms`), répartition
-des statuts, pays d'appel, top routes.
+### API traffic — `confinia.requests` counter
+One series per (route, method, status, country, client, keyed):
+- **route**: the FastAPI template (`/v1/units`…), never the raw URL;
+  404s go through a cardinality guard (`label_404`) that buckets unknown
+  paths;
+- **country**: GeoIP (DB-IP Country Lite, CC BY 4.0) on the in-transit IP,
+  never persisted;
+- **client**: `demo` / `site` / `direct`, derived from Origin/Referer
+  (bounded);
+- **keyed**: whether the request carried a valid API key.
+Panels: req/s per route, p50/p95 (`X-Response-Time-Ms`), status
+distribution, calling countries, top routes.
 
-### Sécurité — la boucle 404 → filtres edge
-Le panneau « 404 par chemin » (rangée Sécurité) liste ce que les scanners
-sondent encore ; les motifs récurrents sont reversés à la main dans
-`(block_scanners)` du Caddyfile (abort avant l'API). Les chemins déjà
-filtrés n'apparaissent plus : le panneau ne montre que le reste à traiter.
+### Security — the 404 → edge-filter loop
+The "404 by path" panel (Security row) lists what scanners still probe;
+recurring patterns are manually fed into the Caddyfile `(block_scanners)`
+groups (abort before the API). Already-filtered paths no longer appear:
+the panel only ever shows what remains to handle.
 
-### Frontend — compteur `confinia.frontend.events`
-Événements UI de la démo via `/beacon` (liste blanche : load, play,
-timetravel, commune_history, bascules de dept/région/pays, share, diff),
-dimensionnés par événement et pays. Rangée « Frontend » du dashboard.
+### Frontend — `confinia.frontend.events` counter
+Demo UI events via `/beacon` (allow-list: load, play, timetravel,
+commune_history, dept/region/country switches, share, diff), dimensioned
+by event and country. "Frontend" dashboard row.
 
-### Visiteurs uniques — table ops `visitor_daily`
-Un visiteur = un condensé `sha256(secret + jour UTC + ip)` : irréversible,
-incomparable d'un jour à l'autre. Table UNLOGGED, purge à 45 jours.
-Panneau : visiteurs uniques par jour et par pays.
+### Unique visitors — ops table `visitor_daily`
+A visitor = `sha256(secret + UTC day + ip)`: irreversible, not comparable
+across days. UNLOGGED table, purged after 45 days. Panel: unique visitors
+per day and country.
 
-### Revenu et usage — tables ops (source des futurs panneaux business)
-- `api_key` (+ `tier`) et `api_usage` : consommation par clé et par jour ;
-- `premium_usage` : compteur à vie des rapports premium par appelant
-  (le quota « 9 offerts puis 402 ») ;
-- `upgrade_intent` : les intentions de paiement laissées sur /pricing ;
-- `polar_subscription` : l'état des abonnements poussé par les webhooks.
-Panneau à venir (issue #8/#19) : proxy MRR = abonnements actifs par palier.
+### Revenue and usage — ops tables (source of the upcoming business panels)
+- `api_key` (+ `tier`) and `api_usage`: consumption per key per day;
+- `premium_usage`: lifetime premium-report counter per caller (the
+  "9 free then 402" quota);
+- `upgrade_intent`: payment intents left on /pricing;
+- `polar_subscription`: subscription state pushed by the webhooks.
+Planned panel (issues #8/#19): MRR proxy = active subscriptions per tier.
 
-### Santé des déploiements
-- `/healthz` par couleur (version + nombre de versions en base) : c'est le
-  contrat de la bascule bleu/vert (`deploy-api.sh` attend le healthz du
-  passif avant de promouvoir) ;
-- caddy applicatif : health checks actifs des upstreams couleur avec
-  `fail_duration` (zéro requête vers un upstream mort pendant les bascules).
+### Deployment health
+- `/healthz` per color (version + row count): the blue/green switch
+  contract (`deploy-api.sh` waits for the passive healthz before
+  promoting);
+- application caddy: active health checks on the color upstreams with
+  `fail_duration` (zero requests to a dead upstream during switches).
 
 ### CI (issue #18)
-Le workflow `subscription-tests` rejoue chaque semaine et à chaque push les
-deux parcours revenu (inscription, provisioning Polar) ; résultats dans
-TEST_SUBSCRIPTION.md et TEST_POLAR.md.
+The `subscription-tests` workflow replays both revenue journeys (signup,
+Polar provisioning) on every push, every PR and weekly; results in
+TEST_SUBSCRIPTION.md and TEST_POLAR.md.
 
-## Ce qui n'est PAS collecté, à dessein
-Adresses IP en base, identifiants individuels dans les métriques, URLs
-brutes à cardinalité libre, cookies/trackers côté démo et site. La seule
-donnée nominative du système est l'email fourni volontairement (clé API,
-intention, abonnement, compte Keycloak) et vit dans la base ops.
+## What is deliberately NOT collected
+IP addresses at rest, individual identifiers in metrics, unbounded raw
+URLs, cookies/trackers on the demo and site. The only nominative data in
+the system is the voluntarily provided email (API key, intent,
+subscription, Keycloak account), stored in the ops database.
