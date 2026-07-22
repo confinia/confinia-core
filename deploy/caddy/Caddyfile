@@ -82,8 +82,12 @@ http://www.confinia.io {
 		rewrite * /index.html
 		file_server
 	}
-	# IdP Keycloak (issue #19) : chemin relatif /auth, conteneur local 8180.
+	# Keycloak IdP (issue #19): relative path /auth, local container 8180.
+	# The ADMIN console and the master realm are NEVER exposed publicly:
+	# administer through an SSH tunnel (ssh -L 8180:127.0.0.1:8180).
 	handle /auth/* {
+		@kc_admin path /auth/admin* /auth/realms/master*
+		respond @kc_admin 403
 		reverse_proxy 127.0.0.1:8180
 	}
 	# Tarifs + capture d'intention (issue #7) : la surface d'achat.

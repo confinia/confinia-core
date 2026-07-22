@@ -1,0 +1,7 @@
+[Unit]
+Description=Confinia nightly ops-state backup (04:12 UTC)
+[Timer]
+OnCalendar=*-*-* 04:12:00
+Persistent=true
+[Install]
+WantedBy=timers.target
