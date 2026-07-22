@@ -25,17 +25,6 @@
    la merger (squash) seulement après validation en staging. Les commits
    directs sur `main` sont réservés aux documents de process (RULES, TODO).
 
-4. **Anglais partout dans ce qui est public** : tous les commentaires de
-   code et toute la documentation markdown du repo sont en ANGLAIS
-   (règle 2026-07-22). L'existant en français migre progressivement
-   (issue dédiée) ; tout nouveau texte part en anglais. Exception : ce
-   fichier RULES.md et TODO.md (documents de process du fondateur).
-
-5. **Jamais de posture business dans le repo public** : stratégie
-   personnelle, seuils financiers, règles internes de conduite restent
-   dans `business/` ou en mémoire de session, jamais dans un fichier
-   suivi (leçon SPECIFICATIONS.md du 2026-07-22).
-
 Autres règles opérationnelles (détaillées dans `DEV.md`) : rendu mobile
 vérifié par captures avant toute publication front ; adresse admin caddy
 unique par instance en réseau hôte ; `--no-deps` sur toute commande

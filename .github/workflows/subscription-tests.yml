@@ -3,6 +3,11 @@ name: subscription-tests
 #   - inscription (TEST_SUBSCRIPTION.md) : clé, palier free, metering, 9 puis 402
 #   - compte pro Polar (TEST_POLAR.md) : webhooks signés, provisioning, résiliation
 # Vraie API + vrai PostGIS éphémère, aucun secret de production.
+# Least privilege: the CI token can only read the repo; no secret is ever
+# needed (all values are dedicated test constants).
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
@@ -65,3 +70,36 @@ jobs:
       - name: API log on failure
         if: failure()
         run: tail -80 /tmp/api.log
+
+  # Identity journey (issue #19): the production bootstrap script against a
+  # throwaway Keycloak, then assertions on realm, profile and client.
+  keycloak:
+    runs-on: ubuntu-latest
+    env:
+      KC_SETUP_ADMIN_USER: admin
+      KC_SETUP_ADMIN_PASS: citest-admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test tools
+        run: pip install pytest requests
+      - name: Start a throwaway Keycloak
+        run: |
+          docker run -d --name kc -p 8180:8180 \
+            -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+            -e KC_BOOTSTRAP_ADMIN_PASSWORD=citest-admin \
+            quay.io/keycloak/keycloak:26.0 \
+            start-dev --http-port=8180 --http-relative-path=/auth
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:8180/auth/realms/master >/dev/null && break || sleep 3
+          done
+          curl -sf http://127.0.0.1:8180/auth/realms/master >/dev/null
+      - name: Bootstrap the realm with the production script
+        run: bash deploy/keycloak/setup-realm.sh
+      - name: Identity journey (issue #19)
+        run: pytest -v tests/test_keycloak.py
+      - name: Keycloak log on failure
+        if: failure()
+        run: docker logs --tail 60 kc
