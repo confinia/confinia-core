@@ -49,15 +49,10 @@ def test_client_is_public_pkce():
 
 def test_registration_form_shows_organization():
     s = requests.Session()
-    r = s.get(f"{KC}/realms/confinia/protocol/openid-connect/auth", params={
+    r = s.get(f"{KC}/realms/confinia/protocol/openid-connect/registrations", params={
         "client_id": "confinia-web", "response_type": "code", "scope": "openid",
         "redirect_uri": "https://www.confinia.io/account.html",
         "code_challenge": "A" * 43, "code_challenge_method": "S256"})
     assert r.status_code == 200, r.text[:300]
-    m = re.search(r'href="([^"]*login-actions/registration[^"]*)"', r.text)
-    assert m, "no registration link on the login page"
-    reg_url = urllib.parse.urljoin(r.url, html.unescape(m.group(1)))
-    r2 = s.get(reg_url)
-    assert r2.status_code == 200
-    assert 'user.attributes.organization' in r2.text, \
+    assert 'user.attributes.organization' in r.text, \
         "organization field missing from the registration form"

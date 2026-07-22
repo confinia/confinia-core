@@ -3,6 +3,11 @@ name: subscription-tests
 #   - inscription (TEST_SUBSCRIPTION.md) : clé, palier free, metering, 9 puis 402
 #   - compte pro Polar (TEST_POLAR.md) : webhooks signés, provisioning, résiliation
 # Vraie API + vrai PostGIS éphémère, aucun secret de production.
+# Least privilege: the CI token can only read the repo; no secret is ever
+# needed (all values are dedicated test constants).
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
