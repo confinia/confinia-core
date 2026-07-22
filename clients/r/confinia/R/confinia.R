@@ -31,10 +31,26 @@ confinia <- function(api_key = Sys.getenv("CONFINIA_API_KEY"),
 
 `%||%` <- function(a, b) if (is.null(a)) b else a
 
+.row <- function(x) {
+  flat <- lapply(x, function(v) {
+    if (is.null(v)) NA
+    else if (length(v) > 1 || is.list(v)) paste(unlist(v), collapse = ",")
+    else v
+  })
+  as.data.frame(flat, stringsAsFactors = FALSE)
+}
+
+.rbind_rows <- function(items) {
+  if (!length(items)) return(data.frame())
+  rows <- lapply(items, .row)
+  cols <- unique(unlist(lapply(rows, names)))
+  rows <- lapply(rows, function(r) { r[setdiff(cols, names(r))] <- NA; r[cols] })
+  do.call(rbind, rows)
+}
+
 .features_to_df <- function(fc) {
   feats <- if (!is.null(fc$features)) fc$features else list(fc)
-  props <- lapply(feats, function(f) as.data.frame(f$properties, stringsAsFactors = FALSE))
-  df <- do.call(rbind, props)
+  df <- .rbind_rows(lapply(feats, function(f) f$properties))
   if (requireNamespace("sf", quietly = TRUE) &&
       length(feats) && !is.null(feats[[1]]$geometry)) {
     geoms <- lapply(feats, function(f) {
@@ -62,7 +78,7 @@ history <- function(client, code, country = NULL, geometry = FALSE) {
     country = if (!is.null(country) && country != "FR") country else NULL,
     geometry = tolower(as.character(geometry))))
   list(versions = .features_to_df(list(features = res$versions)),
-       events = do.call(rbind, lapply(res$events, as.data.frame, stringsAsFactors = FALSE)))
+       events = .rbind_rows(res$events))
 }
 
 #' Premium: dated boundary changes in a bbox, fully sourced.
@@ -71,7 +87,7 @@ history <- function(client, code, country = NULL, geometry = FALSE) {
 changes <- function(client, bbox, date_from = NULL, date_to = NULL) {
   res <- .get(client, "/v1/changes", list(
     bbox = paste(bbox, collapse = ","), from = date_from, to = date_to))
-  do.call(rbind, lapply(res$events, function(e) as.data.frame(e, stringsAsFactors = FALSE)))
+  .rbind_rows(res$events)
 }
 
 #' Passage table: source unit (at a vintage) -> target codes with weights.
@@ -79,12 +95,12 @@ changes <- function(client, bbox, date_from = NULL, date_to = NULL) {
 passage <- function(client, code, date_from, date_to, country = "FR") {
   res <- .get(client, "/v1/passage",
     list(code = code, from = date_from, to = date_to, country = country))
-  do.call(rbind, lapply(res$targets, as.data.frame, stringsAsFactors = FALSE))
+  .rbind_rows(res$targets)
 }
 
 #' The source registry (licence and attribution per source).
 #' @export
 attributions <- function(client) {
   res <- .get(client, "/v1/attributions")
-  do.call(rbind, lapply(res$sources, as.data.frame, stringsAsFactors = FALSE))
+  .rbind_rows(res$sources)
 }
