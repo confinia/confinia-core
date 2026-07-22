@@ -73,6 +73,9 @@ jobs:
       - name: Passage tables (issue #21)
         if: always()
         run: pytest -v tests/test_passage.py
+      - name: EPCI unit level (issue #5)
+        if: always()
+        run: pytest -v tests/test_epci.py
       - name: API log on failure
         if: failure()
         run: tail -80 /tmp/api.log
