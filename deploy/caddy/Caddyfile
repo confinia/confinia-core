@@ -102,6 +102,11 @@ http://www.confinia.io {
 		rewrite * /commune.html
 		file_server
 	}
+	# Signed-in account page (issue #19 phase 2).
+	handle /account.html {
+		root * /srv/site
+		file_server
+	}
 	# Homepage: the demo (the product that demonstrates itself).
 	handle {
 		root * /srv/demo
