@@ -1,140 +1,141 @@
-# DEV.md — environnements & règles de développement
+# DEV.md — development environments & rules
 
-*(interne — relire avant tout passage du repo en public)*
+*(internal — re-read before any switch of the repo to public)*
 
-## Règle n°1 — l'environnement de dev, c'est la VM
+## Rule #1 — the dev environment is the VM
 
-**Tous les processus (base, ingestion, API, proxy) tournent sur la VM OVH,
-jamais sur le poste macOS local.** Le poste local sert uniquement à éditer les
-fichiers (VS Code) et à les synchroniser vers la VM :
+**All processes (database, ingestion, API, proxy) run on the OVH VM,
+never on the local macOS machine.** The local machine is only used to edit
+files (VS Code) and sync them to the VM:
 
 ```sh
 rsync -az --delete --exclude '.git/' --exclude 'business/' --exclude 'data/' \
   --exclude '__pycache__/' --exclude '.DS_Store' --exclude '.venv/' \
-  ~/project/confinia/ <vm>:projects/confinia/    # alias ssh : business/INFRA.md
+  ~/project/confinia/ <vm>:projects/confinia/    # ssh alias: business/INFRA.md
 ```
 
-Raisons : bande passante datacenter (téléchargements IGN en secondes),
-x86_64 (les images PostGIS officielles n'existent pas en arm64), et le même
-environnement qu'en production.
+Reasons: datacenter bandwidth (IGN downloads in seconds), x86_64 (the
+official PostGIS images do not exist for arm64), and the same environment
+as production.
 
-## Règles
+## Rules
 
-1. **Jamais de `python` direct sur l'hôte** (VM comme poste local). Tout
-   s'exécute en conteneur — sur la VM via **podman + podman-compose**.
-2. **Les gros téléchargements de données se font directement depuis la VM**
-   (`wget` depuis data.geopf.fr, insee.fr…), jamais via le poste local puis
-   rsync — la VM est en datacenter, le poste sur une connexion résidentielle.
-3. Sur la VM, le service `ingest` est derrière un profil compose :
-   `podman-compose --profile tools run --rm ingest …` — ou les cibles du
-   `Makefile` avec `COMPOSE="podman-compose --profile tools"`.
-   Images en noms qualifiés (`docker.io/…`) : podman n'a pas d'alias courts.
-   Attention : **podman-compose n'interpole pas `${VAR:-défaut}`** dans les
-   valeurs d'environnement — les identifiants passent par `env_file:
-   deploy/secrets.env` (gitignoré). Et **`build --no-cache` obligatoire pour
-   l'api** : le cache de couches podman rate les COPY modifiés.
-4. **Déploiement :** la **démo web sera servie en GitHub Pages** (statique —
-   elle appelle l'API publique) ; **la VM sert l'API et le reverse proxy** :
-   - `db` — PostGIS, port 5432 en localhost uniquement ;
-   - `api` + `api-b` — FastAPI/uvicorn en **bleu/vert** (8000 et 8001,
-     localhost uniquement) ; caddy équilibre avec health checks actifs
-     (`/healthz`) ET passifs (`fail_duration`) ;
-   - `caddy` — ports 80/443 publics, HTTPS automatique Let's Encrypt ;
-     config montée en répertoire (`deploy/caddy/`), vhosts tiers dans
+1. **Never run `python` directly on the host** (VM or local machine).
+   Everything runs in a container — on the VM via **podman + podman-compose**.
+2. **Large data downloads are done directly from the VM**
+   (`wget` from data.geopf.fr, insee.fr…), never via the local machine then
+   rsync — the VM is in a datacenter, the local machine on a residential
+   connection.
+3. On the VM, the `ingest` service sits behind a compose profile:
+   `podman-compose --profile tools run --rm ingest …` — or the `Makefile`
+   targets with `COMPOSE="podman-compose --profile tools"`.
+   Fully qualified image names (`docker.io/…`): podman has no short aliases.
+   Beware: **podman-compose does not interpolate `${VAR:-default}`** in
+   environment values — credentials go through `env_file:
+   deploy/secrets.env` (gitignored). And **`build --no-cache` is mandatory
+   for the api**: podman's layer cache misses modified COPYs.
+4. **Deployment:** the **web demo will be served on GitHub Pages** (static —
+   it calls the public API); **the VM serves the API and the reverse proxy**:
+   - `db` — PostGIS, port 5432 on localhost only;
+   - `api` + `api-b` — FastAPI/uvicorn in **blue/green** (8000 and 8001,
+     localhost only); caddy load-balances with active health checks
+     (`/healthz`) AND passive ones (`fail_duration`);
+   - `caddy` — public ports 80/443, automatic Let's Encrypt HTTPS;
+     config mounted as a directory (`deploy/caddy/`), third-party vhosts in
      `deploy/sites/`.
 
-   **Mises à jour SANS coupure (vérifié sonde à 300 ms : 0 échec) :**
-   - **API** : `./deploy/deploy-api.sh [stage|promote|rollback|full]`.
-     `stage` = build + le VERT seul reçoit la nouvelle version, testable
-     par un humain sur **https://staging.api.confinia.io** pendant que le
-     public reste sur le BLEU ; `promote` = bascule du public ;
-     `rollback` = retour à l'image `:previous` ; `full` (défaut) = roulant
-     direct. `SKIP_BUILD=1` pour re-bascule sans rebuild.
-     Le script n'utilise PAS podman-compose pour les bascules : compose
-     suit `depends_on` et peut supprimer les deux instances pour recréer
-     la db dès que le hash de `secrets.env` change. podman pur.
-   - **Edge caddy APPLICATIF** : `./deploy/deploy-edge.sh` (validation dans
-     un conteneur ÉPHÉMÈRE — jamais dans le conteneur en marche, qui voit
-     d'anciens inodes après rsync — puis `caddy reload` gracieux).
-     Depuis le 2026-07-20, l'edge est EN COUCHES : le caddy amont
-     (80/443 + certificats + grafana.confinia.io = VM) vit dans
-     `~/project(s)/platform/` (compose dédié, git local) ; le caddy de ce
-     repo est APPLICATIF (HTTP 127.0.0.1:8085) et sert site, api
-     (hostname historique + www.confinia.io/api), staging et le grafana
-     applicatif (www.confinia.io/grafana). Les vhosts des autres apps se
-     déposent dans `platform/sites/` (reload : `platform/deploy-edge.sh`).
-   - Seule opération à coupure restante : recréer le conteneur caddy
-     lui-même (changement de montages ou de commande), quelques secondes, rare.
-5. (Historique macOS : Apple `container` + socktainer restent utilisables pour
-   un one-shot local — règles d'origine : BuildKit désactivé, `container run`
-   pour les commandes ponctuelles — mais ce n'est plus la voie documentée.)
-6. **RÈGLE VM MULTI-CADDY (fondateur, 2026-07-20) : tout caddy en réseau
-   hôte doit déclarer une adresse admin UNIQUE** (`admin localhost:2085`
-   pour confinia ; convention : 2000 + port applicatif modulo 10000).
-   Par défaut, tous partagent `localhost:2019` : un `caddy reload` lancé
-   dans un conteneur peut alors charger sa config DANS LE PROCESSUS D'UN
-   AUTRE caddy (cause de la panne générale du 2026-07-20 : l'amont s'est
-   retrouvé à servir la config applicative sur 8085 et plus rien sur 443).
-   À répliquer dans platform, overwatch et ecobuilding (leurs sessions).
-7. **Tout changement de front (démo, site) est vérifié en rendu MOBILE
-   (~440 px) ET desktop avant publication** — capture playwright depuis la VM
-   (conteneur `mcr.microsoft.com/playwright/python`, démo servie sur :8080).
-   Règle fondateur du 2026-07-20 : le rendu mobile doit être irréprochable.
+   **ZERO-downtime updates (verified with a 300 ms probe: 0 failures):**
+   - **API**: `./deploy/deploy-api.sh [stage|promote|rollback|full]`.
+     `stage` = build + only GREEN receives the new version, testable
+     by a human on **https://staging.api.confinia.io** while the
+     public stays on BLUE; `promote` = switches the public over;
+     `rollback` = back to the `:previous` image; `full` (default) = direct
+     rolling update. `SKIP_BUILD=1` to switch back without rebuilding.
+     The script does NOT use podman-compose for switchovers: compose
+     follows `depends_on` and can delete both instances to recreate
+     the db as soon as the hash of `secrets.env` changes. Pure podman.
+   - **APPLICATION caddy edge**: `./deploy/deploy-edge.sh` (validation in
+     an EPHEMERAL container — never in the running container, which sees
+     old inodes after an rsync — then graceful `caddy reload`).
+     Since 2026-07-20, the edge is LAYERED: the upstream caddy
+     (80/443 + certificates + grafana.confinia.io = VM) lives in
+     `~/project(s)/platform/` (dedicated compose, local git); this repo's
+     caddy is the APPLICATION one (HTTP 127.0.0.1:8085) and serves site,
+     api (historical hostname + www.confinia.io/api), staging and the
+     application grafana (www.confinia.io/grafana). Other apps' vhosts go
+     into `platform/sites/` (reload: `platform/deploy-edge.sh`).
+   - The only remaining operation with downtime: recreating the caddy
+     container itself (change of mounts or command), a few seconds, rare.
+5. (macOS history: Apple `container` + socktainer remain usable for a
+   local one-shot — original rules: BuildKit disabled, `container run`
+   for one-off commands — but this is no longer the documented path.)
+6. **VM MULTI-CADDY RULE (founder, 2026-07-20): every host-network caddy
+   must declare a UNIQUE admin address** (`admin localhost:2085`
+   for confinia; convention: 2000 + application port modulo 10000).
+   By default, they all share `localhost:2019`: a `caddy reload` launched
+   in one container can then load its config INTO THE PROCESS OF ANOTHER
+   caddy (cause of the general outage of 2026-07-20: the upstream ended up
+   serving the application config on 8085 and nothing on 443 anymore).
+   To be replicated in platform, overwatch and ecobuilding (their sessions).
+7. **Every frontend change (demo, site) is verified in MOBILE rendering
+   (~440 px) AND desktop before publishing** — playwright capture from the VM
+   (`mcr.microsoft.com/playwright/python` container, demo served on :8080).
+   Founder rule of 2026-07-20: the mobile rendering must be impeccable.
 
-## Environnements
+## Environments
 
-### VM OVH (dev + déploiement)
+### OVH VM (dev + deployment)
 
-- **Debian 13, 8 CPU, 32 GB RAM, 1.8 TB** — VM dédiée OVH (compte personnel).
-  **IP, hostname et alias ssh : voir `business/INFRA.md` (privé, jamais commité).**
-- Runtime : podman 5.4 + podman-compose (linger activé — les conteneurs
-  survivent à la déconnexion ; `restart: unless-stopped` sur api/caddy).
-- Projet : **`~/projects/confinia/`** (miroir rsync du poste local).
-- **DNS : wildcard `*.confinia.io` + apex → la VM** (zone OVH) ; l'API est
-  exposée sur `https://api.confinia.io` via caddy.
-- Legacy : l'ancienne stack monitoring (influxdb/telegraf/grafana/caddy,
-  conteneurs `docker-compose_*`) est **arrêtée** depuis 2026-07-18 —
-  conteneurs conservés, à supprimer quand on est sûr.
+- **Debian 13, 8 CPU, 32 GB RAM, 1.8 TB** — dedicated OVH VM (personal account).
+  **IP, hostname and ssh alias: see `business/INFRA.md` (private, never committed).**
+- Runtime: podman 5.4 + podman-compose (linger enabled — containers
+  survive disconnection; `restart: unless-stopped` on api/caddy).
+- Project: **`~/projects/confinia/`** (rsync mirror of the local machine).
+- **DNS: wildcard `*.confinia.io` + apex → the VM** (OVH zone); the API is
+  exposed on `https://api.confinia.io` via caddy.
+- Legacy: the old monitoring stack (influxdb/telegraf/grafana/caddy,
+  `docker-compose_*` containers) has been **stopped** since 2026-07-18 —
+  containers kept, to be deleted when we are sure.
 
-### Poste local (macOS) — édition uniquement
+### Local machine (macOS) — editing only
 
-- VS Code, git, rsync. Aucun service, aucune donnée de prod.
-- Le repo git est ici (`~/project/confinia`) ; la VM reçoit une copie rsync
-  (sans `.git/`, sans `business/`).
+- VS Code, git, rsync. No services, no production data.
+- The git repo is here (`~/project/confinia`); the VM receives an rsync copy
+  (without `.git/`, without `business/`).
 
-## Arborescence
+## Directory layout
 
-Poste local `~/project/confinia/` (sessions VS Code ouvertes ici) :
+Local machine `~/project/confinia/` (VS Code sessions open here):
 
-- code du repo `confinia/confinia-core` à la racine — dont `TODO.md`
-  (build track, interne : à relire avant passage public) ;
-- **`business/` — documents business privés** (PLAN, STORY, TODO business,
-  modèle financier, interviews) : **gitignoré, ne doit jamais être commité** —
-  le repo passera public à la beta ;
-- `data/` — données locales (gitignoré aussi).
+- code of the `confinia/confinia-core` repo at the root — including `TODO.md`
+  (build track, internal: re-read before going public);
+- **`business/` — private business documents** (PLAN, STORY, business TODO,
+  financial model, interviews): **gitignored, must never be committed** —
+  the repo will go public at the beta;
+- `data/` — local data (gitignored too).
 
-VM `~/projects/confinia/` : même arborescence, sans `business/` ni `.git/`.
+VM `~/projects/confinia/`: same layout, without `business/` or `.git/`.
 
-## Données
+## Data
 
-`./data/` (gitignoré, monté `/data` dans les conteneurs) :
+`./data/` (gitignored, mounted as `/data` in the containers):
 
 ```
-data/raw/insee/     commune_YYYY.csv, mvtcommune_YYYY.csv (COG INSEE)
-data/raw/aeYYYY/    éditions Admin Express (7z + extract/, ou .parquet)
-data/out/           GeoJSON produits (fixtures de test dept 01, démo)
+data/raw/insee/     commune_YYYY.csv, mvtcommune_YYYY.csv (INSEE COG)
+data/raw/aeYYYY/    Admin Express editions (7z + extract/, or .parquet)
+data/out/           produced GeoJSON (dept 01 test fixtures, demo)
 ```
 
-Sources : INSEE COG (insee.fr), IGN Admin Express COG édition via
+Sources: INSEE COG (insee.fr), IGN Admin Express COG edition via
 `data.geopf.fr/telechargement/resource/ADMIN-EXPRESS-COG` (SHP ≤ 2024,
-GeoParquet/GPKG/FlatGeobuf ≥ 2025). Attribution : « IGN — Admin Express »,
-Licence Ouverte 2.0. URLs directes utilisées :
+GeoParquet/GPKG/FlatGeobuf ≥ 2025). Attribution: "IGN — Admin Express",
+Licence Ouverte 2.0. Direct URLs used:
 
 ```
 …/ADMIN-EXPRESS-COG_1-1__SHP__FRA_2018-04-03/ADMIN-EXPRESS-COG_1-1__SHP__FRA_2018-04-03.7z
 …/ADMIN-EXPRESS-COG_2-0__SHP__FRA_2019-09-24/ADMIN-EXPRESS-COG_2-0__SHP__FRA_2019-09-24.7z
 ```
 
-(2018 : n'extraire que `*_SHP_LAMB93_FR/*` — l'archive contient aussi 5 DROM
-dans des projections locales, et le glob `**/COMMUNE.shp` prend le premier
-match.)
+(2018: extract only `*_SHP_LAMB93_FR/*` — the archive also contains 5
+overseas territories (DROM) in local projections, and the `**/COMMUNE.shp`
+glob takes the first match.)

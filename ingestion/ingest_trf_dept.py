@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""TRF-GIS départements (Gay, CC BY 4.0) -> modèle temporel AVEC géométries.
+"""TRF-GIS departements (Gay, CC BY 4.0) -> temporal model WITH geometries.
 
-Source : DEPARTEMENTS_YYYY.zip (shapefile Lambert-93 par année, 1870-1940).
-Diff annuel sur (code, nom) comme ingest_trf ; chaque période porte la
-géométrie de l'édition de son année de DÉBUT (geometry_vintage = cette année,
-geometry_approx = true : les retouches de tracé internes à une période ne
-sont pas suivies en v1). Périodes vivantes en 1940 : coupées à 1943-01-01
-(plancher du modèle moderne). unit_type='departement', source='trf-gis'.
+Source: DEPARTEMENTS_YYYY.zip (Lambert-93 shapefile per year, 1870-1940).
+Annual diff on (code, name) like ingest_trf; each period carries the geometry
+of the edition of its STARTING year (geometry_vintage = that year,
+geometry_approx = true: boundary-line touch-ups within a period are not
+tracked in v1). Periods alive in 1940: cut at 1943-01-01 (floor of the modern
+model). unit_type='departement', source='trf-gis'.
 
-C'est la couche du « mode historique » de la démo (1870-1940) et la matière
-de l'export admin_level=6 pour OpenHistoricalMap.
+This is the layer behind the demo's "historical mode" (1870-1940) and the
+material for the admin_level=6 export to OpenHistoricalMap.
 
-Usage : ingest_trf_dept.py --data-dir /data/raw/trf/departements
+Usage: ingest_trf_dept.py --data-dir /data/raw/trf/departements
 """
 from __future__ import annotations
 
@@ -35,8 +35,8 @@ L93_TO_WGS84 = Transformer.from_crs("EPSG:2154", "EPSG:4326", always_xy=True)
 
 
 def proper_dept_names(communes_dir: str, year: int) -> dict[str, str]:
-    """{code dept: nom ACCENTUÉ} depuis les originaux communes (dep_name_prop) :
-    le dbf TRF des départements est désaccentué (CHARENTE-INFERIEURE)."""
+    """{dept code: ACCENTED name} from the communes originals (dep_name_prop):
+    the TRF departements dbf is unaccented (CHARENTE-INFERIEURE)."""
     import io as _io
     txt = os.path.join(communes_dir, f"COG_COMMUNES_{year}.txt")
     if not os.path.exists(txt):
@@ -47,7 +47,7 @@ def proper_dept_names(communes_dir: str, year: int) -> dict[str, str]:
     except UnicodeDecodeError:
         text = raw.decode("cp1252")
     if "\ufffd" in text:
-        raise SystemExit(f"Source corrompue (U+FFFD) : {txt} : refus d'ingérer.")
+        raise SystemExit(f"Corrupted source (U+FFFD): {txt}: refusing to ingest.")
     import csv as _csv
     out = {}
     for row in _csv.DictReader(_io.StringIO(text)):
@@ -60,7 +60,7 @@ def proper_dept_names(communes_dir: str, year: int) -> dict[str, str]:
 
 def read_year(base: str, year: int, names: dict[str, str] | None = None
               ) -> dict[str, tuple[str, object]]:
-    """{code: (nom, geom_wgs84)} pour une année."""
+    """{code: (name, geom_wgs84)} for a year."""
     zpath = os.path.join(base, f"DEPARTEMENTS_{year}.zip")
     xdir = os.path.join(base, "extract", str(year))
     if not os.path.isdir(xdir):
@@ -92,9 +92,9 @@ def main() -> int:
         states[y] = read_year(args.data_dir, y,
                               proper_dept_names(args.communes_dir, y))
     for y in (1870, 1875, 1900, 1921, 1940):
-        print(f"  {y}: {len(states[y])} départements")
+        print(f"  {y}: {len(states[y])} departements")
 
-    # Diff annuel -> périodes (code, nom, début, fin|None), géométrie du début.
+    # Annual diff -> periods (code, name, start, end|None), geometry of the start.
     periods = []
     open_: dict[str, tuple[str, int]] = {}
     for y in YEARS:
@@ -111,14 +111,14 @@ def main() -> int:
                 open_[code] = (nom, y)
     for code, (nom, start) in open_.items():
         periods.append((code, nom, start, None))
-    print(f"{len(periods)} périodes départementales")
+    print(f"{len(periods)} departement periods")
 
     import psycopg2
     conn = psycopg2.connect(args.dsn)
     with conn, conn.cursor() as cur:
         cur.execute("DELETE FROM commune_version WHERE source=%s AND unit_type=%s",
                     (SOURCE, UNIT_TYPE))
-        print(f"{cur.rowcount} anciennes lignes supprimées (rejeu idempotent)")
+        print(f"{cur.rowcount} old rows deleted (idempotent replay)")
         for code, nom, start, end in periods:
             geom = states[start][code][1]
             gj = json.dumps(mapping(geom))
@@ -140,9 +140,9 @@ def main() -> int:
                         "WHERE source=%s AND unit_type=%s AND valid_from<=%s AND valid_to>%s",
                         (SOURCE, UNIT_TYPE, d, d))
             got, want = cur.fetchone()[0], len(states[y])
-            tag = "OK " if got == want else "ECART"
+            tag = "OK " if got == want else "MISMATCH"
             ok = ok and got == want
-            print(f"  contrôle {d}: reconstruit {got} vs édition {want}  {tag}")
+            print(f"  check {d}: rebuilt {got} vs edition {want}  {tag}")
     conn.close()
     return 0 if ok else 1
 

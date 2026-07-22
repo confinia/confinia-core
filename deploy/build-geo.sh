@@ -1,11 +1,11 @@
 #!/bin/bash
-# DOUBLE INGESTION : reconstruit la base GÉO d'une couleur depuis les sources
-# brutes (data/raw/) avec les pipelines versionnés. C'est LE constructeur
-# d'artefact : chaque couleur bâtit sa base elle-même, rien n'est jamais
-# copié depuis l'autre couleur. À lancer SUR LA VM (long : compter ~1-2 h) :
+# DOUBLE INGESTION: rebuilds a color's GEO database from the raw sources
+# (data/raw/) with the versioned pipelines. This is THE artifact builder:
+# each color builds its own database itself, nothing is ever copied from
+# the other color. Run ON THE VM (long: allow ~1-2 h):
 #   ./deploy/stacks.sh up-db green && ./deploy/stacks.sh build green
-# La chaîne reprend l'ordre canonique du Makefile + les ajouts 2026-07-20
-# (sources, TRF 1870-1940, ONS UK, réconciliation UK).
+# The chain follows the Makefile's canonical order + the 2026-07-20
+# additions (sources, TRF 1870-1940, ONS UK, UK reconciliation).
 set -eu
 COLOR="${1:?usage: build-geo.sh blue|green}"
 cd "$(dirname "$0")/.."
@@ -20,7 +20,7 @@ RUN() {
 }
 PSQL() { podman exec -i "$DB" psql -U confinia -d confinia -v ON_ERROR_STOP=1 -q; }
 
-echo "==== [$COLOR] attente de la base"
+echo "==== [$COLOR] waiting for the database"
 until podman exec "$DB" pg_isready -U confinia -d confinia >/dev/null 2>&1; do sleep 2; done
 
 RUN /app/ingest_cog.py --millesimes 2025 --data-dir /data/raw/insee
@@ -33,20 +33,20 @@ RUN /app/ingest_nuts.py --data-dir /data/raw/nuts --download --dsn
 RUN /app/ingest_de.py --data-dir /data/raw/de --download --dsn
 RUN /app/ingest_nl.py --data-dir /data/raw/nl --download --dsn
 RUN /app/ingest_lau.py --data-dir /data/raw/lau --download --dsn
-echo "==== [$COLOR] registre des sources + backfill"
+echo "==== [$COLOR] source registry + backfill"
 PSQL < ingestion/sources.sql
 RUN /app/ingest_trf.py --data-dir /data/raw/trf/communes
 RUN /app/ingest_trf_dept.py --data-dir /data/raw/trf/departements
 RUN /app/ingest_trf_supra.py --data-dir /data/raw/trf
 RUN /app/ingest_ons.py --data-dir /data/raw/uk/chd
 RUN /app/ingest_nz.py --download --data-dir /data/raw/nz
-echo "==== [$COLOR] réconciliation UK"
+echo "==== [$COLOR] UK reconciliation"
 { echo "SET search_path TO public;"; cat ingestion/reconcile_uk.sql; } | PSQL
 echo "==== [$COLOR] re-backfill sources (idempotent)"
 PSQL < ingestion/sources.sql
 
-echo "==== [$COLOR] contrôle final"
+echo "==== [$COLOR] final check"
 podman exec "$DB" psql -U confinia -d confinia -c \
 	"SELECT source, count(*) FROM commune_version GROUP BY 1 ORDER BY 2 DESC" -c \
 	"SELECT count(*) AS total FROM commune_version"
-echo "BUILD GEO $COLOR : OK"
+echo "BUILD GEO $COLOR: OK"

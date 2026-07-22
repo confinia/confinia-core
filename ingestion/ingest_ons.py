@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""ONS Code History Database (OGL v3) -> modèle temporel : UK local authorities.
+"""ONS Code History Database (OGL v3) -> temporal model: UK local authorities.
 
-Source : CHD (geoportal.statistics.gov.uk), l'équivalent britannique du fichier
-des mouvements INSEE : chaque code GSS porte sa date d'effet légale (OPER_DATE)
-et sa date de fin (TERM_DATE), et Changes.csv relie prédécesseurs/successeurs
-avec la référence du texte réglementaire (statutory instrument).
+Source: CHD (geoportal.statistics.gov.uk), the British equivalent of the INSEE
+movements file: each GSS code carries its legal effective date (OPER_DATE)
+and its termination date (TERM_DATE), and Changes.csv links predecessors/
+successors with the reference of the statutory instrument.
 
-Périmètre v1 : le niveau « local authority » (l'équivalent du département/
-commune de travail au UK) : E06 unitary, E07 district, E08 metropolitan
-borough, E09 London borough, S12 council areas (Écosse), W06 (Pays de Galles),
-N09 (Irlande du Nord). Dates EXACTES (contrairement au diff annuel TRF).
-Sans géométrie pour l'instant (éditions de contours ONS : chantier suivant).
+v1 scope: the "local authority" level (the UK working equivalent of the
+departement/commune): E06 unitary, E07 district, E08 metropolitan borough,
+E09 London borough, S12 council areas (Scotland), W06 (Wales), N09 (Northern
+Ireland). EXACT dates (unlike the TRF annual diff).
+No geometry for now (ONS boundary editions: next work stream).
 
-Usage (VM) :
+Usage (VM):
     podman-compose --profile tools run --rm --no-deps ingest \
         /app/ingest_ons.py --data-dir /data/raw/uk/chd
 """
@@ -39,7 +39,7 @@ def parse_dt(s: str) -> date | None:
             return datetime.strptime(s, fmt).date()
         except ValueError:
             continue
-    raise ValueError(f"date illisible : {s!r}")
+    raise ValueError(f"unreadable date: {s!r}")
 
 
 def main() -> int:
@@ -60,10 +60,10 @@ def main() -> int:
             if not code or not nom or start is None:
                 continue
             rows.append({"code": code, "nom": nom, "from": start, "to": end})
-    print(f"{len(rows)} versions LAD retenues (entités {sorted(LAD_ENTITIES)})")
+    print(f"{len(rows)} LAD versions retained (entities {sorted(LAD_ENTITIES)})")
 
-    parents: dict[str, set] = defaultdict(set)   # nouveau code -> prédécesseurs
-    children: dict[str, set] = defaultdict(set)  # ancien code  -> successeurs
+    parents: dict[str, set] = defaultdict(set)   # new code -> predecessors
+    children: dict[str, set] = defaultdict(set)  # old code -> successors
     with open(os.path.join(args.data_dir, "Changes.csv"),
               encoding="utf-8-sig", newline="") as f:
         for r in csv.DictReader(f):
@@ -71,14 +71,14 @@ def main() -> int:
             if r["ENTITYCD"] in LAD_ENTITIES and new and old and new != old:
                 parents[new].add(old)
                 children[old].add(new)
-    print(f"{sum(map(len, parents.values()))} liens prédécesseur/successeur")
+    print(f"{sum(map(len, parents.values()))} predecessor/successor links")
 
     import psycopg2
     from psycopg2.extras import execute_values
     conn = psycopg2.connect(args.dsn)
     with conn, conn.cursor() as cur:
         cur.execute("DELETE FROM commune_version WHERE source = %s", (SOURCE,))
-        print(f"{cur.rowcount} anciennes lignes {SOURCE} supprimées (rejeu idempotent)")
+        print(f"{cur.rowcount} old {SOURCE} rows deleted (idempotent replay)")
         execute_values(cur,
             "INSERT INTO commune_version "
             "(code, nom, valid_from, valid_to, parents, children, unit_type, country, source) "
@@ -87,17 +87,17 @@ def main() -> int:
               sorted(parents.get(r["code"], ())), sorted(children.get(r["code"], ())),
               "lad", "UK", SOURCE) for r in rows],
             page_size=2000)
-        # Contrôles : nombre d'autorités vivantes aujourd'hui (attendu ~361 en
-        # 2025 : 296 Angleterre + 22 Pays de Galles + 32 Écosse + 11 Irlande
-        # du Nord), et un cas connu : Cumbria, abolie au 1er avril 2023.
+        # Checks: number of authorities alive today (expected ~361 in 2025:
+        # 296 England + 22 Wales + 32 Scotland + 11 Northern Ireland), and a
+        # known case: Cumbria, abolished on April 1st, 2023.
         cur.execute("SELECT count(*) FROM commune_version "
                     "WHERE source=%s AND valid_to = %s", (SOURCE, FAR_FUTURE))
         live = cur.fetchone()[0]
-        print(f"autorités vivantes aujourd'hui : {live} (attendu ~361)")
+        print(f"authorities alive today: {live} (expected ~361)")
         cur.execute("SELECT nom, valid_from, valid_to, children FROM commune_version "
                     "WHERE source=%s AND nom='Cumbria'", (SOURCE,))
         for nom, vf, vt, ch in cur.fetchall():
-            print(f"  {nom}: {vf} -> {vt} ; successeurs : {ch}")
+            print(f"  {nom}: {vf} -> {vt} ; successors: {ch}")
     conn.close()
     return 0
 

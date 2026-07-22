@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
-"""TRF-GIS (Victor Gay, CC BY 4.0) -> modèle temporel : communes 1870-1940.
+"""TRF-GIS (Victor Gay, CC BY 4.0) -> temporal model: communes 1870-1940.
 
-Source : nomenclatures annuelles COG_COMMUNES_YYYY.tab (Harvard Dataverse,
-doi:10.7910/DVN/LZTZWE), une ligne par commune et par an, codes INSEE
-rétro-reconstruits (`insee`), nom propre (`com_name_prop`), id Cassini.
+Source: annual nomenclatures COG_COMMUNES_YYYY.tab (Harvard Dataverse,
+doi:10.7910/DVN/LZTZWE), one row per commune per year, retro-reconstructed
+INSEE codes (`insee`), proper name (`com_name_prop`), Cassini id.
 
-Méthode (diff annuel, comme le moteur snapshots DE/NL/LAU) :
- - apparition d'un code       -> début de période au 1er janvier de l'année ;
- - disparition                -> fin de période au 1er janvier de l'année ;
- - changement de nom          -> fin + début (nouvelle version du même code).
+Method (annual diff, like the DE/NL/LAU snapshot engine):
+ - a code appears        -> period starts on January 1st of that year;
+ - a code disappears     -> period ends on January 1st of that year;
+ - a name changes        -> end + start (new version of the same code).
 
-Limites assumées, documentées :
- - résolution ANNUELLE : toutes les dates sont approximées au 1er janvier
-   (les dates d'effet exactes pré-1943 viendront du corpus EHESS/Cassini) ;
- - pas de géométrie (le modèle porte déjà des versions sans géométrie) ;
- - plancher 1870 (première édition TRF) ;
- - couture 1940-1943 : les périodes vivantes en 1940 dont le code existe dans
-   le modèle INSEE d'après-guerre sont soudées à son plancher (valid_to =
-   1943-01-01) ; les autres sont fermées à 1941-01-01 (guerre, annexions).
-Aucun chevauchement possible avec l'existant : tout le FR INSEE >= 1943-01-01.
+Assumed, documented limitations:
+ - ANNUAL resolution: all dates are approximated to January 1st
+   (exact pre-1943 effective dates will come from the EHESS/Cassini corpus);
+ - no geometry (the model already carries versions without geometry);
+ - 1870 floor (first TRF edition);
+ - 1940-1943 seam: periods alive in 1940 whose code exists in the post-war
+   INSEE model are welded to its floor (valid_to = 1943-01-01); the others
+   are closed at 1941-01-01 (war, annexations).
+No overlap possible with the existing data: all FR INSEE >= 1943-01-01.
 
-Usage (VM, conteneur ingest) :
+Usage (VM, ingest container):
     podman-compose --profile tools run --rm ingest /app/ingest_trf.py \
         --data-dir /data/raw/trf/communes
 """
@@ -37,11 +37,11 @@ SOURCE = "trf-gis"
 
 
 def load_year_text(base: str, year: int) -> tuple[str, str]:
-    """(texte, délimiteur) pour une année. Préfère l'ORIGINAL .txt (cp1252,
-    CSV) au dérivé .tab de Dataverse : la conversion Stata de Dataverse
-    remplace les accents par U+FFFD (découvert le 2026-07-21 : « G��nicourt »).
-    GARDE-FOU : refuse toute source contenant un U+FFFD, plutôt que d'ingérer
-    de la donnée poubelle en silence."""
+    """(text, delimiter) for a year. Prefers the ORIGINAL .txt (cp1252, CSV)
+    over Dataverse's derived .tab: Dataverse's Stata conversion replaces
+    accented characters with U+FFFD (discovered on 2026-07-21: « G��nicourt »).
+    SAFEGUARD: refuses any source containing a U+FFFD, rather than silently
+    ingesting garbage data."""
     txt = os.path.join(base, f"COG_COMMUNES_{year}.txt")
     tab = os.path.join(base, f"COG_COMMUNES_{year}.tab")
     if os.path.exists(txt):
@@ -55,13 +55,13 @@ def load_year_text(base: str, year: int) -> tuple[str, str]:
         text = open(tab, "rb").read().decode("utf-8")
         delim = "\t"
     if "\ufffd" in text:
-        raise SystemExit(f"Source corrompue (U+FFFD) : {txt or tab} : refus d'ingérer.")
+        raise SystemExit(f"Corrupted source (U+FFFD): {txt or tab}: refusing to ingest.")
     return text, delim
 
 
 def read_year(base: str, year: int) -> dict[str, str]:
-    """-> {code insee: nom propre}. Première occurrence gardée en cas de
-    doublon (rare), lignes sans code ignorées."""
+    """-> {insee code: proper name}. First occurrence kept in case of a
+    duplicate (rare), rows without a code ignored."""
     import io as _io
     text, delim = load_year_text(base, year)
     out: dict[str, str] = {}
@@ -78,21 +78,21 @@ def read_year(base: str, year: int) -> dict[str, str]:
                 continue
             out[code] = nom
     if dupes or empty:
-        print(f"  {year}: {dupes} doublons, {empty} lignes vides ignorés")
+        print(f"  {year}: {dupes} duplicates, {empty} empty rows ignored")
     return out
 
 
 def build_periods(states: dict[int, dict[str, str]]) -> list[tuple[str, str, int, int | None]]:
-    """[(code, nom, année_début, année_fin | None si vivant en 1940)]"""
+    """[(code, name, start_year, end_year | None if alive in 1940)]"""
     periods: list[tuple[str, str, int, int | None]] = []
-    open_: dict[str, tuple[str, int]] = {}          # code -> (nom, début)
+    open_: dict[str, tuple[str, int]] = {}          # code -> (name, start)
     for y in YEARS:
         cur = states[y]
         for code, (nom, start) in list(open_.items()):
             if code not in cur:
                 periods.append((code, nom, start, y))
                 del open_[code]
-            elif cur[code] != nom:                   # renommage : nouvelle version
+            elif cur[code] != nom:                   # renaming: new version
                 periods.append((code, nom, start, y))
                 open_[code] = (cur[code], y)
         for code, nom in cur.items():
@@ -109,22 +109,22 @@ def main() -> int:
     ap.add_argument("--dsn", default=os.environ.get("PG_DSN"))
     args = ap.parse_args()
     if not args.dsn:
-        print("PG_DSN manquant", file=sys.stderr)
+        print("PG_DSN missing", file=sys.stderr)
         return 2
 
-    print("Lecture des 71 nomenclatures annuelles (originaux .txt)…")
+    print("Reading the 71 annual nomenclatures (original .txt files)…")
     states = {y: read_year(args.data_dir, y) for y in YEARS}
     for y in (1870, 1900, 1921, 1940):
         print(f"  {y}: {len(states[y])} communes")
 
     periods = build_periods(states)
-    print(f"{len(periods)} périodes construites")
+    print(f"{len(periods)} periods built")
 
     import psycopg2
     from psycopg2.extras import execute_values
     conn = psycopg2.connect(args.dsn)
     with conn, conn.cursor() as cur:
-        # Codes connus du modèle exact d'après-guerre : cibles de la soudure.
+        # Codes known to the exact post-war model: targets of the weld.
         cur.execute("SELECT DISTINCT code FROM commune_version "
                     "WHERE country='FR' AND unit_type='commune' AND source='insee-cog'")
         post_war = {r[0] for r in cur.fetchall()}
@@ -132,7 +132,7 @@ def main() -> int:
         rows = []
         welded = 0
         for code, nom, start, end in periods:
-            if end is None:                          # vivant en 1940
+            if end is None:                          # alive in 1940
                 if code in post_war:
                     end_date, welded = date(1943, 1, 1), welded + 1
                 else:
@@ -142,23 +142,23 @@ def main() -> int:
             rows.append((code, nom, date(start, 1, 1), end_date, SOURCE))
 
         cur.execute("DELETE FROM commune_version WHERE source = %s", (SOURCE,))
-        print(f"{cur.rowcount} anciennes lignes {SOURCE} supprimées (rejeu idempotent)")
+        print(f"{cur.rowcount} old {SOURCE} rows deleted (idempotent replay)")
         execute_values(cur,
             "INSERT INTO commune_version (code, nom, valid_from, valid_to, source) VALUES %s",
             rows, page_size=5000)
-        print(f"{len(rows)} versions insérées ({welded} soudées au plancher INSEE 1943)")
+        print(f"{len(rows)} versions inserted ({welded} welded to the 1943 INSEE floor)")
 
-        # Contrôle : l'état reconstruit à une date doit égaler la nomenclature brute.
+        # Check: the state rebuilt at a date must equal the raw nomenclature.
         ok = True
         for y in (1875, 1900, 1921, 1939):
             d = date(y, 6, 1)
             cur.execute("SELECT count(*) FROM commune_version "
                         "WHERE source=%s AND valid_from<=%s AND valid_to>%s", (SOURCE, d, d))
             got, want = cur.fetchone()[0], len(states[y])
-            tag = "OK " if got == want else "ECART"
+            tag = "OK " if got == want else "MISMATCH"
             if got != want:
                 ok = False
-            print(f"  contrôle {d}: reconstruit {got} vs nomenclature {want}  {tag}")
+            print(f"  check {d}: rebuilt {got} vs nomenclature {want}  {tag}")
     conn.close()
     return 0 if ok else 1
 
