@@ -1,69 +1,69 @@
-# Caddy APPLICATIF confinia : HTTP simple sur 127.0.0.1:8085, derrière le
-# caddy AMONT de la plateforme (~/projects/platform sur la VM), qui possède
-# 80/443 et les certificats et route les hostnames confinia vers ici.
-# Reload sans coupure : ./deploy/deploy-edge.sh (validation éphémère + reload).
+# Confinia APPLICATION caddy: plain HTTP on 127.0.0.1:8085, behind the
+# platform's UPSTREAM caddy (~/projects/platform on the VM), which owns
+# 80/443 and the certificates and routes the confinia hostnames here.
+# Zero-downtime reload: ./deploy/deploy-edge.sh (ephemeral validation + reload).
 {
 	http_port 8085
 	auto_https off
-	# RÈGLE VM : chaque caddy en réseau hôte DOIT avoir une adresse admin
-	# UNIQUE. Par défaut tous partagent localhost:2019 et un `caddy reload`
-	# peut charger sa config dans le processus d'un AUTRE caddy (panne
-	# générale du 2026-07-20, config 8085 avalée par l'amont). Convention :
-	# admin = 2000 + port applicatif % 10000 -> confinia : 2085.
+	# VM RULE: every host-network caddy MUST have a UNIQUE admin address.
+	# By default they all share localhost:2019 and a `caddy reload`
+	# can load its config into the process of ANOTHER caddy (general
+	# outage of 2026-07-20, the 8085 config swallowed by the upstream).
+	# Convention: admin = 2000 + application port % 10000 -> confinia: 2085.
 	admin localhost:2085
-	# Le caddy AMONT nous parle depuis la boucle locale : sans cette confiance,
-	# caddy JETTE son X-Forwarded-For (comportement 2.5+) et toute la planète
-	# arrive à l'API avec l'IP 127.0.0.1 (quota premium GLOBAL, rate limit
-	# inopérant, analytics pays dégradées — issue #12). L'amont écrase le XFF
-	# fourni par les clients : pas de spoofing possible de l'extérieur.
+	# The UPSTREAM caddy talks to us from the local loopback: without this
+	# trust, caddy THROWS AWAY its X-Forwarded-For (2.5+ behavior) and the
+	# whole planet reaches the API as IP 127.0.0.1 (GLOBAL premium quota,
+	# rate limit useless, country analytics degraded — issue #12). The
+	# upstream overwrites client-supplied XFF: no spoofing possible from outside.
 	servers {
 		trusted_proxies static private_ranges
 	}
 }
 
-# Filtre anti-scanners : coupe net (abort = connexion fermée, aucune réponse)
-# les sondes de bots (fichiers de secrets, dépôts .git, kits WordPress/PHP…).
-# BOUCLE D'ENRICHISSEMENT : le panneau Grafana « 404 par chemin » (dashboard
-# Confinia API, rangée Sécurité) liste ce qui passe encore ; on verse ici les
-# nouveaux motifs au fil de l'eau. Jamais : /robots.txt /sitemap.xml
-# /favicon.ico (crawlers légitimes), ni de motif large cassant /openapi.json
-# ou les assets du site.
+# Anti-scanner filter: cuts off dead (abort = connection closed, no response)
+# bot probes (secrets files, .git repositories, WordPress/PHP kits…).
+# ENRICHMENT LOOP: the Grafana panel "404 by path" (Confinia API dashboard,
+# Security row) lists what still gets through; new patterns are poured in
+# here as they show up. Never: /robots.txt /sitemap.xml /favicon.ico
+# (legitimate crawlers), nor any broad pattern breaking /openapi.json
+# or the site assets.
 (block_scanners) {
-	# Un matcher nommé ne peut être défini qu'UNE fois : un matcher par groupe.
-	# dotfiles & dépôts (à la racine et en profondeur)
+	# A named matcher can only be defined ONCE: one matcher per group.
+	# dotfiles & repositories (at the root and at any depth)
 	@scan_dotfiles path /.env /.env* */.env* /.git /.git* */.git/* /.aws /.aws* */.aws/* /.svn* /.hg* /.ssh* /.npmrc /.dockercfg /.docker* /.DS_Store /.vscode* /.idea* /.bash_history //*
 	abort @scan_dotfiles
 	# PHP / WordPress / e-commerce
 	@scan_php path *.php *.php* /stripe /stripe/* /wp-admin* /wp-login* /wp-content* /wp-includes* /xmlrpc.php /vendor/*
 	abort @scan_php
-	# fichiers de secrets & configs (noms non ambigus, à toute profondeur)
+	# secrets files & configs (unambiguous names, at any depth)
 	@scan_secrets path */terraform.tf* */serviceAccountKey.json */service_account.json */service-account.json */firebase-adminsdk.json */firebase.json */gcp-credentials.json */aws-exports.js */awsconfiguration.json */amplifyconfiguration.json */secrets.json */keys.json */key.json */token.json */env.json */env.js */local_settings.py */instance/config.py */application.properties */application.yml /aws-ses.json /aws-config.js /credentials* /config.json*
 	abort @scan_secrets
-	# configs d'infra (racine uniquement : trop génériques en profondeur)
+	# infra configs (root only: too generic at depth)
 	@scan_infra path /settings.json /web.config /vercel.json /netlify.toml /serverless.yml /docker-compose.yml /config.yml /config.js /graphql /debug/vars /sellers.json /app-ads.txt /ads.txt
 	abort @scan_infra
-	# kits de phishing (sondes de fichiers js/css signatures)
+	# phishing kits (probes for signature js/css files)
 	@scan_phishkit path /bot-connect.js /js/twint_ch.js /js/lkk_ch.js /js/antibot-client.js /css/support_parent.css /static/style/* /assets/js/auth.js /assets/js/message.js /assets/js/qr_modal.js
 	abort @scan_phishkit
 }
 
-# Équilibrage des stacks COULEUR : l'ordre des upstreams (couleur active en
-# tête) vit dans un fichier d'ÉTAT généré par deploy/stacks.sh promote,
-# monté depuis ~/confinia-edge-state (HORS miroir rsync : il survit aux
-# synchronisations). Il définit (api_upstreams) et (staging_upstreams).
-# (définit aussi (staging_auth) : identifiants générés depuis secrets.env
-# par deploy/stacks.sh, en littéral : le reload admin ne résout pas {env.*})
+# COLOR stack load balancing: the upstream order (active color first)
+# lives in a STATE file generated by deploy/stacks.sh promote,
+# mounted from ~/confinia-edge-state (OUTSIDE the rsync mirror: it
+# survives synchronizations). It defines (api_upstreams) and (staging_upstreams).
+# (also defines (staging_auth): credentials generated from secrets.env
+# by deploy/stacks.sh, as literals: the admin reload does not resolve {env.*})
 import /etc/caddy/active/*.caddy
 
-# Frontend confinia (demande fondateur) : la DÉMO est la page d'accueil de
-# www ; le pitch/quickstart vit sur /about, le blog garde ses URLs publiées
-# (/blog/*). Chemins canoniques : /api/ (API) et /grafana (grafana APPLICATIF).
+# Confinia frontend (founder's request): the DEMO is the www homepage;
+# the pitch/quickstart lives on /about, the blog keeps its published URLs
+# (/blog/*). Canonical paths: /api/ (API) and /grafana (APPLICATION grafana).
 http://www.confinia.io {
 	encode zstd gzip
 	handle /grafana* {
 		reverse_proxy 127.0.0.1:3000
 	}
-	# /api nu -> /api/ (les sondes et les humains tapent sans slash final).
+	# bare /api -> /api/ (probes and humans type it without a trailing slash).
 	redir /api /api/ 308
 	handle_path /api/* {
 		route {
@@ -71,12 +71,12 @@ http://www.confinia.io {
 			import api_upstreams
 		}
 	}
-	# Blog : URLs publiées (article Marseille…), servies depuis le site.
+	# Blog: published URLs (Marseille article…), served from the site.
 	handle /blog* {
 		root * /srv/site
 		file_server
 	}
-	# Pitch API + quickstart + attributions : déplacé sur /about.
+	# API pitch + quickstart + attributions: moved to /about.
 	handle /about {
 		root * /srv/site
 		rewrite * /index.html
@@ -90,19 +90,19 @@ http://www.confinia.io {
 		respond @kc_admin 403
 		reverse_proxy 127.0.0.1:8180
 	}
-	# Tarifs + capture d'intention (issue #7) : la surface d'achat.
+	# Pricing + intent capture (issue #7): the purchase surface.
 	handle /pricing {
 		root * /srv/site
 		rewrite * /pricing.html
 		file_server
 	}
-	# Fiche communale détaillée (issue #14) : /commune/<code>.
+	# Detailed commune page (issue #14): /commune/<code>.
 	handle /commune/* {
 		root * /srv/site
 		rewrite * /commune.html
 		file_server
 	}
-	# Accueil : la démo (le produit qui se démontre tout seul).
+	# Homepage: the demo (the product that demonstrates itself).
 	handle {
 		root * /srv/demo
 		route {
@@ -112,8 +112,8 @@ http://www.confinia.io {
 	}
 }
 
-# Hostname historique de l'API : publié partout (posts OHM, backlink
-# OpenCage, README, release) : NE JAMAIS le casser.
+# Historical API hostname: published everywhere (OHM posts, OpenCage
+# backlink, README, release): NEVER break it.
 http://api.confinia.io {
 	encode zstd gzip
 	route {
@@ -122,16 +122,16 @@ http://api.confinia.io {
 	}
 }
 
-# Validation humaine pré-promotion, derrière BASIC AUTH (identifiants via
-# l'env du conteneur : jamais dans le repo). Démo (miroir VM) + API candidate
-# en même origine sous /api : un seul login couvre tout.
+# Human validation before promotion, behind BASIC AUTH (credentials via
+# the container env: never in the repo). Demo (VM mirror) + candidate API
+# on the same origin under /api: a single login covers everything.
 http://staging.confinia.io {
 	import staging_auth
 	encode zstd gzip
 	handle_path /api/* {
 		import staging_upstreams
 	}
-	# Validation de la page tarifs avant exposition www.
+	# Validation of the pricing page before www exposure.
 	handle /pricing {
 		root * /srv/site
 		rewrite * /pricing.html
@@ -148,7 +148,7 @@ http://staging.confinia.io {
 	}
 }
 
-# API candidate seule (curl), mêmes identifiants.
+# Candidate API alone (curl), same credentials.
 http://staging.api.confinia.io {
 	import staging_auth
 	encode zstd gzip
@@ -158,9 +158,9 @@ http://staging.api.confinia.io {
 	}
 }
 
-# Hostname historique de la démo : la démo est désormais la page d'accueil
-# de www (même contenu que le miroir GitHub Pages) — on y redirige.
-# permanent : www est l'origine canonique (décision 2026-07-20).
+# Historical demo hostname: the demo is now the www homepage (same
+# content as the GitHub Pages mirror) — we redirect there.
+# permanent: www is the canonical origin (decision of 2026-07-20).
 http://time-slider.confinia.io {
 	redir https://www.confinia.io{uri} permanent
 }
