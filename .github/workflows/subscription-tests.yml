@@ -1,0 +1,67 @@
+name: subscription-tests
+# Tests de bout en bout des DEUX parcours qui font le revenu :
+#   - inscription (TEST_SUBSCRIPTION.md) : clé, palier free, metering, 9 puis 402
+#   - compte pro Polar (TEST_POLAR.md) : webhooks signés, provisioning, résiliation
+# Vraie API + vrai PostGIS éphémère, aucun secret de production.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"          # lundi matin : dérive détectée même sans push
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: confinia
+          POSTGRES_PASSWORD: citest
+          POSTGRES_DB: confinia
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U confinia"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PG_DSN: postgresql://confinia:citest@127.0.0.1:5432/confinia
+      OPS_DSN: postgresql://confinia:citest@127.0.0.1:5432/confinia
+      POLAR_WEBHOOK_SECRET: whsec_Y29uZmluaWEtY2ktd2ViaG9vay1zZWNyZXQtMDAwMQ==
+      POLAR_PRODUCT_PRO: prod-pro-test
+      POLAR_PRODUCT_ENTERPRISE: prod-ent-test
+      VISITOR_SALT_SECRET: ci-test-salt
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install API dependencies + test tools
+        run: pip install -r api/requirements.txt pytest requests
+      - name: Load test fixture
+        run: |
+          python - <<'EOF'
+          import os, psycopg2
+          conn = psycopg2.connect(os.environ["PG_DSN"])
+          with conn, conn.cursor() as cur:
+              cur.execute(open("tests/fixture.sql").read())
+          print("fixture loaded")
+          EOF
+      - name: Start the API
+        run: |
+          cp VERSION api/VERSION
+          (cd api && nohup python -m uvicorn main:app --host 127.0.0.1 --port 8000 \
+             > /tmp/api.log 2>&1 &)
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8000/healthz && break || sleep 2
+          done
+          curl -sf http://127.0.0.1:8000/healthz
+      - name: Signup journey (TEST_SUBSCRIPTION.md)
+        run: pytest -v tests/test_subscription.py
+      - name: Polar pro journey (TEST_POLAR.md)
+        if: always()
+        run: pytest -v tests/test_polar.py
+      - name: API log on failure
+        if: failure()
+        run: tail -80 /tmp/api.log
