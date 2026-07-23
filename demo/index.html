@@ -17,6 +17,14 @@
   }
   header h1 { font-size: 1rem; margin: 0; font-weight: 600; letter-spacing: .02em; }
   header h1 span { color: #7ab8ff; }
+  .authbtns { margin-left: auto; display: flex; gap: .4rem; }
+  .authbtns a { font-size: .82rem; padding: .32rem .7rem; border-radius: 7px;
+    border: 1px solid #33405a; color: #cfe0f5; text-decoration: none;
+    white-space: nowrap; }
+  .authbtns a:hover { border-color: #7ab8ff; }
+  .authbtns a.primary { background: #2f6f4f; border-color: #2f6f4f; color: #fff; }
+  .authbtns a.primary:hover { background: #35805a; }
+  @media (max-width: 640px) { .authbtns a { font-size: .78rem; padding: .3rem .55rem; } }
   #controls { display: flex; gap: .7rem; align-items: center; flex: 1; min-width: 320px; }
   #sliderbox { flex: 1; display: flex; flex-direction: column; gap: .1rem; min-width: 160px; }
   #slider { width: 100%; accent-color: #7ab8ff; margin: 0; }
@@ -129,6 +137,10 @@
 <div id="map"></div>
 <header>
   <h1><span>Confinia</span><span class="tagline"> · boundaries have a history</span></h1>
+  <div class="authbtns">
+    <a href="https://www.confinia.io/account.html">Sign in</a>
+    <a class="primary" href="https://www.confinia.io/account.html?action=register">Create account</a>
+  </div>
   <div id="controls">
     <label>Dept <input id="dept" type="text" value="01" maxlength="3" spellcheck="false"></label>
     <span id="deptname"></span>
@@ -168,7 +180,7 @@
   Data: INSEE COG · IGN Admin Express (Licence Ouverte 2.0) · © EuroGeographics (NUTS/LAU) ·
   © GeoBasis-DE / BKG (dl-de/by-2-0) · CBS/Kadaster (CC BY 4.0) · Stats NZ (CC BY 4.0) — simplified geometries ·
   basemap © OpenStreetMap contributors © CARTO ·
-  <a href="https://api.confinia.io/docs">Confinia API</a> · <a href="https://www.confinia.io/auth/realms/confinia/account/" target="_blank" rel="noopener" style="color:#7ab8ff">Sign in</a> <span id="ver"></span>
+  <a href="https://api.confinia.io/docs">Confinia API</a> · <a href="https://www.confinia.io/auth/realms/confinia/account/" target="_blank" rel="noopener" style="color:#7ab8ff">Account</a> <span id="ver"></span>
 </footer>
 <script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
 <script>

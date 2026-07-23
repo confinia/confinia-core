@@ -68,3 +68,10 @@ def test_passage_table():                      # issue #21
 def test_attributions_registry():
     a = get("/v1/attributions").json()
     assert any(s["source"] == "banatic" for s in a["sources"])   # #5 source registered
+
+
+def test_demo_has_auth_buttons():              # issue #43 (site surface, not API)
+    import requests as _rq
+    for url in ("https://www.confinia.io/", "https://www.confinia.io/account.html"):
+        html = _rq.get(url, timeout=30).text
+        assert "account.html" in html or "Create account" in html, url

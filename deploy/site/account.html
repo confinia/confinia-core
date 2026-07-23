@@ -51,11 +51,13 @@ async function login() {
   const verifier = rand(64);
   sessionStorage.setItem("pkce_verifier", verifier);
   const challenge = b64url(await sha256(verifier));
+  const kcPath = new URLSearchParams(location.search).get("action") === "register"
+    ? "/protocol/openid-connect/registrations" : "/protocol/openid-connect/auth";
   const p = new URLSearchParams({
     client_id: CLIENT, response_type: "code", scope: "openid profile email",
     redirect_uri: REDIRECT, code_challenge: challenge, code_challenge_method: "S256",
   });
-  location.href = `${ISS}/protocol/openid-connect/auth?${p}`;
+  location.href = `${ISS}${kcPath}?${p}`;
 }
 
 async function exchange(code) {
