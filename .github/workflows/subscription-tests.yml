@@ -97,16 +97,32 @@ jobs:
   # throwaway Keycloak, then assertions on realm, profile and client.
   keycloak:
     runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: confinia
+          POSTGRES_PASSWORD: citest
+          POSTGRES_DB: confinia
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U confinia"
+          --health-interval 5s --health-timeout 5s --health-retries 12
     env:
       KC_SETUP_ADMIN_USER: admin
       KC_SETUP_ADMIN_PASS: citest-admin
+      TEST_KC_BASE: http://127.0.0.1:8180/auth
+      PG_DSN: postgresql://confinia:citest@127.0.0.1:5432/confinia
+      OPS_DSN: postgresql://confinia:citest@127.0.0.1:5432/confinia
+      VISITOR_SALT_SECRET: ci-test-salt
+      KC_ISSUER: http://127.0.0.1:8180/auth/realms/confinia
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install test tools
-        run: pip install pytest requests
+      - name: Install API + test tools
+        run: pip install -r api/requirements.txt pytest requests
       - name: Start a throwaway Keycloak
         run: |
           docker run -d --name kc -p 8180:8180 \
@@ -122,6 +138,36 @@ jobs:
         run: bash deploy/keycloak/setup-realm.sh
       - name: Identity journey (issue #19)
         run: pytest -v tests/test_keycloak.py
-      - name: Keycloak log on failure
+      - name: Enable direct grant on confinia-web (CI only, for token minting)
+        run: |
+          KC=http://127.0.0.1:8180/auth
+          TOKEN=$(curl -s $KC/realms/master/protocol/openid-connect/token \
+            -d grant_type=password -d client_id=admin-cli \
+            -d username=admin -d password=citest-admin | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
+          # Full GET -> set flag -> PUT (a partial PUT drops fields and is rejected).
+          CID=$(curl -s -H "Authorization: Bearer $TOKEN" \
+            "$KC/admin/realms/confinia/clients?clientId=confinia-web" \
+            | python3 -c 'import sys,json;print(json.load(sys.stdin)[0]["id"])')
+          curl -s -H "Authorization: Bearer $TOKEN" \
+            "$KC/admin/realms/confinia/clients/$CID" \
+            | python3 -c 'import sys,json;c=json.load(sys.stdin);c["directAccessGrantsEnabled"]=True;print(json.dumps(c))' > /tmp/client.json
+          curl -s -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+            "$KC/admin/realms/confinia/clients/$CID" --data-binary @/tmp/client.json
+          # sanity: fail the job if the flag did not take
+          curl -s -H "Authorization: Bearer $TOKEN" "$KC/admin/realms/confinia/clients/$CID" \
+            | python3 -c 'import sys,json; assert json.load(sys.stdin)["directAccessGrantsEnabled"] is True, "direct grant not enabled"; print("direct grant ON")'
+      - name: Load fixture + start the API
+        run: |
+          python - <<'PY'
+          import os, psycopg2
+          conn = psycopg2.connect(os.environ["PG_DSN"])
+          with conn, conn.cursor() as cur: cur.execute(open("tests/fixture.sql").read())
+          PY
+          cp VERSION api/VERSION
+          (cd api && nohup python -m uvicorn main:app --host 127.0.0.1 --port 8000 > /tmp/api.log 2>&1 &)
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/healthz && break || sleep 2; done
+      - name: Bearer JWT journey (issue #36)
+        run: pytest -v tests/test_bearer.py
+      - name: Logs on failure
         if: failure()
-        run: docker logs --tail 60 kc
+        run: docker logs --tail 60 kc; tail -40 /tmp/api.log
