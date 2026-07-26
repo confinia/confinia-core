@@ -45,16 +45,16 @@ def test_history_exposes_merge_event(base):
                for ev in d["events"])
 
 
-def test_premium_quota_nine_free_then_402(base):
+def test_premium_quota_ten_free_then_402(base):
     quotas = []
-    for _ in range(9):
+    for _ in range(10):
         r = requests.get(f"{base}/v1/changes",
                          params={"bbox": "4.99,45.99,5.03,46.02",
                                  "api_key": KEY})
         assert r.status_code == 200, r.text
         quotas.append(r.json()["quota"]["remaining"])
         assert r.json()["events"], "le rapport doit contenir la fusion de test"
-    assert quotas == list(range(8, -1, -1))     # 8, 7, … 0
+    assert quotas == list(range(9, -1, -1))     # 9, 8, … 0
     r = requests.get(f"{base}/v1/changes",
                      params={"bbox": "4.99,45.99,5.03,46.02", "api_key": KEY})
     assert r.status_code == 402                 # la 10e est payante
