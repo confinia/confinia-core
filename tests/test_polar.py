@@ -75,14 +75,14 @@ def test_key_created_after_purchase_inherits_pro(base):
     KEY_AFTER = d["key"]
 
 
-def test_pro_key_has_daily_allowance(base):
+def test_pro_key_has_monthly_allowance(base):
     for i, key in enumerate((KEY_BEFORE, KEY_AFTER)):
         r = requests.get(f"{base}/v1/changes",
                          params={"bbox": "4.99,45.99,5.03,46.02", "api_key": key})
         assert r.status_code == 200, r.text
         q = r.json()["quota"]
-        assert q["tier"] == "pro" and q["daily_limit"] == 50
-        assert q["remaining"] == q["daily_limit"] - q["used_today"]
+        assert q["tier"] == "pro" and q["limit"] == 100
+        assert q["remaining"] == q["limit"] - q["used"]
 
 
 def test_enterprise_outranks_pro(base):
@@ -105,4 +105,4 @@ def test_cancellation_demotes_to_free(base):
                      params={"bbox": "4.99,45.99,5.03,46.02", "api_key": KEY_AFTER})
     assert r.status_code in (200, 402)
     if r.status_code == 200:
-        assert "daily_limit" not in r.json()["quota"]   # back on the free lifetime quota
+        assert r.json()["quota"]["tier"] == "free"   # back on the free lifetime quota
