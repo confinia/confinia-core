@@ -75,3 +75,8 @@ def test_demo_has_auth_buttons():              # issue #43 (site surface, not AP
     for url in ("https://www.confinia.io/", "https://www.confinia.io/account.html"):
         html = _rq.get(url, timeout=30).text
         assert "account.html" in html or "Create account" in html, url
+
+
+def test_bulk_export_is_tier_locked():         # issue #45 feature lock
+    r = get("/v1/export/ohm", country="FR", unit_type="departement", bulk="true")
+    assert r.status_code == 403                # anonymous/free cannot bulk-dump

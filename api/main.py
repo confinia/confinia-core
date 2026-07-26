@@ -645,26 +645,35 @@ OHM_ADMIN_LEVEL = {
 }
 REF_KEY = {"FR": "ref:INSEE", "GB": "ref:gss", "DE": "ref:ags", "NL": "ref:cbs"}
 EXPORT_MAX = 5000
+BULK_MAX = 200000
 
 
 @app.get("/v1/export/ohm")
 def export_ohm(
+    request: Request,
     response: Response,
     country: str = Query(..., min_length=2, max_length=2),
     unit_type: str = Query(..., description="commune, departement, canton…"),
     date_from: date | None = Query(None, alias="from",
-                                   description="Ne garder que les versions actives après cette date"),
+                                   description="Keep only versions active after this date"),
     date_to: date | None = Query(None, alias="to",
-                                 description="Ne garder que les versions actives avant cette date"),
-    full_geometry: bool = Query(False, description="Géométrie brute (défaut : simplifiée)"),
+                                 description="Keep only versions active before this date"),
+    full_geometry: bool = Query(False, description="Raw geometry (default: simplified)"),
+    bulk: bool = Query(False, description="One-shot full export, no pagination (Enterprise tier)"),
     limit: int = Query(1000, ge=1, le=EXPORT_MAX),
     offset: int = Query(0, ge=0),
 ):
-    """Export « OHM-ready » : chaque VERSION d'unité en Feature GeoJSON avec
-    `start_date`/`end_date` (conventions OpenHistoricalMap), la référence
-    officielle (`ref:INSEE`…), une suggestion d'`admin_level` et l'attribution
-    de la source. Pensé pour préparer des imports OHM (issue #3) : le consensus
-    communautaire et l'outillage d'upload restent côté OHM."""
+    """OHM-ready export: every unit VERSION as a GeoJSON Feature with
+    `start_date`/`end_date` (OpenHistoricalMap conventions), the official
+    reference (`ref:INSEE`…), a suggested `admin_level` and the source
+    attribution. Meant to prepare OHM imports (issue #3): community consensus
+    and the upload tooling stay on OHM's side.
+
+    The small paginated export is free (for OHM contributors working in chunks);
+    the one-shot `bulk=true` full dump is reserved to the Enterprise tier (#45)."""
+    if bulk:
+        require_tier(request, ("enterprise",))
+        limit = BULK_MAX
     geom_col = "ST_AsGeoJSON(geom, 6)" if full_geometry else "ST_AsGeoJSON(geom_simple, 6)"
     where = ["country = %s", "unit_type = %s"]
     params: list = [country.upper(), unit_type]
@@ -715,16 +724,17 @@ def export_ohm(
 # Modèle économique (fondateur, 2026-07-21) : les 9 premières requêtes sont
 # offertes, la 10e exige un palier payant -> 402 avec pointeur /pricing tant
 # que le checkout MoR (issue #8) n'est pas branché.
-PREMIUM_FREE = 9
-PRO_DAILY = int(os.environ.get("PRO_REPORTS_PER_DAY", "50"))
-ENTERPRISE_DAILY = int(os.environ.get("ENTERPRISE_REPORTS_PER_DAY", "500"))
+# Report-range model (issue #45): Free = a lifetime trial of PREMIUM_FREE
+# reports; Pro = PRO_MONTHLY reports PER MONTH; Enterprise = unlimited.
+PREMIUM_FREE = int(os.environ.get("FREE_REPORTS", "10"))
+PRO_MONTHLY = int(os.environ.get("PRO_REPORTS_PER_MONTH", "100"))
 PRICING_URL = "https://www.confinia.io/pricing"
 
 
 def premium_gate(request: Request) -> dict:
-    """Retourne le quota {used, free_limit, remaining} de l'appelant, ou lève
-    402. Appelant = clé API valide (tier 'pro'/'enterprise' = illimité), sinon
-    condensé STABLE et irréversible de l'IP (jamais l'IP elle-même)."""
+    """Return the caller's quota {tier, used, limit, remaining} or raise 402.
+    Caller = a valid API key (enterprise = unlimited; pro = monthly allowance),
+    otherwise a STABLE irreversible hash of the IP (never the IP itself)."""
     key = request.headers.get("x-api-key") or request.query_params.get("api_key")
     caller = None
     if key:
@@ -732,26 +742,29 @@ def premium_gate(request: Request) -> dict:
             cur.execute("SELECT active, tier FROM public.api_key WHERE key = %s::uuid", (key,))
             row = cur.fetchone()
         if row and row[0]:
-            if row[1] in ("pro", "enterprise"):
-                # Paid tiers: per-DAY allowance (founder model: several per day).
-                cap = PRO_DAILY if row[1] == "pro" else ENTERPRISE_DAILY
+            tier = row[1]
+            if tier == "enterprise":
+                return {"tier": "enterprise", "used": None, "limit": None,
+                        "remaining": "unlimited"}
+            if tier == "pro":
+                # Monthly allowance: the counter is keyed on the first day of the
+                # current month, so it resets at each month boundary.
                 with ops_cursor() as cur:
                     cur.execute(
                         "INSERT INTO public.premium_usage_daily (caller, day, requests) "
-                        "VALUES (%s, CURRENT_DATE, 1) "
+                        "VALUES (%s, date_trunc('month', now())::date, 1) "
                         "ON CONFLICT (caller, day) DO UPDATE SET "
                         " requests = premium_usage_daily.requests + 1 RETURNING requests",
                         (f"key:{key}",))
                     used = cur.fetchone()[0]
-                if used > cap:
+                if used > PRO_MONTHLY:
                     raise HTTPException(402, {
-                        "detail": f"Daily allowance of the {row[1]} tier reached "
-                                  f"({cap} premium reports per day).",
+                        "detail": f"Monthly allowance of the Pro tier reached "
+                                  f"({PRO_MONTHLY} reports per month).",
                         "pricing": PRICING_URL,
-                        "note": "Resets at midnight UTC; the Enterprise tier has a "
-                                "higher allowance."})
-                return {"tier": row[1], "used_today": used, "daily_limit": cap,
-                        "remaining": cap - used}
+                        "note": "Resets on the 1st; Enterprise is unlimited."})
+                return {"tier": "pro", "used": used, "limit": PRO_MONTHLY,
+                        "remaining": PRO_MONTHLY - used}
             caller = f"key:{key}"
     if caller is None:
         ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \
@@ -765,12 +778,32 @@ def premium_gate(request: Request) -> dict:
         used = cur.fetchone()[0]
     if used > PREMIUM_FREE:
         raise HTTPException(402, {
-            "detail": f"Les {PREMIUM_FREE} premiers rapports de changements sont offerts ; "
-                      "au-delà, c'est le palier Pro.",
+            "detail": f"The first {PREMIUM_FREE} reports are free; beyond that, "
+                      "the Pro tier.",
             "pricing": PRICING_URL,
-            "note": "Réserver maintenant fige le tarif de lancement.",
+            "note": "Reserve now to lock the launch price.",
         })
-    return {"used": used, "free_limit": PREMIUM_FREE, "remaining": PREMIUM_FREE - used}
+    return {"tier": "free", "used": used, "limit": PREMIUM_FREE,
+            "remaining": PREMIUM_FREE - used}
+
+
+def require_tier(request: Request, allowed: tuple) -> str:
+    """Feature lock: raise 403 unless the caller's key is in an allowed tier.
+    Used for capabilities reserved to paid tiers (e.g. one-shot bulk export)."""
+    key = request.headers.get("x-api-key") or request.query_params.get("api_key")
+    tier = "free"
+    if key:
+        with ops_cursor() as cur:
+            cur.execute("SELECT tier FROM public.api_key WHERE key=%s::uuid AND active",
+                        (key,))
+            row = cur.fetchone()
+            if row:
+                tier = row[0]
+    if tier not in allowed:
+        raise HTTPException(403, {
+            "detail": f"This feature requires the {' or '.join(allowed)} tier.",
+            "pricing": PRICING_URL})
+    return tier
 
 
 CHANGES_MAX_UNITS = 300
