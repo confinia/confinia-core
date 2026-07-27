@@ -107,6 +107,11 @@ http://www.confinia.io {
 		root * /srv/site
 		file_server
 	}
+	# Polar embedded-checkout script (self-hosted; issue #49).
+	handle /polar-embed.js {
+		root * /srv/site
+		file_server
+	}
 	# Homepage: the demo (the product that demonstrates itself).
 	handle {
 		root * /srv/demo
@@ -148,6 +153,10 @@ http://staging.confinia.io {
 		file_server
 	}
 	handle /account.html {
+		root * /srv/site
+		file_server
+	}
+	handle /polar-embed.js {
 		root * /srv/site
 		file_server
 	}
