@@ -33,6 +33,43 @@ flowchart LR
    the purchase both end up on the paid tier; a cancellation drops the email back
    to `free` on the next event. No human in the loop.
 
+## Accounts: sandbox and production
+
+Polar has two fully separate environments. Set up **sandbox first**, validate the
+whole loop end to end, then repeat the exact same steps in production. Nothing
+crosses over: separate organizations, separate tokens, separate product and
+webhook ids.
+
+| | Sandbox | Production |
+|---|---|---|
+| Dashboard | `https://sandbox.polar.sh` | `https://polar.sh` |
+| API base | `https://sandbox-api.polar.sh` | `https://api.polar.sh` |
+| Test cards | Stripe test cards work | real cards only |
+
+In each environment: create an organization, then an **Organization Access
+Token** (Settings → Developers) with scopes `products:read`, `products:write`,
+`webhooks:read`, `webhooks:write`, `checkout_links:write`. The token is the
+`polar_oat_…` value used below; it is environment-specific.
+
+Two dashboard-only steps stay manual (they gate real money, not the integration):
+activating the organization so it can charge live cards, and connecting the
+payout account (identity + IBAN) to withdraw funds.
+
+## Semi-automated provisioning
+
+[`deploy/polar/setup-polar.sh`](deploy/polar/setup-polar.sh) provisions the two
+products and the webhook endpoint from the token, idempotent-ish (products
+matched by name, webhook by URL). Run it against sandbox first, then prod:
+
+```sh
+POLAR_ENV=sandbox POLAR_TOKEN=polar_oat_xxx ./deploy/polar/setup-polar.sh
+POLAR_ENV=prod    POLAR_TOKEN=polar_oat_yyy \
+    WEBHOOK_URL=https://api.confinia.io/polar/webhook ./deploy/polar/setup-polar.sh
+```
+
+It prints the ids and webhook secret to paste into `deploy/secrets.env`. The
+token is read from the environment and never written to disk.
+
 ## Configuration
 
 Runtime values live in `deploy/secrets.env` (never committed):
@@ -41,9 +78,10 @@ Runtime values live in `deploy/secrets.env` (never committed):
 |---|---|
 | `POLAR_WEBHOOK_SECRET` | verify the webhook signature |
 | `POLAR_PRODUCT_PRO` / `POLAR_PRODUCT_ENTERPRISE` | map a Polar product id to a tier |
+| `POLAR_ACCESS_TOKEN` | provisioning token (setup script; not needed at runtime) |
 
-The webhook endpoint is registered once in the Polar dashboard, pointing at
-`https://api.confinia.io/polar/webhook`.
+The webhook endpoint points at `https://api.confinia.io/polar/webhook` in
+production (and at your API's public URL in sandbox).
 
 ## Tiers and metering
 
