@@ -76,6 +76,9 @@ jobs:
       - name: EPCI unit level (issue #5)
         if: always()
         run: pytest -v tests/test_epci.py
+      - name: Embedded checkout wiring (issue #49)
+        if: always()
+        run: pytest -v tests/test_embed_static.py
       - name: API log on failure
         if: failure()
         run: tail -80 /tmp/api.log
