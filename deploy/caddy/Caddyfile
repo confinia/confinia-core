@@ -186,7 +186,7 @@ http://sandbox.confinia.io {
 	# Polar sandbox webhook: PUBLIC (signature-verified) — Polar can't send
 	# basic auth. Must stay outside the auth guard below.
 	handle /polar/webhook {
-		reverse_proxy 127.0.0.1:8009
+		reverse_proxy 127.0.0.1:8089
 	}
 	# Everything else is behind basic auth (same credentials as staging).
 	handle {
@@ -199,7 +199,7 @@ http://sandbox.confinia.io {
 		handle_path /api/* {
 			route {
 				import block_scanners
-				reverse_proxy 127.0.0.1:8009
+				reverse_proxy 127.0.0.1:8089
 			}
 		}
 		handle /account.html {
