@@ -1,5 +1,5 @@
 #!/bin/bash
-# Launch the dedicated SANDBOX API (issue #51): isolated container on :8009 with
+# Launch the dedicated SANDBOX API (issue #51): isolated container on :8089 with
 # the SANDBOX Polar secret (deploy/sandbox.env), a throwaway ops db (confinia_sbx
 # in the ops-db instance) and the active color's geo db (read-only). Sandbox
 # only — test cards, no real fees. Run ON THE VM after rsync.
@@ -21,5 +21,5 @@ podman run -d --name confinia-sbx_api --network host --restart unless-stopped \
   -e POLAR_PRODUCT_ENTERPRISE="$POLAR_PRODUCT_ENTERPRISE" \
   -e KC_ISSUER="https://www.confinia.io/auth/realms/confinia-sbx" \
   localhost/confinia-api:latest \
-  python -m uvicorn main:app --host 127.0.0.1 --port 8009
-sleep 5; curl -sf http://127.0.0.1:8009/healthz && echo " sandbox API up on :8009"
+  python -m uvicorn main:app --host 127.0.0.1 --port 8089
+sleep 5; curl -sf http://127.0.0.1:8089/healthz && echo " sandbox API up on :8089"
