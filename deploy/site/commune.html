@@ -54,7 +54,8 @@
 </footer>
 </main>
 <script>
-const API = (location.hostname === "www.confinia.io" || location.hostname === "staging.confinia.io")
+const API = (location.hostname === "www.confinia.io" || location.hostname === "staging.confinia.io"
+             || location.hostname === "sandbox.confinia.io")
   ? "/api" : "https://api.confinia.io";
 const code = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop() || "");
 const country = (new URLSearchParams(location.search).get("country") || "FR").toUpperCase();
