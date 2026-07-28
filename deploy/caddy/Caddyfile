@@ -191,6 +191,11 @@ http://sandbox.confinia.io {
 	# Everything else is behind basic auth (same credentials as staging).
 	handle {
 		import staging_auth
+		# Keycloak on the sandbox host (confinia-sbx realm): the whole auth
+		# flow stays on sandbox.confinia.io.
+		handle /auth/* {
+			reverse_proxy 127.0.0.1:8180
+		}
 		handle_path /api/* {
 			route {
 				import block_scanners
