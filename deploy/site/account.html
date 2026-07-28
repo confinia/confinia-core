@@ -84,6 +84,7 @@ async function render(tok) {
       headers: {"content-type": "application/json"},
       body: JSON.stringify({email, note: "account page"})}).then(x => x.json());
     key = k.key; tier = k.tier;
+    try { localStorage.setItem("confinia_session", JSON.stringify({email, tier, host: location.origin})); } catch(e){}
   } catch {}
   el.innerHTML = `
     <div class="card">
@@ -114,7 +115,7 @@ async function render(tok) {
        <a class="btn" href="/">Demo</a></p>`;
   if (window.Polar && window.Polar.EmbedCheckout) window.Polar.EmbedCheckout.init();
   document.getElementById("logout").onclick = () => {
-    sessionStorage.clear();
+    sessionStorage.clear(); try { localStorage.removeItem("confinia_session"); } catch(e){}
     location.href = `${ISS}/protocol/openid-connect/logout?post_logout_redirect_uri=`
       + encodeURIComponent(location.origin + "/") + `&client_id=${CLIENT}`;
   };

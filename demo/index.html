@@ -137,10 +137,7 @@
 <div id="map"></div>
 <header>
   <h1><span>Confinia</span><span class="tagline"> · boundaries have a history</span></h1>
-  <div class="authbtns">
-    <a data-acct="/account.html" href="/account.html">Sign in</a>
-    <a class="primary" data-acct="/account.html?action=register" href="/account.html?action=register">Create account</a>
-  </div>
+  <div class="authbtns" id="authbtns"></div>
   <div id="controls">
     <label>Dept <input id="dept" type="text" value="01" maxlength="3" spellcheck="false"></label>
     <span id="deptname"></span>
@@ -1058,12 +1055,31 @@ function cacheWarm() {
 cacheWarm();
 </script>
 <script>
-// Keep auth links on the CURRENT host (sandbox stays sandbox, www stays www).
-// Only GitHub Pages, which has no /account.html, falls back to absolute www.
-if (location.hostname === "confinia.github.io") {
-  document.querySelectorAll("[data-acct]").forEach(a =>
-    a.href = "https://www.confinia.io" + a.getAttribute("data-acct"));
-}
+// Session-aware header. The account page sets a local flag on login and
+// clears it on logout; the demo reflects it. Host-relative (sandbox stays
+// sandbox), GitHub Pages falls back to absolute www.
+(function () {
+  var base = location.hostname === "confinia.github.io" ? "https://www.confinia.io" : "";
+  var realm = location.hostname === "sandbox.confinia.io" ? "confinia-sbx" : "confinia";
+  var box = document.getElementById("authbtns");
+  if (!box) return;
+  var sess = null;
+  try { sess = JSON.parse(localStorage.getItem("confinia_session") || "null"); } catch (e) {}
+  if (sess && sess.email) {
+    box.innerHTML = '<a href="' + base + '/account.html">Account</a>' +
+      '<a class="primary" href="#" id="demo-logout">Sign out</a>';
+    document.getElementById("demo-logout").addEventListener("click", function (e) {
+      e.preventDefault();
+      try { localStorage.removeItem("confinia_session"); } catch (x) {}
+      location.href = "https://www.confinia.io/auth/realms/" + realm +
+        "/protocol/openid-connect/logout?post_logout_redirect_uri=" +
+        encodeURIComponent(location.origin + "/") + "&client_id=confinia-web";
+    });
+  } else {
+    box.innerHTML = '<a href="' + base + '/account.html">Sign in</a>' +
+      '<a class="primary" href="' + base + '/account.html?action=register">Create account</a>';
+  }
+})();
 </script>
 </body>
 </html>
