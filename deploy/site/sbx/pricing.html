@@ -64,7 +64,7 @@ whether you create it before or after.</p>
       <li>Attribution of upstream sources required</li>
       <li>Community support (GitHub issues)</li>
     </ul>
-    <pre>curl -X POST https://api.confinia.io/v1/keys \
+    <pre>curl -X POST https://sandbox.confinia.io/api/v1/keys \
   -H 'content-type: application/json' \
   -d '{"email": "you@example.org"}'</pre>
   </div>
@@ -112,7 +112,7 @@ whether you create it before or after.</p>
 </form>
 
 <p>Not sure? The <a href="https://time-slider.confinia.io">demo</a> and the
-<a href="https://api.confinia.io/docs">API docs</a> are open: try before caring
+<a href="https://sandbox.confinia.io/api/docs">API docs</a> are open: try before caring
 about any of this. Questions: <a href="mailto:contact@confinia.io">contact@confinia.io</a>.</p>
 
 <footer>
@@ -123,8 +123,8 @@ about any of this. Questions: <a href="mailto:contact@confinia.io">contact@confi
 <script>
 const API = location.hostname.endsWith("confinia.io") && location.pathname !== "/"
   ? (location.hostname.startsWith("www.") || location.hostname === "staging.confinia.io"
-     ? "/api" : "https://api.confinia.io")
-  : "https://api.confinia.io";
+     ? "/api" : "https://sandbox.confinia.io/api")
+  : "https://sandbox.confinia.io/api";
 const form = document.getElementById("intent");
 document.querySelectorAll("[data-tier]").forEach(b => b.addEventListener("click", ev => {
   ev.preventDefault();
