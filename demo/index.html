@@ -23,6 +23,9 @@
     white-space: nowrap; }
   .authbtns a:hover { border-color: #7ab8ff; }
   .authbtns a.primary { background: #2f6f4f; border-color: #2f6f4f; color: #fff; }
+  .authbtns .planbadge { display:inline-block; margin-left:.35rem; padding:.05rem .4rem;
+    border-radius:99px; background:#7ab8ff; color:#10151d; font-size:.72rem;
+    font-weight:700; letter-spacing:.04em; vertical-align:middle; }
   .authbtns a.primary:hover { background: #35805a; }
   @media (max-width: 640px) { .authbtns a { font-size: .78rem; padding: .3rem .55rem; } }
   #controls { display: flex; gap: .7rem; align-items: center; flex: 1; min-width: 320px; }
@@ -1066,7 +1069,9 @@ cacheWarm();
   var sess = null;
   try { sess = JSON.parse(localStorage.getItem("confinia_session") || "null"); } catch (e) {}
   if (sess && sess.email) {
-    box.innerHTML = '<a href="' + base + '/account.html">Account</a>' +
+    var t = (sess.tier || "free").toLowerCase();
+    var badge = t !== "free" ? ' <span class="planbadge">' + t.toUpperCase() + '</span>' : '';
+    box.innerHTML = '<a href="' + base + '/account.html">Account' + badge + '</a>' +
       '<a class="primary" href="#" id="demo-logout">Sign out</a>';
     document.getElementById("demo-logout").addEventListener("click", function (e) {
       e.preventDefault();
