@@ -63,7 +63,10 @@ services:
       - --http-enabled=true
       - --http-port=8180
       - --http-relative-path=/auth
-      - --hostname=https://www.confinia.io/auth
+      # Host-flexible: derive the frontend URL from the request (X-Forwarded-Host)
+      # so Keycloak serves both www.confinia.io/auth and sandbox.confinia.io/auth,
+      # each with its own cookies. Realms stay isolated (confinia vs confinia-sbx).
+      - --hostname-strict=false
       - --hostname-backchannel-dynamic=true
       - --proxy-headers=xforwarded
     env_file:
