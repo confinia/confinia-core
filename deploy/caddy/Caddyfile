@@ -206,6 +206,11 @@ http://sandbox.confinia.io {
 			root * /srv/site/sbx
 			file_server
 		}
+		handle /commune/* {
+			root * /srv/site
+			rewrite * /commune.html
+			file_server
+		}
 		handle /pricing {
 			root * /srv/site/sbx
 			rewrite * /pricing.html
