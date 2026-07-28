@@ -138,8 +138,8 @@
 <header>
   <h1><span>Confinia</span><span class="tagline"> · boundaries have a history</span></h1>
   <div class="authbtns">
-    <a href="https://www.confinia.io/account.html">Sign in</a>
-    <a class="primary" href="https://www.confinia.io/account.html?action=register">Create account</a>
+    <a data-acct="/account.html" href="/account.html">Sign in</a>
+    <a class="primary" data-acct="/account.html?action=register" href="/account.html?action=register">Create account</a>
   </div>
   <div id="controls">
     <label>Dept <input id="dept" type="text" value="01" maxlength="3" spellcheck="false"></label>
@@ -180,7 +180,7 @@
   Data: INSEE COG · IGN Admin Express (Licence Ouverte 2.0) · © EuroGeographics (NUTS/LAU) ·
   © GeoBasis-DE / BKG (dl-de/by-2-0) · CBS/Kadaster (CC BY 4.0) · Stats NZ (CC BY 4.0) — simplified geometries ·
   basemap © OpenStreetMap contributors © CARTO ·
-  <a href="https://api.confinia.io/docs">Confinia API</a> · <a href="https://www.confinia.io/auth/realms/confinia/account/" target="_blank" rel="noopener" style="color:#7ab8ff">Account</a> <span id="ver"></span>
+  <a href="https://api.confinia.io/docs">Confinia API</a> · <a data-acct="/account.html" href="/account.html" target="_blank" rel="noopener" style="color:#7ab8ff">Account</a> <span id="ver"></span>
 </footer>
 <script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
 <script>
@@ -1056,6 +1056,14 @@ function cacheWarm() {
     if (DEPT_RE.test(dept)) fetchState(dept, d).catch(() => {});
 }
 cacheWarm();
+</script>
+<script>
+// Keep auth links on the CURRENT host (sandbox stays sandbox, www stays www).
+// Only GitHub Pages, which has no /account.html, falls back to absolute www.
+if (location.hostname === "confinia.github.io") {
+  document.querySelectorAll("[data-acct]").forEach(a =>
+    a.href = "https://www.confinia.io" + a.getAttribute("data-acct"));
+}
 </script>
 </body>
 </html>
