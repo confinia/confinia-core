@@ -41,7 +41,7 @@ async function exchange(code){const v=sessionStorage.getItem("v");
 function claims(j){return JSON.parse(atob(j.split(".")[1].replace(/-/g,"+").replace(/_/g,"/")));}
 async function render(tok){const c=claims(tok.id_token);const email=c.email,org=c.organization||"—";
  let key=null,tier="free";
- try{const k=await fetch(API+"/v1/keys",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({email,note:"sandbox account"})}).then(x=>x.json());key=k.key;tier=k.tier;}catch{}
+ try{const k=await fetch(API+"/v1/keys",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({email,note:"sandbox account"})}).then(x=>x.json());key=k.key;tier=k.tier;try{localStorage.setItem("confinia_session",JSON.stringify({email,tier,host:location.origin}));}catch(e){}}catch{}
  el.innerHTML=`<div class="card"><div class="row"><b>Email</b><span>${email}</span></div>
    <div class="row"><b>Organization</b><span>${org}</span></div>
    <div class="row"><b>Plan</b><span class="tier ${tier}">${tier}</span></div></div>
@@ -52,7 +52,7 @@ async function render(tok){const c=claims(tok.id_token);const email=c.email,org=
     `<div class="card"><b>Thank you</b><p class="muted">Your <b>${tier}</b> plan is active. (Reload after paying if it still shows free — the webhook takes a second.)</p></div>`}
    <p><button class="btn" id="lo">Sign out</button> <a class="btn" href="/account.html">Reload</a></p>`;
  if(window.Polar&&window.Polar.EmbedCheckout)window.Polar.EmbedCheckout.init();
- document.getElementById("lo").onclick=()=>{sessionStorage.clear();location.href=ISS+"/protocol/openid-connect/logout?post_logout_redirect_uri="+encodeURIComponent(REDIRECT)+"&client_id="+CLIENT;};}
+ document.getElementById("lo").onclick=()=>{sessionStorage.clear(); try { localStorage.removeItem("confinia_session"); } catch(e){}location.href=ISS+"/protocol/openid-connect/logout?post_logout_redirect_uri="+encodeURIComponent(REDIRECT)+"&client_id="+CLIENT;};}
 (async()=>{const q=new URLSearchParams(location.search);
  if(q.get("code")){try{const t=await exchange(q.get("code"));history.replaceState({},"",REDIRECT);await render(t);}catch(e){el.innerHTML='<p>Sign-in failed. <button class="btn" id="r">Retry</button></p>';document.getElementById("r").onclick=login;}}
  else{el.innerHTML='<div class="card"><b>Sign in or create an account to get your API key and try the Pro upgrade.</b><p style="margin-top:1rem"><button class="btn primary" id="g">Sign in / Create account</button></p></div>';document.getElementById("g").onclick=login;}})();
