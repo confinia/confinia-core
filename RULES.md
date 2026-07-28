@@ -38,6 +38,11 @@
    `tests/smoke_prod.py`, à lancer sur staging puis sur la prod promue).
    Un test *skipped* ne vaut pas validation.
 
+7. **Ouvrir une PR en mode BROUILLON dès le début d'une issue** pour suivre
+   l'avancement avant la réussite : `gh pr create --draft` sur la branche de
+   travail, puis la passer en "ready"/merger seulement une fois les tests
+   verts. La PR trace le travail en cours, pas seulement le résultat.
+
 Autres règles opérationnelles (détaillées dans `DEV.md`) : rendu mobile
 vérifié par captures avant toute publication front ; adresse admin caddy
 unique par instance en réseau hôte ; `--no-deps` sur toute commande
