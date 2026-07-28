@@ -57,7 +57,7 @@ async function render(tok){const c=claims(tok.id_token);const email=c.email,org=
 function showSignIn(){el.innerHTML='<div class="card"><b>Sign in or create an account to get your API key and try the Pro upgrade.</b><p style="margin-top:1rem"><button class="btn primary" id="g">Sign in / Create account</button></p></div>';document.getElementById("g").onclick=()=>login();}
 (async()=>{const q=new URLSearchParams(location.search);
  if(q.get("code")){sessionStorage.removeItem("silent");try{const t=await exchange(q.get("code"));history.replaceState({},"",REDIRECT);await render(t);}catch(e){el.innerHTML='<p>Sign-in failed. <button class="btn" id="r">Retry</button></p>';document.getElementById("r").onclick=()=>login();}return;}
- if(q.get("error")){history.replaceState({},"",REDIRECT);showSignIn();return;}
+ if(q.get("error")){try{localStorage.removeItem("confinia_session");}catch(e){}history.replaceState({},"",REDIRECT);showSignIn();return;}
  // Already logged in before on this browser? Complete silently via SSO (no button).
  if(localStorage.getItem("confinia_session")&&!sessionStorage.getItem("silent")){sessionStorage.setItem("silent","1");login({prompt:"none"});return;}
  showSignIn();})();
