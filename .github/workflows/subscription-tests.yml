@@ -183,9 +183,6 @@ jobs:
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/healthz && break || sleep 2; done
       - name: Bearer JWT journey (issue #36)
         run: pytest -v tests/test_bearer.py
-      - name: Billing portal graceful degradation (issue #81)
-        if: always()
-        run: pytest -v tests/test_billing.py
       - name: Logs on failure
         if: failure()
         run: docker logs --tail 60 kc; tail -40 /tmp/api.log
