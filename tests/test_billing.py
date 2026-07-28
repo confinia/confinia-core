@@ -43,7 +43,9 @@ def test_portal_degrades_gracefully_for_valid_caller(base):
         "grant_type": "password", "client_id": "confinia-web",
         "username": email, "password": pw, "scope": "openid email"})
     assert tok.status_code == 200, f"token mint failed: {tok.status_code} {tok.text[:200]}"
-    access = tok.json()["access_token"]
+    # The id_token always carries the email claim; the access token may not, so
+    # the account page (and this test) sends the id_token as the Bearer.
+    id_token = tok.json()["id_token"]
     r = requests.get(f"{base}/v1/billing/portal",
-                     headers={"Authorization": f"Bearer {access}"})
+                     headers={"Authorization": f"Bearer {id_token}"})
     assert r.status_code == 503, r.text     # authenticated, but no portal to issue
