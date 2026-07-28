@@ -1,0 +1,25 @@
+#!/bin/bash
+# Launch the dedicated SANDBOX API (issue #51): isolated container on :8009 with
+# the SANDBOX Polar secret (deploy/sandbox.env), a throwaway ops db (confinia_sbx
+# in the ops-db instance) and the active color's geo db (read-only). Sandbox
+# only — test cards, no real fees. Run ON THE VM after rsync.
+set -eu
+cd "$(dirname "$0")/.."
+PGPW=$(grep '^POSTGRES_PASSWORD=' deploy/secrets.env | cut -d= -f2)
+set -a; . deploy/sandbox.env; set +a
+GEO_PORT=$( [ "$(cat ~/confinia-edge-state/ACTIVE_COLOR)" = blue ] && echo 5441 || echo 5442 )
+podman exec confinia_ops-db_1 psql -U confinia -d confinia -tc \
+  "SELECT 1 FROM pg_database WHERE datname='confinia_sbx'" | grep -q 1 || \
+  podman exec confinia_ops-db_1 psql -U confinia -d confinia -c 'CREATE DATABASE confinia_sbx OWNER confinia'
+podman rm -f confinia-sbx_api 2>/dev/null || true
+podman run -d --name confinia-sbx_api --network host --restart unless-stopped \
+  -e PG_DSN="postgresql://confinia:${PGPW}@127.0.0.1:${GEO_PORT}/confinia" \
+  -e OPS_DSN="postgresql://confinia:${PGPW}@127.0.0.1:5440/confinia_sbx" \
+  -e VISITOR_SALT_SECRET="sbx-salt" \
+  -e POLAR_WEBHOOK_SECRET="$POLAR_WEBHOOK_SECRET" \
+  -e POLAR_PRODUCT_PRO="$POLAR_PRODUCT_PRO" \
+  -e POLAR_PRODUCT_ENTERPRISE="$POLAR_PRODUCT_ENTERPRISE" \
+  -e KC_ISSUER="https://www.confinia.io/auth/realms/confinia-sbx" \
+  localhost/confinia-api:latest \
+  python -m uvicorn main:app --host 127.0.0.1 --port 8009
+sleep 5; curl -sf http://127.0.0.1:8009/healthz && echo " sandbox API up on :8009"
