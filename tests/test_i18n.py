@@ -44,3 +44,27 @@ def test_unsupported_lang_falls_back_to_default(base):
     r = requests.get(f"{base}/v1/communes/99901/report.svg", params={"lang": "de"})
     assert r.status_code == 200, r.text
     assert "Chronologie" in r.text
+
+
+# --- Static front-end checks: the demo map language toggle (issue #79) --------
+import os
+
+DEMO = os.path.join(os.path.dirname(__file__), "..", "demo", "index.html")
+COMMUNE = os.path.join(os.path.dirname(__file__), "..", "deploy", "site", "commune.html")
+
+
+def test_demo_has_language_toggle_and_both_languages():
+    html = open(DEMO, encoding="utf-8").read()
+    assert 'id="langtoggle"' in html                       # the header toggle exists
+    assert "window.CONFINIA_LANG" in html                  # shared lang resolved
+    assert "les frontières ont une histoire" in html       # French chrome present
+    assert "boundaries have a history" in html             # English chrome present
+    # the map passes the chosen language to the API + commune links (coherence)
+    assert "history?lang=" in html
+    assert "&lang=${window.CONFINIA_LANG}" in html
+
+
+def test_commune_page_has_language_selector():
+    html = open(COMMUNE, encoding="utf-8").read()
+    assert 'id="lang"' in html                             # the report-language selector
+    assert "Français" in html and "English" in html
