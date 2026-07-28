@@ -143,7 +143,7 @@ function showSignIn() {
     }
     return;
   }
-  if (q.get("error")) { history.replaceState({}, "", REDIRECT); showSignIn(); return; }
+  if (q.get("error")) { try { localStorage.removeItem("confinia_session"); } catch(e){} history.replaceState({}, "", REDIRECT); showSignIn(); return; }
   // Already signed in before on this browser? Complete silently via SSO (no button).
   if (localStorage.getItem("confinia_session") && !sessionStorage.getItem("silent")) {
     sessionStorage.setItem("silent", "1"); login({ prompt: "none" }); return;
