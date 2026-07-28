@@ -119,6 +119,9 @@ CREATE TABLE IF NOT EXISTS public.polar_subscription (
     updated_at      timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_polar_sub_email ON public.polar_subscription (email);
+-- Polar customer id (issue #81): lets us mint a customer-portal session so the
+-- buyer can self-serve their invoices; backfilled from the subscription webhook.
+ALTER TABLE public.polar_subscription ADD COLUMN IF NOT EXISTS customer_id text;
 """
 
 # Clés facultatives pendant le développement ; passer REQUIRE_API_KEY=true
@@ -1367,6 +1370,39 @@ POLAR_TIER_BY_PRODUCT = {
     ) if pid
 }
 POLAR_ACTIVE = ("active", "trialing")
+# Polar API for minting customer-portal sessions (issue #81). Base differs
+# between prod (api.polar.sh) and sandbox (sandbox-api.polar.sh). The access
+# token needs `customer_sessions:write`; absent = the billing button degrades
+# to the receipt-email note. Never committed — provided via backend secrets.
+POLAR_API_BASE = os.environ.get("POLAR_API_BASE", "https://api.polar.sh").rstrip("/")
+POLAR_ACCESS_TOKEN = os.environ.get("POLAR_ACCESS_TOKEN", "")
+
+
+def polar_portal_url(email: str) -> str | None:
+    """Mint a Polar customer-portal session for `email` and return its URL, or
+    None when billing self-service is not available (no token, no customer, or
+    the Polar API refused). The portal is where the buyer downloads invoices."""
+    if not (POLAR_ACCESS_TOKEN and email):
+        return None
+    with ops_cursor() as cur:
+        cur.execute("SELECT customer_id FROM public.polar_subscription "
+                    "WHERE email=%s AND customer_id IS NOT NULL "
+                    "ORDER BY updated_at DESC LIMIT 1", (email,))
+        row = cur.fetchone()
+    if not row:
+        return None
+    import urllib.request
+    req = urllib.request.Request(
+        f"{POLAR_API_BASE}/v1/customer-sessions",
+        data=json.dumps({"customer_id": row[0]}).encode(),
+        headers={"Authorization": f"Bearer {POLAR_ACCESS_TOKEN}",
+                 "Content-Type": "application/json"},
+        method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return json.loads(resp.read()).get("customer_portal_url")
+    except Exception:
+        return None
 
 
 def polar_verify(request: Request, body: bytes) -> bool:
@@ -1423,6 +1459,8 @@ async def polar_webhook(request: Request):
     status = str(data.get("status") or "")
     email = ((data.get("customer") or {}).get("email")
              or (data.get("user") or {}).get("email") or "").strip().lower()
+    customer_id = str(data.get("customer_id")
+                      or (data.get("customer") or {}).get("id") or "") or None
     product_id = str(data.get("product_id")
                      or (data.get("product") or {}).get("id") or "")
     tier = POLAR_TIER_BY_PRODUCT.get(product_id)
@@ -1430,14 +1468,32 @@ async def polar_webhook(request: Request):
         return {"status": "ignored", "reason": "souscription incomplète ou produit inconnu"}
     with ops_cursor() as cur:
         cur.execute(
-            "INSERT INTO public.polar_subscription (subscription_id, email, tier, status) "
-            "VALUES (%s, %s, %s, %s) "
+            "INSERT INTO public.polar_subscription (subscription_id, email, tier, status, customer_id) "
+            "VALUES (%s, %s, %s, %s, %s) "
             "ON CONFLICT (subscription_id) DO UPDATE SET "
-            " email = EXCLUDED.email, tier = EXCLUDED.tier, "
-            " status = EXCLUDED.status, updated_at = now()",
-            (sub_id, email, tier, status))
+            " email = EXCLUDED.email, tier = EXCLUDED.tier, status = EXCLUDED.status, "
+            " customer_id = COALESCE(EXCLUDED.customer_id, polar_subscription.customer_id), "
+            " updated_at = now()",
+            (sub_id, email, tier, status, customer_id))
     effective = polar_apply_tier(email)
     return {"status": "ok", "email_tier": effective}
+
+
+@app.get("/v1/billing/portal")
+def billing_portal(request: Request):
+    """Return the signed-in caller's Polar customer-portal URL (invoices +
+    billing self-service). Authenticated by the Keycloak Bearer JWT (issue #36),
+    so a caller only ever gets a session for their OWN email (issue #81)."""
+    ident = bearer_identity(request)
+    if not ident:
+        raise HTTPException(401, "Bearer token required (sign in first).")
+    url = polar_portal_url(ident["email"])
+    if not url:
+        raise HTTPException(503, {
+            "detail": "Self-service billing portal is not available yet; your "
+                      "invoice is in the receipt Polar emailed you.",
+            "reason": "no active Polar customer for this account, or portal not configured."})
+    return {"portal_url": url}
 
 
 @app.get("/v1/communes")

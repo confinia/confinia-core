@@ -50,9 +50,17 @@ async function render(tok){const c=claims(tok.id_token);const email=c.email,org=
    ${tier==="free"?`<div class="card"><b>Upgrade (test card)</b><p class="muted">Billing email prefilled with <b>${email}</b> so your key flips to pro automatically after the test payment.</p>
      <p><a class="btn primary" data-polar-checkout data-polar-checkout-theme="dark" href="${PRO_CHECKOUT}?customer_email=${encodeURIComponent(email)}">Subscribe · Pro €49/mo</a>
      <a class="btn" data-polar-checkout data-polar-checkout-theme="dark" href="${ENT_CHECKOUT}?customer_email=${encodeURIComponent(email)}">Enterprise €249/mo</a></p></div>`:
-    `<div class="card"><b>Thank you</b><p class="muted">Your <b>${tier}</b> plan is active. (Reload after paying if it still shows free — the webhook takes a second.)</p></div>`}
+    `<div class="card"><b>Invoices &amp; billing</b><p class="muted">Your <b>${tier}</b> plan is active. Download invoices and manage billing in the Polar customer portal. (Reload after paying if it still shows free — the webhook takes a second.)</p>
+     <p><button class="btn primary" id="bill">Invoices &amp; billing</button></p><p class="muted" id="bill-note"></p></div>`}
    <p><a class="btn" href="/">← Home</a> <a class="btn" href="/pricing">Pricing</a> <a class="btn" href="/account.html">Reload</a> <button class="btn" id="lo">Sign out</button></p>`;
  if(window.Polar&&window.Polar.EmbedCheckout)window.Polar.EmbedCheckout.init();
+ const bb=document.getElementById("bill");
+ if(bb)bb.onclick=async()=>{const n=document.getElementById("bill-note");bb.disabled=true;n.textContent="Opening the billing portal…";
+   try{const r=await fetch(API+"/v1/billing/portal",{headers:{authorization:"Bearer "+tok.access_token}});
+     if(r.ok){const d=await r.json();n.textContent="";window.open(d.portal_url,"_blank");}
+     else{const d=await r.json().catch(()=>({}));n.textContent=(d.detail&&d.detail.detail)||d.detail||"Your invoice is in the receipt Polar emailed you.";}}
+   catch{n.textContent="Your invoice is in the receipt Polar emailed you.";}
+   bb.disabled=false;};
  document.getElementById("lo").onclick=()=>{sessionStorage.clear(); try { localStorage.removeItem("confinia_session"); } catch(e){}location.href=ISS+"/protocol/openid-connect/logout?post_logout_redirect_uri="+encodeURIComponent(REDIRECT)+"&client_id="+CLIENT;};}
 function showSignIn(){el.innerHTML='<div class="card"><b>Sign in or create an account to get your API key and try the Pro upgrade.</b><p style="margin-top:1rem"><button class="btn primary" id="g">Sign in / Create account</button></p></div>';document.getElementById("g").onclick=()=>login();}
 (async()=>{const q=new URLSearchParams(location.search);
