@@ -47,17 +47,19 @@ async function sha256(s) { return crypto.subtle.digest("SHA-256", new TextEncode
 function rand(n) { const a = new Uint8Array(n); crypto.getRandomValues(a);
   return b64url(a.buffer).slice(0, n); }
 
-async function login() {
+async function login(opts) {
+  opts = opts || {};
   const verifier = rand(64);
   sessionStorage.setItem("pkce_verifier", verifier);
   const challenge = b64url(await sha256(verifier));
   const kcPath = new URLSearchParams(location.search).get("action") === "register"
     ? "/protocol/openid-connect/registrations" : "/protocol/openid-connect/auth";
-  const p = new URLSearchParams({
+  const params = {
     client_id: CLIENT, response_type: "code", scope: "openid profile email",
     redirect_uri: REDIRECT, code_challenge: challenge, code_challenge_method: "S256",
-  });
-  location.href = `${ISS}${kcPath}?${p}`;
+  };
+  if (opts.prompt) params.prompt = opts.prompt;
+  location.href = `${ISS}${kcPath}?${new URLSearchParams(params)}`;
 }
 
 async function exchange(code) {
@@ -121,23 +123,32 @@ async function render(tok) {
   };
 }
 
+function showSignIn() {
+  el.innerHTML = `<div class="card"><b>Sign in to see your API key, plan and
+    organization.</b><p style="margin-top:1rem"><button class="btn primary"
+    id="go">Sign in / Create account</button></p></div>`;
+  document.getElementById("go").onclick = () => login();
+}
 (async () => {
   const q = new URLSearchParams(location.search);
   if (q.get("code")) {
+    sessionStorage.removeItem("silent");
     try {
       const tok = await exchange(q.get("code"));
       history.replaceState({}, "", REDIRECT);
       await render(tok);
     } catch (e) {
       el.innerHTML = `<p>Sign-in failed. <button class="btn" id="retry">Try again</button></p>`;
-      document.getElementById("retry").onclick = login;
+      document.getElementById("retry").onclick = () => login();
     }
-  } else {
-    el.innerHTML = `<div class="card"><b>Sign in to see your API key, plan and
-      organization.</b><p style="margin-top:1rem"><button class="btn primary"
-      id="go">Sign in / Create account</button></p></div>`;
-    document.getElementById("go").onclick = login;
+    return;
   }
+  if (q.get("error")) { history.replaceState({}, "", REDIRECT); showSignIn(); return; }
+  // Already signed in before on this browser? Complete silently via SSO (no button).
+  if (localStorage.getItem("confinia_session") && !sessionStorage.getItem("silent")) {
+    sessionStorage.setItem("silent", "1"); login({ prompt: "none" }); return;
+  }
+  showSignIn();
 })();
 </script>
 <script src="/polar-embed.js"></script>
