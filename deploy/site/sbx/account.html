@@ -50,7 +50,7 @@ async function render(tok){const c=claims(tok.id_token);const email=c.email,org=
      <p><a class="btn primary" data-polar-checkout data-polar-checkout-theme="dark" href="${PRO_CHECKOUT}?customer_email=${encodeURIComponent(email)}">Subscribe · Pro €49/mo</a>
      <a class="btn" data-polar-checkout data-polar-checkout-theme="dark" href="${ENT_CHECKOUT}?customer_email=${encodeURIComponent(email)}">Enterprise €249/mo</a></p></div>`:
     `<div class="card"><b>Thank you</b><p class="muted">Your <b>${tier}</b> plan is active. (Reload after paying if it still shows free — the webhook takes a second.)</p></div>`}
-   <p><button class="btn" id="lo">Sign out</button> <a class="btn" href="/sbx/account.html">Reload</a></p>`;
+   <p><button class="btn" id="lo">Sign out</button> <a class="btn" href="/account.html">Reload</a></p>`;
  if(window.Polar&&window.Polar.EmbedCheckout)window.Polar.EmbedCheckout.init();
  document.getElementById("lo").onclick=()=>{sessionStorage.clear();location.href=ISS+"/protocol/openid-connect/logout?post_logout_redirect_uri="+encodeURIComponent(REDIRECT)+"&client_id="+CLIENT;};}
 (async()=>{const q=new URLSearchParams(location.search);
