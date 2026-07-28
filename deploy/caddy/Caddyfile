@@ -176,6 +176,47 @@ http://staging.api.confinia.io {
 	}
 }
 
+# --- Dedicated SANDBOX environment (issue #51) --------------------------------
+# Full isolated sandbox: sandbox API (:8009, sandbox Polar secret, throwaway
+# ops db confinia_sbx, realm confinia-sbx). Sandbox Polar only (test cards,
+# no real fees). Never promoted; parallel to prod. Auth uses the confinia-sbx
+# realm via the canonical Keycloak host (www) for cookie correctness.
+http://sandbox.confinia.io {
+	encode zstd gzip
+	# Polar sandbox webhook: PUBLIC (signature-verified) — Polar can't send
+	# basic auth. Must stay outside the auth guard below.
+	handle /polar/webhook {
+		reverse_proxy 127.0.0.1:8009
+	}
+	# Everything else is behind basic auth (same credentials as staging).
+	handle {
+		import staging_auth
+		handle_path /api/* {
+			route {
+				import block_scanners
+				reverse_proxy 127.0.0.1:8009
+			}
+		}
+		handle /account.html {
+			root * /srv/site/sbx
+			file_server
+		}
+		handle /pricing {
+			root * /srv/site/sbx
+			rewrite * /pricing.html
+			file_server
+		}
+		handle /polar-embed.js {
+			root * /srv/site/sbx
+			file_server
+		}
+		handle {
+			root * /srv/demo
+			file_server
+		}
+	}
+}
+
 # Historical demo hostname: the demo is now the www homepage (same
 # content as the GitHub Pages mirror) — we redirect there.
 # permanent: www is the canonical origin (decision of 2026-07-20).
