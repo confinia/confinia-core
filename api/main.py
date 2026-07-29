@@ -119,6 +119,9 @@ CREATE TABLE IF NOT EXISTS public.polar_subscription (
     updated_at      timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_polar_sub_email ON public.polar_subscription (email);
+-- Polar customer id (issue #81): lets us mint a customer-portal session so the
+-- buyer can self-serve their invoices; backfilled from the subscription webhook.
+ALTER TABLE public.polar_subscription ADD COLUMN IF NOT EXISTS customer_id text;
 """
 
 # Clés facultatives pendant le développement ; passer REQUIRE_API_KEY=true
@@ -319,17 +322,22 @@ def rate_limited(ip: str) -> bool:
 # resolves to (or creates) the caller's key, and the organization claim rides
 # along as the tenant dimension. Optional: absent config = feature off.
 KC_ISSUER = os.environ.get("KC_ISSUER", "")   # e.g. https://www.confinia.io/auth/realms/confinia
+# WHERE to fetch discovery/JWKS from. On a basic-auth host (sandbox/staging) the
+# public issuer URL is gated by the edge, so the API's server-side fetch is
+# blocked; point KC_DISCOVERY at the INTERNAL Keycloak realm base instead. The
+# token's `iss` is still validated against KC_ISSUER. Defaults to KC_ISSUER.
+KC_DISCOVERY = os.environ.get("KC_DISCOVERY", "") or KC_ISSUER
 _JWKS: dict = {}
 
 
 def _jwks():
     global _JWKS
-    if _JWKS or not KC_ISSUER:
+    if _JWKS or not KC_DISCOVERY:
         return _JWKS
     try:
         import urllib.request
         conf = json.loads(urllib.request.urlopen(
-            f"{KC_ISSUER}/.well-known/openid-configuration", timeout=5).read())
+            f"{KC_DISCOVERY}/.well-known/openid-configuration", timeout=5).read())
         keys = json.loads(urllib.request.urlopen(conf["jwks_uri"], timeout=5).read())
         _JWKS = {k["kid"]: k for k in keys["keys"]}
     except Exception:
@@ -338,11 +346,15 @@ def _jwks():
 
 
 def bearer_identity(request: Request) -> dict | None:
-    """Validate a Bearer JWT and return {email, organization} or None."""
+    """Validate a Keycloak JWT and return {email, organization} or None.
+    The token may arrive as `Authorization: Bearer …` (API clients) OR as an
+    `X-Access-Token` header. The latter lets a browser call the API on a
+    basic-auth-protected host (sandbox/staging) without its JWT colliding with
+    the `Authorization: Basic` header the edge requires (issue #81)."""
     auth = request.headers.get("authorization", "")
-    if not auth.startswith("Bearer ") or not KC_ISSUER:
+    token = auth[7:] if auth.startswith("Bearer ") else request.headers.get("x-access-token", "")
+    if not token or not KC_ISSUER:
         return None
-    token = auth[7:]
     try:
         import jwt  # PyJWT
         from jwt import PyJWK
@@ -1367,6 +1379,69 @@ POLAR_TIER_BY_PRODUCT = {
     ) if pid
 }
 POLAR_ACTIVE = ("active", "trialing")
+# Polar API for minting customer-portal sessions (issue #81). Base differs
+# between prod (api.polar.sh) and sandbox (sandbox-api.polar.sh). The access
+# token needs `customer_sessions:write`; absent = the billing button degrades
+# to the receipt-email note. Never committed — provided via backend secrets.
+POLAR_API_BASE = os.environ.get("POLAR_API_BASE", "https://api.polar.sh").rstrip("/")
+POLAR_ACCESS_TOKEN = os.environ.get("POLAR_ACCESS_TOKEN", "")
+
+
+def _polar_get(path: str):
+    """GET the Polar API with the backend token; return parsed JSON or None."""
+    import urllib.request
+    req = urllib.request.Request(
+        f"{POLAR_API_BASE}{path}",
+        headers={"Authorization": f"Bearer {POLAR_ACCESS_TOKEN}",
+                 # Cloudflare 403s the default Python-urllib agent.
+                 "User-Agent": f"confinia-api/{APP_VERSION}"})
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return json.loads(resp.read())
+    except Exception:
+        return None
+
+
+def _polar_customer_id(email: str) -> str | None:
+    """The Polar customer id for `email`: the one captured by the subscription
+    webhook if present, else looked up by email via the Polar API (so existing
+    subscriptions whose customer_id predates the column still resolve)."""
+    with ops_cursor() as cur:
+        cur.execute("SELECT customer_id FROM public.polar_subscription "
+                    "WHERE email=%s AND customer_id IS NOT NULL "
+                    "ORDER BY updated_at DESC LIMIT 1", (email,))
+        row = cur.fetchone()
+    if row:
+        return row[0]
+    import urllib.parse
+    data = _polar_get(f"/v1/customers/?email={urllib.parse.quote(email)}&limit=1")
+    items = (data or {}).get("items") or []
+    return items[0]["id"] if items else None
+
+
+def polar_portal_url(email: str) -> str | None:
+    """Mint a Polar customer-portal session for `email` and return its URL, or
+    None when billing self-service is not available (no token, no customer, or
+    the Polar API refused). The portal is where the buyer downloads invoices."""
+    if not (POLAR_ACCESS_TOKEN and email):
+        return None
+    customer_id = _polar_customer_id(email)
+    if not customer_id:
+        return None
+    import urllib.request
+    req = urllib.request.Request(
+        f"{POLAR_API_BASE}/v1/customer-sessions/",   # trailing slash: no-slash gets a 307 that urllib won't re-POST
+        data=json.dumps({"customer_id": customer_id}).encode(),
+        headers={"Authorization": f"Bearer {POLAR_ACCESS_TOKEN}",
+                 "Content-Type": "application/json",
+                 # Cloudflare 403s the default Python-urllib agent.
+                 "User-Agent": f"confinia-api/{APP_VERSION}"},
+        method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return json.loads(resp.read()).get("customer_portal_url")
+    except Exception:
+        return None
 
 
 def polar_verify(request: Request, body: bytes) -> bool:
@@ -1423,6 +1498,8 @@ async def polar_webhook(request: Request):
     status = str(data.get("status") or "")
     email = ((data.get("customer") or {}).get("email")
              or (data.get("user") or {}).get("email") or "").strip().lower()
+    customer_id = str(data.get("customer_id")
+                      or (data.get("customer") or {}).get("id") or "") or None
     product_id = str(data.get("product_id")
                      or (data.get("product") or {}).get("id") or "")
     tier = POLAR_TIER_BY_PRODUCT.get(product_id)
@@ -1430,14 +1507,32 @@ async def polar_webhook(request: Request):
         return {"status": "ignored", "reason": "souscription incomplète ou produit inconnu"}
     with ops_cursor() as cur:
         cur.execute(
-            "INSERT INTO public.polar_subscription (subscription_id, email, tier, status) "
-            "VALUES (%s, %s, %s, %s) "
+            "INSERT INTO public.polar_subscription (subscription_id, email, tier, status, customer_id) "
+            "VALUES (%s, %s, %s, %s, %s) "
             "ON CONFLICT (subscription_id) DO UPDATE SET "
-            " email = EXCLUDED.email, tier = EXCLUDED.tier, "
-            " status = EXCLUDED.status, updated_at = now()",
-            (sub_id, email, tier, status))
+            " email = EXCLUDED.email, tier = EXCLUDED.tier, status = EXCLUDED.status, "
+            " customer_id = COALESCE(EXCLUDED.customer_id, polar_subscription.customer_id), "
+            " updated_at = now()",
+            (sub_id, email, tier, status, customer_id))
     effective = polar_apply_tier(email)
     return {"status": "ok", "email_tier": effective}
+
+
+@app.get("/v1/billing/portal")
+def billing_portal(request: Request):
+    """Return the signed-in caller's Polar customer-portal URL (invoices +
+    billing self-service). Authenticated by the Keycloak Bearer JWT (issue #36),
+    so a caller only ever gets a session for their OWN email (issue #81)."""
+    ident = bearer_identity(request)
+    if not ident:
+        raise HTTPException(401, "Bearer token required (sign in first).")
+    url = polar_portal_url(ident["email"])
+    if not url:
+        raise HTTPException(503, {
+            "detail": "Self-service billing portal is not available yet; your "
+                      "invoice is in the receipt Polar emailed you.",
+            "reason": "no active Polar customer for this account, or portal not configured."})
+    return {"portal_url": url}
 
 
 @app.get("/v1/communes")

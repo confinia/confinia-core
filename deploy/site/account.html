@@ -109,13 +109,29 @@ async function render(tok) {
          <a class="btn" data-polar-checkout data-polar-checkout-theme="dark"
             href="${ENT_CHECKOUT}?customer_email=${encodeURIComponent(email)}">Enterprise €249/mo</a></p>
     </div>` : `
-    <div class="card"><b>Thank you</b>
-      <p class="muted">Your ${tier} plan is active. Manage billing from the
-      receipt Polar emailed you.</p></div>`}
+    <div class="card"><b>Invoices &amp; billing</b>
+      <p class="muted">Your ${tier} plan is active. Download your invoices and
+      manage billing in the Polar customer portal.</p>
+      <p><button class="btn primary" id="billing">Invoices &amp; billing</button></p>
+      <p class="muted" id="billing-note"></p></div>`}
     <p><button class="btn" id="logout">Sign out</button>
        <a class="btn" href="/pricing">Pricing</a>
        <a class="btn" href="/">Demo</a></p>`;
   if (window.Polar && window.Polar.EmbedCheckout) window.Polar.EmbedCheckout.init();
+  const billBtn = document.getElementById("billing");
+  if (billBtn) billBtn.onclick = async () => {
+    const note = document.getElementById("billing-note");
+    billBtn.disabled = true; note.textContent = "Opening the billing portal…";
+    try {
+      const r = await fetch(`${API}/v1/billing/portal`,
+        {headers: {"x-access-token": tok.id_token}});
+      if (r.ok) { const d = await r.json(); note.textContent = ""; window.open(d.portal_url, "_blank"); }
+      else { const d = await r.json().catch(() => ({}));
+        note.textContent = (d.detail && d.detail.detail) || d.detail
+          || "Your invoice is in the receipt Polar emailed you."; }
+    } catch { note.textContent = "Your invoice is in the receipt Polar emailed you."; }
+    billBtn.disabled = false;
+  };
   document.getElementById("logout").onclick = () => {
     sessionStorage.clear(); try { localStorage.removeItem("confinia_session"); } catch(e){}
     location.href = `${ISS}/protocol/openid-connect/logout?post_logout_redirect_uri=`
