@@ -19,6 +19,9 @@
   .dl a.primary { background: #7ab8ff; color: #10151d; border-color: #7ab8ff; }
   .dl a:hover { border-color: #7ab8ff; }
   .dl small { opacity: .7; font-size: .8rem; }
+  .dl select { background: #0b0f16; color: #e8eaed; border: 1px solid #33405a;
+               border-radius: 8px; padding: .5rem .6rem; font: inherit; font-size: .9rem; }
+  .dl label { font-size: .85rem; opacity: .8; }
   h2 { font-size: 1.1rem; color: #9fb3d1; margin: 1.8rem 0 .6rem; }
   .ev { margin: .25rem 0; font-size: .95rem; }
   .ev b { color: #7ab8ff; font-weight: 600; }
@@ -35,18 +38,24 @@
 </style>
 </head>
 <body><main>
-<div class="crumb"><a href="/">Confinia</a> · commune record</div>
+<div class="crumb"><a href="/">Confinia</a> · <span id="crumb-label">commune record</span></div>
 <h1 id="title">Loading…</h1>
 <div class="meta" id="meta"></div>
 <div class="dl" id="dl" style="display:none">
   <a class="primary" id="dl-pdf" href="#">⬇ PDF report</a>
   <a id="dl-svg" href="#">⬇ SVG report</a>
-  <small>9 reports free per caller, then the <a href="/pricing">Pro tier</a> · every fact carries its source</small>
+  <label for="lang">Language</label>
+  <select id="lang">
+    <option value="fr">Français</option>
+    <option value="en">English</option>
+  </select>
+  <small id="dl-note">9 reports free per caller, then the <a href="/pricing">Pro tier</a> · every fact carries its source</small>
 </div>
 <div id="err"></div>
 <h2 id="ev-h" style="display:none">Chronology</h2>
 <div id="events"></div>
 <h2 id="gr-h" style="display:none">Boundaries by period <small style="opacity:.7">(same scale)</small></h2>
+<!-- ev-h / gr-h text is localized at runtime from the UI dictionary -->
 <div class="grid" id="grid"></div>
 <footer>
   Open source (Apache-2.0): <a href="https://github.com/confinia/confinia-core">github.com/confinia/confinia-core</a>
@@ -58,7 +67,32 @@ const API = (location.hostname === "www.confinia.io" || location.hostname === "s
              || location.hostname === "sandbox.confinia.io")
   ? "/api" : "https://api.confinia.io";
 const code = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop() || "");
-const country = (new URLSearchParams(location.search).get("country") || "FR").toUpperCase();
+const params = new URLSearchParams(location.search);
+const country = (params.get("country") || "FR").toUpperCase();
+// Language: explicit ?lang= wins; else French for France, English elsewhere (issue #79).
+const SUPPORTED_LANGS = ["fr", "en"];
+const langParam = (params.get("lang") || "").toLowerCase().slice(0, 2);
+const lang = SUPPORTED_LANGS.includes(langParam) ? langParam : (country === "FR" ? "fr" : "en");
+// Page chrome strings, localized to match the report/chronology language.
+const UI = {
+  en: { crumb: "commune record", meta: n => `${n} recorded version(s) · full lineage with per-fact provenance · Confinia`,
+        chronology: "Chronology", boundaries: "Boundaries by period", scale: "(same scale)",
+        free: "9 reports free per caller, then the", pro: "Pro tier", provenance: "· every fact carries its source",
+        loading: "Loading…", today: "today", vintage: d => `geometry vintage ${d}`, approx: " (approx.)",
+        noGeom: "no geometry", data: "Data: ", notFound: "Not found" },
+  fr: { crumb: "fiche communale", meta: n => `${n} version(s) enregistrée(s) · filiation complète avec provenance par fait · Confinia`,
+        chronology: "Chronologie", boundaries: "Contours par période", scale: "(même échelle)",
+        free: "9 rapports gratuits par appelant, puis l'", pro: "offre Pro", provenance: "· chaque fait porte sa source",
+        loading: "Chargement…", today: "aujourd'hui", vintage: d => `géométrie de ${d}`, approx: " (approx.)",
+        noGeom: "aucune géométrie", data: "Données : ", notFound: "Introuvable" },
+}[lang];
+document.documentElement.lang = lang;
+document.getElementById("crumb-label").textContent = UI.crumb;
+document.getElementById("title").textContent = UI.loading;
+document.getElementById("ev-h").textContent = UI.chronology;
+document.getElementById("gr-h").innerHTML = `${UI.boundaries} <small style="opacity:.7">${UI.scale}</small>`;
+document.getElementById("dl-note").innerHTML =
+  `${UI.free} <a href="/pricing">${UI.pro}</a> ${UI.provenance}`;
 
 function ringsOf(geom) {
   if (!geom) return [];
@@ -77,8 +111,8 @@ function pathFor(rings, bbox, w, h) {
 (async () => {
   try {
     const url = country === "FR"
-      ? `${API}/v1/communes/${code}/history?geometry=true`
-      : `${API}/v1/units/${encodeURIComponent(code)}/history?country=${country}&geometry=true`;
+      ? `${API}/v1/communes/${code}/history?geometry=true&lang=${lang}`
+      : `${API}/v1/units/${encodeURIComponent(code)}/history?country=${country}&geometry=true&lang=${lang}`;
     const r = await fetch(url);
     if (!r.ok) throw new Error(`unknown unit ${country}/${code}`);
     const d = await r.json();
@@ -87,11 +121,18 @@ function pathFor(rings, bbox, w, h) {
     document.title = `${latest.nom} (${code}) — Confinia`;
     document.getElementById("title").innerHTML =
       `${latest.nom} <small>(${code}, ${country})</small>`;
-    document.getElementById("meta").textContent =
-      `${vs.length} recorded version(s) · full lineage with per-fact provenance · Confinia`;
-    const q = country === "FR" ? "" : `?country=${country}`;
+    document.getElementById("meta").textContent = UI.meta(vs.length);
+    const q = (country === "FR" ? `?lang=${lang}` : `?country=${country}&lang=${lang}`);
     document.getElementById("dl-pdf").href = `${API}/v1/communes/${code}/report.pdf${q}`;
     document.getElementById("dl-svg").href = `${API}/v1/communes/${code}/report.svg${q}`;
+    const sel = document.getElementById("lang");
+    sel.value = lang;
+    // Changing language reloads the page with ?lang= so chronology + report links
+    // follow the choice; the selection always stays within this environment/host.
+    sel.addEventListener("change", () => {
+      params.set("lang", sel.value);
+      location.search = params.toString();
+    });
     document.getElementById("dl").style.display = "flex";
 
     const evs = d.events || [];
@@ -108,23 +149,23 @@ function pathFor(rings, bbox, w, h) {
       document.getElementById("grid").innerHTML = d.versions.map(f => {
         const p = f.properties, rings = ringsOf(f.geometry);
         const vg = p.geometry_vintage
-          ? `geometry vintage ${p.geometry_vintage}${p.geometry_approx ? " (approx.)" : ""}` : "";
+          ? `${UI.vintage(p.geometry_vintage)}${p.geometry_approx ? UI.approx : ""}` : "";
         return `<div class="card">
           <svg viewBox="0 0 300 200">${rings.length
             ? `<path d="${pathFor(rings, bbox, 300, 200)}" fill="#1d2c44" stroke="#7ab8ff"
                  stroke-width="1.1" fill-rule="evenodd"/>`
-            : `<text x="150" y="100" fill="#5b6b85" font-size="13" text-anchor="middle">no geometry</text>`}</svg>
+            : `<text x="150" y="100" fill="#5b6b85" font-size="13" text-anchor="middle">${UI.noGeom}</text>`}</svg>
           <div class="nm">${p.nom}</div>
-          <div class="pd">${p.valid_from} → ${p.valid_to || "today"}</div>
+          <div class="pd">${p.valid_from} → ${p.valid_to || UI.today}</div>
           <div class="vg">${vg}</div>
         </div>`;
       }).join("");
     }
     const a = await fetch(`${API}/v1/attributions`).then(x => x.json()).catch(() => null);
     if (a) document.getElementById("attrib").textContent =
-      "Data: " + a.sources.map(s => s.attribution).slice(0, 4).join(" · ") + " …";
+      UI.data + a.sources.map(s => s.attribution).slice(0, 4).join(" · ") + " …";
   } catch (e) {
-    document.getElementById("title").textContent = "Not found";
+    document.getElementById("title").textContent = UI.notFound;
     document.getElementById("err").textContent = String(e.message || e);
   }
 })();

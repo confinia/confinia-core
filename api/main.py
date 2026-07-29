@@ -487,10 +487,52 @@ def hist_cols(geometry: bool) -> str:
     return COLS if geometry else COLS.replace("ST_AsGeoJSON(geom_simple, 6)", "NULL")
 
 
-def derive_events(versions: list[dict]) -> list[dict]:
+# --- Internationalization (issue #79) --------------------------------------
+# Supported end-user languages. French is the default for France (country FR),
+# English is the fallback everywhere else; an explicit choice always wins.
+REPORT_LANGS = ("en", "fr")
+
+
+def resolve_lang(lang: str | None, country: str) -> str:
+    """Resolve the response language: an explicit supported `lang` wins, else
+    French for France and English as the fallback for every other country."""
+    if lang:
+        code = lang.lower()[:2]
+        if code in REPORT_LANGS:
+            return code
+    return "fr" if country == "FR" else "en"
+
+
+# Event-detail phrases. The renamed event is language-neutral ("A → B"); every
+# other detail is built from these so the chronology reads in the chosen tongue.
+EVENT_PHRASES = {
+    "en": {
+        "today": "today",
+        "absorbed": lambda who, a, b: f"absorbed {who} between {a} and {b}",
+        "formed_from": lambda who: f"formed from {who}",
+        "reestablished": lambda nom: f"re-established as {nom}",
+        "split": lambda who: f"split into {who}",
+        "merged_into": lambda who: f"merged into {who}",
+        "ended": "no longer listed (no successor recorded)",
+    },
+    "fr": {
+        "today": "aujourd'hui",
+        "absorbed": lambda who, a, b: f"a absorbé {who} entre {a} et {b}",
+        "formed_from": lambda who: f"issu de {who}",
+        "reestablished": lambda nom: f"rétabli sous le nom de {nom}",
+        "split": lambda who: f"scindé en {who}",
+        "merged_into": lambda who: f"fusionné dans {who}",
+        "ended": "n'apparaît plus (aucun successeur enregistré)",
+    },
+}
+
+
+def derive_events(versions: list[dict], lang: str = "en") -> list[dict]:
     """Chronologie des ÉVÉNEMENTS d'une unité, dérivée de ses versions :
     renommages (avec les deux noms), fusions/absorptions, scissions, création,
-    disparition — chacun daté quand la date est connue."""
+    disparition — chacun daté quand la date est connue. `lang` localise les
+    libellés d'événements (issue #79)."""
+    ph = EVENT_PHRASES.get(lang, EVENT_PHRASES["en"])
     vs = [v["properties"] for v in versions]
     if not vs:
         return []
@@ -505,20 +547,22 @@ def derive_events(versions: list[dict]) -> list[dict]:
                            "detail": f"{prev['nom']} → {p['nom']}"})
             if other_parents:
                 events.append({"date": None, "type": "absorbed",
-                               "detail": f"absorbed {', '.join(other_parents)} between "
-                                         f"{p['valid_from']} and {p['valid_to'] or 'today'}"})
+                               "detail": ph["absorbed"](', '.join(other_parents),
+                                                        p['valid_from'],
+                                                        p['valid_to'] or ph["today"])})
         elif other_parents and p["valid_from"] != "1943-01-01":
             events.append({"date": p["valid_from"],
                            "type": "merger" if code in (p["parents"] or []) or len(other_parents) > 1
                                    else "created",
-                           "detail": f"formed from {', '.join(sorted(set(p['parents'])))}"})
+                           "detail": ph["formed_from"](', '.join(sorted(set(p['parents']))))})
         elif other_parents:
             events.append({"date": None, "type": "absorbed",
-                           "detail": f"absorbed {', '.join(other_parents)} between "
-                                     f"{p['valid_from']} and {p['valid_to'] or 'today'}"})
+                           "detail": ph["absorbed"](', '.join(other_parents),
+                                                    p['valid_from'],
+                                                    p['valid_to'] or ph["today"])})
         elif not contiguous and i > 0:
             events.append({"date": p["valid_from"], "type": "reestablished",
-                           "detail": f"re-established as {p['nom']}"})
+                           "detail": ph["reestablished"](p['nom'])})
         if p["valid_to"]:
             nxt = vs[i + 1] if i + 1 < len(vs) else None
             internal = nxt is not None and nxt["valid_from"] == p["valid_to"]
@@ -528,13 +572,13 @@ def derive_events(versions: list[dict]) -> list[dict]:
                 pass                                   # transition couverte au tour suivant
             elif len(children) > 1:
                 events.append({"date": p["valid_to"], "type": "split",
-                               "detail": f"split into {', '.join(children)}"})
+                               "detail": ph["split"](', '.join(children))})
             elif others:
                 events.append({"date": p["valid_to"], "type": "merged_into",
-                               "detail": f"merged into {others[0]}"})
+                               "detail": ph["merged_into"](others[0])})
             else:
                 events.append({"date": p["valid_to"], "type": "ended",
-                               "detail": "no longer listed (no successor recorded)"})
+                               "detail": ph["ended"]})
     return events
 
 LANDING = """<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -881,7 +925,43 @@ def area_changes(
 REPORT_MAX_VERSIONS = 60
 
 
-def _report_data(code: str, country: str) -> dict:
+# Report chrome (issue #79): one localized label set per language. Reports drop
+# the former "English / French" dual strings for a single label in the chosen tongue.
+REPORT_LABELS = {
+    "en": {
+        "record": "Confinia · commune record",
+        "versions_svg": lambda n: f"{n} recorded version(s) · generated by Confinia API v{APP_VERSION} · ",
+        "versions_pdf": lambda n: f"{n} recorded version(s) · full lineage with per-fact provenance",
+        "chronology": "Chronology",
+        "boundaries": "Boundaries by period (same scale)",
+        "sources": "Sources:",
+        "no_geometry": "no geometry",
+        "no_geometry_period": "no geometry for this period "
+                              "(pre-1943 nomenclature without communal polygons)",
+        "vintage": lambda d: f"geometry vintage {d}",
+        "vintage_na": "geometry vintage n/a",
+        "approx": " (approx.)",
+        "today": "today",
+    },
+    "fr": {
+        "record": "Confinia · fiche communale",
+        "versions_svg": lambda n: f"{n} version(s) enregistrée(s) · générée par l'API Confinia v{APP_VERSION} · ",
+        "versions_pdf": lambda n: f"{n} version(s) enregistrée(s) · filiation complète avec provenance par fait",
+        "chronology": "Chronologie",
+        "boundaries": "Contours par période (même échelle)",
+        "sources": "Sources :",
+        "no_geometry": "aucune géométrie",
+        "no_geometry_period": "aucune géométrie pour cette période "
+                              "(nomenclature antérieure à 1943, sans polygone communal)",
+        "vintage": lambda d: f"géométrie de {d}",
+        "vintage_na": "géométrie n/d",
+        "approx": " (approx.)",
+        "today": "aujourd'hui",
+    },
+}
+
+
+def _report_data(code: str, country: str, lang: str = "en") -> dict:
     with cursor() as cur:
         cur.execute(
             "SELECT nom, valid_from, valid_to, parents, children, source, "
@@ -915,8 +995,8 @@ def _report_data(code: str, country: str) -> dict:
         "parents": v["parents"], "children": v["children"]}} for v in versions]
     xs = [x for v in versions for ring in v["rings"] for x, _ in ring]
     ys = [y for v in versions for ring in v["rings"] for _, y in ring]
-    return {"code": code, "country": country, "versions": versions,
-            "events": derive_events(feats),
+    return {"code": code, "country": country, "lang": lang, "versions": versions,
+            "events": derive_events(feats, lang),
             "bbox": (min(xs), min(ys), max(xs), max(ys)) if xs else None,
             "attributions": sorted({src_info[v["source"]]
                                     for v in versions
@@ -936,31 +1016,33 @@ def _ring_points(ring, bbox, ox, oy, w, h):
              cy - (y - (s0 + n0) / 2) * sc) for x, y in ring]
 
 
-def _period_str(v) -> str:
-    vt = "today" if v["valid_to"] == FAR_FUTURE else v["valid_to"].isoformat()
+def _period_str(v, lang: str = "en") -> str:
+    today = REPORT_LABELS.get(lang, REPORT_LABELS["en"])["today"]
+    vt = today if v["valid_to"] == FAR_FUTURE else v["valid_to"].isoformat()
     return f"{v['valid_from'].isoformat()} → {vt}"
 
 
 def _report_svg(d: dict) -> str:
     import html as html_mod
     esc = html_mod.escape
+    lab = REPORT_LABELS.get(d.get("lang", "en"), REPORT_LABELS["en"])
     W, PAD = 840, 28
     cur_name = d["versions"][-1]["nom"]
     parts, y = [], PAD + 8
     def text(x, yy, s, size=13, weight="normal", fill="#1a2333", anchor="start"):
         parts.append(f'<text x="{x}" y="{yy}" font-size="{size}" font-family="system-ui,sans-serif" '
                      f'font-weight="{weight}" fill="{fill}" text-anchor="{anchor}">{esc(s)}</text>')
-    text(PAD, y + 10, "Confinia · commune record / fiche communale", 13, fill="#5b6b85"); y += 26
+    text(PAD, y + 10, lab["record"], 13, fill="#5b6b85"); y += 26
     text(PAD, y + 12, f"{cur_name} ({d['code']}, {d['country']})", 26, "bold"); y += 40
-    text(PAD, y, f"{len(d['versions'])} recorded version(s) · generated by Confinia API v{APP_VERSION} · "
-                 f"https://www.confinia.io/commune/{d['code']}", 11, fill="#5b6b85"); y += 24
-    text(PAD, y, "Chronology / chronologie", 15, "bold"); y += 8
+    text(PAD, y, lab["versions_svg"](len(d['versions']))
+                 + f"https://www.confinia.io/commune/{d['code']}", 11, fill="#5b6b85"); y += 24
+    text(PAD, y, lab["chronology"], 15, "bold"); y += 8
     for ev in d["events"][:60]:
         y += 17
         pre = f"{ev['date']} · " if ev.get("date") else ""
         text(PAD + 8, y, f"• {pre}{ev['detail']}"[:130], 12)
     y += 26
-    text(PAD, y, "Boundaries by period / contours par période (same scale)", 15, "bold"); y += 12
+    text(PAD, y, lab["boundaries"], 15, "bold"); y += 12
     CELL_W, CELL_H, DRAW_H = (W - 2 * PAD) // 2, 320, 250
     for i, v in enumerate(d["versions"]):
         col, row_y = i % 2, y + (i // 2) * CELL_H
@@ -976,15 +1058,16 @@ def _report_svg(d: dict) -> str:
             parts.append(f'<path d="{path}" fill="#dbe7fb" stroke="#3a5f95" '
                          'stroke-width="1.2" fill-rule="evenodd"/>')
         else:
-            text(ox + CELL_W / 2, row_y + DRAW_H / 2, "no geometry", 12, fill="#8a94a6", anchor="middle")
+            text(ox + CELL_W / 2, row_y + DRAW_H / 2, lab["no_geometry"], 12, fill="#8a94a6", anchor="middle")
         text(ox + CELL_W / 2, row_y + DRAW_H + 16, v["nom"], 14, "bold", anchor="middle")
-        text(ox + CELL_W / 2, row_y + DRAW_H + 34, _period_str(v), 12, fill="#5b6b85", anchor="middle")
-        vin = f"geometry vintage {v['vintage'].isoformat()}" if v["vintage"] else "geometry vintage n/a"
+        text(ox + CELL_W / 2, row_y + DRAW_H + 34, _period_str(v, d.get("lang", "en")), 12,
+             fill="#5b6b85", anchor="middle")
+        vin = lab["vintage"](v['vintage'].isoformat()) if v["vintage"] else lab["vintage_na"]
         if v["approx"]:
-            vin += " (approx.)"
+            vin += lab["approx"]
         text(ox + CELL_W / 2, row_y + DRAW_H + 50, vin, 10, fill="#8a94a6", anchor="middle")
     y += ((len(d["versions"]) + 1) // 2) * CELL_H + 20
-    text(PAD, y, "Sources:", 11, "bold", "#5b6b85"); y += 4
+    text(PAD, y, lab["sources"], 11, "bold", "#5b6b85"); y += 4
     for attr, lic in d["attributions"]:
         y += 15
         text(PAD + 8, y, f"{attr} · {lic}", 10, fill="#5b6b85")
@@ -998,6 +1081,7 @@ def _report_pdf(d: dict) -> bytes:
     import io
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas as pdf_canvas
+    lab = REPORT_LABELS.get(d.get("lang", "en"), REPORT_LABELS["en"])
     W, H = A4
     PAD = 50
     buf = io.BytesIO()
@@ -1013,14 +1097,14 @@ def _report_pdf(d: dict) -> bytes:
         c.drawRightString(W - PAD, 26, f"Confinia API v{APP_VERSION} · www.confinia.io")
     cur_name = d["versions"][-1]["nom"]
     c.setFillColorRGB(.36, .42, .52); c.setFont("Helvetica", 10)
-    c.drawString(PAD, H - 60, "Confinia · commune record / fiche communale")
+    c.drawString(PAD, H - 60, lab["record"])
     c.setFillColorRGB(.1, .14, .2); c.setFont("Helvetica-Bold", 22)
     c.drawString(PAD, H - 88, f"{cur_name} ({d['code']}, {d['country']})")
     c.setFont("Helvetica", 9); c.setFillColorRGB(.36, .42, .52)
-    c.drawString(PAD, H - 104, f"{len(d['versions'])} recorded version(s) · full lineage with per-fact provenance")
+    c.drawString(PAD, H - 104, lab["versions_pdf"](len(d['versions'])))
     y = H - 136
     c.setFont("Helvetica-Bold", 13); c.setFillColorRGB(.1, .14, .2)
-    c.drawString(PAD, y, "Chronology / chronologie"); y -= 18
+    c.drawString(PAD, y, lab["chronology"]); y -= 18
     c.setFont("Helvetica", 9.5)
     for ev in d["events"]:
         if y < 70:
@@ -1036,10 +1120,10 @@ def _report_pdf(d: dict) -> bytes:
             footer(); c.showPage()
         top = H - 60 - slot * slot_h
         c.setFont("Helvetica-Bold", 12); c.setFillColorRGB(.1, .14, .2)
-        c.drawString(PAD, top, f"{v['nom']} · {_period_str(v)}")
-        vin = f"geometry vintage {v['vintage'].isoformat()}" if v["vintage"] else "geometry vintage n/a"
+        c.drawString(PAD, top, f"{v['nom']} · {_period_str(v, d.get('lang', 'en'))}")
+        vin = lab["vintage"](v['vintage'].isoformat()) if v["vintage"] else lab["vintage_na"]
         if v["approx"]:
-            vin += " (approx.)"
+            vin += lab["approx"]
         c.setFont("Helvetica", 8.5); c.setFillColorRGB(.45, .5, .58)
         c.drawString(PAD, top - 13, vin)
         if v["rings"] and d["bbox"]:
@@ -1057,18 +1141,20 @@ def _report_pdf(d: dict) -> bytes:
                 c.drawPath(p, stroke=1, fill=1)
         else:
             c.setFont("Helvetica", 10); c.setFillColorRGB(.54, .58, .65)
-            c.drawCentredString(W / 2, top - slot_h / 2, "no geometry for this period "
-                                "(pre-1943 nomenclature without communal polygons)")
+            c.drawCentredString(W / 2, top - slot_h / 2, lab["no_geometry_period"])
     footer(); c.showPage(); c.save()
     return buf.getvalue()
 
 
 @app.get("/v1/communes/{code}/report.svg")
-def commune_report_svg(request: Request, code: str, country: str = "FR"):
+def commune_report_svg(request: Request, code: str, country: str = "FR",
+                       lang: str | None = Query(None,
+                           description="Report language (fr/en); default: French for FR, English otherwise")):
     """PREMIUM — rapport SVG : traçabilité complète + contours par période.
     Même quota gratuit que /v1/changes (9 rapports), palier Pro ensuite."""
     quota = premium_gate(request)
-    svg = _report_svg(_report_data(code, country.upper()))
+    country = country.upper()
+    svg = _report_svg(_report_data(code, country, resolve_lang(lang, country)))
     return Response(svg, media_type="image/svg+xml", headers={
         "Content-Disposition": f'inline; filename="confinia-{country}-{code}.svg"',
         "Cache-Control": "no-store",
@@ -1076,10 +1162,13 @@ def commune_report_svg(request: Request, code: str, country: str = "FR"):
 
 
 @app.get("/v1/communes/{code}/report.pdf")
-def commune_report_pdf(request: Request, code: str, country: str = "FR"):
+def commune_report_pdf(request: Request, code: str, country: str = "FR",
+                       lang: str | None = Query(None,
+                           description="Report language (fr/en); default: French for FR, English otherwise")):
     """PREMIUM — le même rapport en PDF (document citable)."""
     quota = premium_gate(request)
-    pdf = _report_pdf(_report_data(code, country.upper()))
+    country = country.upper()
+    pdf = _report_pdf(_report_data(code, country, resolve_lang(lang, country)))
     return Response(pdf, media_type="application/pdf", headers={
         "Content-Disposition": f'attachment; filename="confinia-{country}-{code}.pdf"',
         "Cache-Control": "no-store",
@@ -1352,7 +1441,9 @@ def commune_at(
 
 
 @app.get("/v1/communes/{code}/history")
-def commune_history(code: str, geometry: bool = Query(False)):
+def commune_history(code: str, geometry: bool = Query(False),
+                    lang: str | None = Query(None,
+                        description="Chronology language (fr/en); default French for these FR units")):
     """Toutes les versions d'un code INSEE, avec liens parents/enfants."""
     with cursor() as cur:
         cur.execute(
@@ -1363,7 +1454,8 @@ def commune_history(code: str, geometry: bool = Query(False)):
     if not rows:
         raise HTTPException(404, f"Code INSEE inconnu : {code}")
     versions = [feature(r) for r in rows]
-    return {"code": code, "versions": versions, "events": derive_events(versions)}
+    return {"code": code, "versions": versions,
+            "events": derive_events(versions, resolve_lang(lang, "FR"))}
 
 
 @app.get("/v1/departements")
@@ -1553,7 +1645,9 @@ def unit_at(
 
 
 @app.get("/v1/units/{code}/history")
-def unit_history(code: str, country: str | None = Query(None), geometry: bool = Query(False)):
+def unit_history(code: str, country: str | None = Query(None), geometry: bool = Query(False),
+                 lang: str | None = Query(None,
+                     description="Chronology language (fr/en); default French for FR, English otherwise")):
     """Toutes les versions d'une unité communale (tous pays)."""
     sql = (f"SELECT {hist_cols(geometry)} FROM commune_version "
            "WHERE unit_type = ANY(%s) AND code = %s ")
@@ -1567,7 +1661,8 @@ def unit_history(code: str, country: str | None = Query(None), geometry: bool = 
     if not rows:
         raise HTTPException(404, f"Code inconnu : {code}")
     versions = [feature(r) for r in rows]
-    return {"code": code, "versions": versions, "events": derive_events(versions)}
+    return {"code": code, "versions": versions,
+            "events": derive_events(versions, resolve_lang(lang, (country or "").upper()))}
 
 
 @app.get("/v1/nuts/{code}/history")

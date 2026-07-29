@@ -79,6 +79,9 @@ jobs:
       - name: Embedded checkout wiring (issue #49)
         if: always()
         run: pytest -v tests/test_embed_static.py
+      - name: Language coherency (issue #79)
+        if: always()
+        run: pytest -v tests/test_i18n.py
       - name: API log on failure
         if: failure()
         run: tail -80 /tmp/api.log
