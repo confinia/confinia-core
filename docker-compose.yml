@@ -6,8 +6,8 @@ services:
   # Confinia APPLICATION caddy: plain HTTP on 127.0.0.1:8085, behind the
   # platform's UPSTREAM caddy (~/projects/platform), which owns 80/443 and
   # the certificates. Host network: it sees the upstream's X-Forwarded-*
-  # and reaches the backends via their localhost ports (api 8000/8001/8002,
-  # application grafana 3000). Config mounted as a DIRECTORY: graceful
+  # and reaches the backends via their localhost ports (api 8091/8092/8093,
+  # application grafana 8086). Config mounted as a DIRECTORY: graceful
   # `caddy reload` via deploy/deploy-edge.sh = update with ZERO downtime.
   caddy:
     image: docker.io/library/caddy:2
@@ -28,7 +28,7 @@ services:
       - ./demo:/srv/demo:ro
       - caddy_data:/data
       - caddy_config:/config
-    # no depends_on: caddy (host network) reaches the api via 127.0.0.1:8000 and
+    # no depends_on: caddy (host network) reaches the api via 127.0.0.1:8091 and
     # the podman dependency blocked any isolated recreation of the api container.
     restart: unless-stopped
 
@@ -67,7 +67,9 @@ services:
       # so Keycloak serves both www.confinia.io/auth and sandbox.confinia.io/auth,
       # each with its own cookies. Realms stay isolated (confinia vs confinia-sbx).
       - --hostname-strict=false
-      - --hostname-backchannel-dynamic=true
+      # NO --hostname-backchannel-dynamic: it requires an explicit hostname
+      # and crashes the boot without one ("must be set to false when no
+      # hostname is provided") — the host-flexible setup needs strict=false only.
       - --proxy-headers=xforwarded
     env_file:
       - ./deploy/secrets.env   # KC_BOOTSTRAP_ADMIN_*, KC_DB_USERNAME/PASSWORD
@@ -76,7 +78,7 @@ services:
       KC_DB_URL: jdbc:postgresql://host.containers.internal:5440/keycloak
       KC_HTTP_MANAGEMENT_PORT: "9001"   # health/metrics off the public path
     ports:
-      - "127.0.0.1:8180:8180"
+      - "127.0.0.1:8095:8180"
     restart: unless-stopped
 
   # --- Observability (Step 5b): OTel collector -> Prometheus -> Grafana ---
@@ -119,7 +121,7 @@ services:
       - grafana_data:/var/lib/grafana
       - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
     ports:
-      - "127.0.0.1:3000:3000"   # reached by caddy (host network)
+      - "127.0.0.1:8086:3000"   # reached by caddy (host network)
     restart: unless-stopped
 
   # Local/VM preview of the demo (make demo). The demo's production will
@@ -128,7 +130,7 @@ services:
     image: docker.io/library/caddy:2
     command: caddy file-server --root /srv --listen :80
     ports:
-      - "0.0.0.0:8080:80"
+      - "127.0.0.1:8097:80"   # loopback, in range (issue #75; 8090 squatted by orbit-poc)
     volumes:
       - ./demo:/srv:ro
     profiles: ["tools"]

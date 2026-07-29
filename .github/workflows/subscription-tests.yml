@@ -127,6 +127,7 @@ jobs:
       KC_SETUP_ADMIN_USER: admin
       KC_SETUP_ADMIN_PASS: citest-admin
       TEST_KC_BASE: http://127.0.0.1:8180/auth
+      KC_SETUP_URL: http://127.0.0.1:8180/auth   # CI throwaway KC (VM default is 8087)
       PG_DSN: postgresql://confinia:citest@127.0.0.1:5432/confinia
       OPS_DSN: postgresql://confinia:citest@127.0.0.1:5432/confinia
       VISITOR_SALT_SECRET: ci-test-salt

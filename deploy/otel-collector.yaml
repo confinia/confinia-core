@@ -6,7 +6,7 @@ receivers:
   otlp:
     protocols:
       http:
-        endpoint: 0.0.0.0:4318
+        endpoint: 0.0.0.0:8088
       grpc:
         endpoint: 0.0.0.0:4317
 
@@ -14,10 +14,10 @@ receivers:
   httpcheck:
     collection_interval: 30s
     targets:
-      - endpoint: http://127.0.0.1:8000/healthz   # blue API (direct)
-      - endpoint: http://127.0.0.1:8001/healthz   # green API (direct)
+      - endpoint: http://127.0.0.1:8091/healthz   # blue API (direct)
+      - endpoint: http://127.0.0.1:8092/healthz   # green API (direct)
       - endpoint: http://127.0.0.1:8089/healthz   # sandbox API (direct)
-      - endpoint: http://127.0.0.1:8180/auth/realms/confinia   # Keycloak
+      - endpoint: http://127.0.0.1:8095/auth/realms/confinia   # Keycloak
       - endpoint: https://api.confinia.io/healthz # public edge -> ACTIVE color
 
   # Active color (issue #85): stacks.sh promote maintains ONE marker file
@@ -43,7 +43,7 @@ processors:
 
 exporters:
   prometheus:
-    endpoint: 0.0.0.0:8889
+    endpoint: 0.0.0.0:8094
 
 service:
   pipelines:

@@ -22,7 +22,7 @@ podman run -d --name confinia-sbx_api --network host --restart unless-stopped \
   -e POLAR_API_BASE="https://sandbox-api.polar.sh" \
   -e POLAR_ACCESS_TOKEN="${POLAR_ACCESS_TOKEN:-}" \
   -e KC_ISSUER="https://sandbox.confinia.io/auth/realms/confinia-sbx" \
-  -e KC_DISCOVERY="http://127.0.0.1:8180/auth/realms/confinia-sbx" \
+  -e KC_DISCOVERY="http://127.0.0.1:8095/auth/realms/confinia-sbx" \
   localhost/confinia-api:latest \
   python -m uvicorn main:app --host 127.0.0.1 --port 8089
 sleep 5; curl -sf http://127.0.0.1:8089/healthz && echo " sandbox API up on :8089"

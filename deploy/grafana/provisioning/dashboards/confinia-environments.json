@@ -113,10 +113,10 @@
     },
     {
       "type": "stat",
-      "title": "Blue API (:8000)",
+      "title": "Blue API (:8091)",
       "gridPos": { "x": 0, "y": 5, "w": 6, "h": 4 },
       "targets": [
-        { "expr": "max(httpcheck_status{http_url=\"http://127.0.0.1:8000/healthz\",http_status_class=\"2xx\"})", "legendFormat": "blue" }
+        { "expr": "max(httpcheck_status{http_url=\"http://127.0.0.1:8091/healthz\",http_status_class=\"2xx\"})", "legendFormat": "blue" }
       ],
       "options": {
         "colorMode": "background",
@@ -140,10 +140,10 @@
     },
     {
       "type": "stat",
-      "title": "Green API (:8001)",
+      "title": "Green API (:8092)",
       "gridPos": { "x": 6, "y": 5, "w": 6, "h": 4 },
       "targets": [
-        { "expr": "max(httpcheck_status{http_url=\"http://127.0.0.1:8001/healthz\",http_status_class=\"2xx\"})", "legendFormat": "green" }
+        { "expr": "max(httpcheck_status{http_url=\"http://127.0.0.1:8092/healthz\",http_status_class=\"2xx\"})", "legendFormat": "green" }
       ],
       "options": {
         "colorMode": "background",
@@ -194,10 +194,10 @@
     },
     {
       "type": "stat",
-      "title": "Keycloak (:8180)",
+      "title": "Keycloak (:8095)",
       "gridPos": { "x": 18, "y": 5, "w": 6, "h": 4 },
       "targets": [
-        { "expr": "max(httpcheck_status{http_url=\"http://127.0.0.1:8180/auth/realms/confinia\",http_status_class=\"2xx\"})", "legendFormat": "keycloak" }
+        { "expr": "max(httpcheck_status{http_url=\"http://127.0.0.1:8095/auth/realms/confinia\",http_status_class=\"2xx\"})", "legendFormat": "keycloak" }
       ],
       "options": {
         "colorMode": "background",
@@ -224,10 +224,10 @@
       "title": "Liveness history (1 = up)",
       "gridPos": { "x": 0, "y": 9, "w": 12, "h": 9 },
       "targets": [
-        { "expr": "max(httpcheck_status{http_url=\"http://127.0.0.1:8000/healthz\",http_status_class=\"2xx\"})", "legendFormat": "blue" },
-        { "expr": "max(httpcheck_status{http_url=\"http://127.0.0.1:8001/healthz\",http_status_class=\"2xx\"})", "legendFormat": "green" },
+        { "expr": "max(httpcheck_status{http_url=\"http://127.0.0.1:8091/healthz\",http_status_class=\"2xx\"})", "legendFormat": "blue" },
+        { "expr": "max(httpcheck_status{http_url=\"http://127.0.0.1:8092/healthz\",http_status_class=\"2xx\"})", "legendFormat": "green" },
         { "expr": "max(httpcheck_status{http_url=\"http://127.0.0.1:8089/healthz\",http_status_class=\"2xx\"})", "legendFormat": "sandbox" },
-        { "expr": "max(httpcheck_status{http_url=\"http://127.0.0.1:8180/auth/realms/confinia\",http_status_class=\"2xx\"})", "legendFormat": "keycloak" },
+        { "expr": "max(httpcheck_status{http_url=\"http://127.0.0.1:8095/auth/realms/confinia\",http_status_class=\"2xx\"})", "legendFormat": "keycloak" },
         { "expr": "max(httpcheck_status{http_url=\"https://api.confinia.io/healthz\",http_status_class=\"2xx\"})", "legendFormat": "public edge" }
       ],
       "fieldConfig": {
@@ -244,10 +244,10 @@
       "title": "Probe latency",
       "gridPos": { "x": 12, "y": 9, "w": 12, "h": 9 },
       "targets": [
-        { "expr": "max(httpcheck_duration_milliseconds{http_url=\"http://127.0.0.1:8000/healthz\"})", "legendFormat": "blue" },
-        { "expr": "max(httpcheck_duration_milliseconds{http_url=\"http://127.0.0.1:8001/healthz\"})", "legendFormat": "green" },
+        { "expr": "max(httpcheck_duration_milliseconds{http_url=\"http://127.0.0.1:8091/healthz\"})", "legendFormat": "blue" },
+        { "expr": "max(httpcheck_duration_milliseconds{http_url=\"http://127.0.0.1:8092/healthz\"})", "legendFormat": "green" },
         { "expr": "max(httpcheck_duration_milliseconds{http_url=\"http://127.0.0.1:8089/healthz\"})", "legendFormat": "sandbox" },
-        { "expr": "max(httpcheck_duration_milliseconds{http_url=\"http://127.0.0.1:8180/auth/realms/confinia\"})", "legendFormat": "keycloak" },
+        { "expr": "max(httpcheck_duration_milliseconds{http_url=\"http://127.0.0.1:8095/auth/realms/confinia\"})", "legendFormat": "keycloak" },
         { "expr": "max(httpcheck_duration_milliseconds{http_url=\"https://api.confinia.io/healthz\"})", "legendFormat": "public edge" }
       ],
       "fieldConfig": {
