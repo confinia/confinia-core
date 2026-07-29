@@ -1387,23 +1387,49 @@ POLAR_API_BASE = os.environ.get("POLAR_API_BASE", "https://api.polar.sh").rstrip
 POLAR_ACCESS_TOKEN = os.environ.get("POLAR_ACCESS_TOKEN", "")
 
 
+def _polar_get(path: str):
+    """GET the Polar API with the backend token; return parsed JSON or None."""
+    import urllib.request
+    req = urllib.request.Request(
+        f"{POLAR_API_BASE}{path}",
+        headers={"Authorization": f"Bearer {POLAR_ACCESS_TOKEN}"})
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return json.loads(resp.read())
+    except Exception:
+        return None
+
+
+def _polar_customer_id(email: str) -> str | None:
+    """The Polar customer id for `email`: the one captured by the subscription
+    webhook if present, else looked up by email via the Polar API (so existing
+    subscriptions whose customer_id predates the column still resolve)."""
+    with ops_cursor() as cur:
+        cur.execute("SELECT customer_id FROM public.polar_subscription "
+                    "WHERE email=%s AND customer_id IS NOT NULL "
+                    "ORDER BY updated_at DESC LIMIT 1", (email,))
+        row = cur.fetchone()
+    if row:
+        return row[0]
+    import urllib.parse
+    data = _polar_get(f"/v1/customers/?email={urllib.parse.quote(email)}&limit=1")
+    items = (data or {}).get("items") or []
+    return items[0]["id"] if items else None
+
+
 def polar_portal_url(email: str) -> str | None:
     """Mint a Polar customer-portal session for `email` and return its URL, or
     None when billing self-service is not available (no token, no customer, or
     the Polar API refused). The portal is where the buyer downloads invoices."""
     if not (POLAR_ACCESS_TOKEN and email):
         return None
-    with ops_cursor() as cur:
-        cur.execute("SELECT customer_id FROM public.polar_subscription "
-                    "WHERE email=%s AND customer_id IS NOT NULL "
-                    "ORDER BY updated_at DESC LIMIT 1", (email,))
-        row = cur.fetchone()
-    if not row:
+    customer_id = _polar_customer_id(email)
+    if not customer_id:
         return None
     import urllib.request
     req = urllib.request.Request(
         f"{POLAR_API_BASE}/v1/customer-sessions",
-        data=json.dumps({"customer_id": row[0]}).encode(),
+        data=json.dumps({"customer_id": customer_id}).encode(),
         headers={"Authorization": f"Bearer {POLAR_ACCESS_TOKEN}",
                  "Content-Type": "application/json"},
         method="POST")
