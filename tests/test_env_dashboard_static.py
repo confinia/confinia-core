@@ -14,10 +14,10 @@ def _read(*parts):
 
 def test_collector_probes_every_environment():
     cfg = _read("deploy", "otel-collector.yaml")
-    for target in ("http://127.0.0.1:8000/healthz",      # blue
-                   "http://127.0.0.1:8001/healthz",      # green
+    for target in ("http://127.0.0.1:8091/healthz",      # blue
+                   "http://127.0.0.1:8092/healthz",      # green
                    "http://127.0.0.1:8089/healthz",      # sandbox
-                   "http://127.0.0.1:8180/auth/realms/confinia",  # keycloak
+                   "http://127.0.0.1:8095/auth/realms/confinia",  # keycloak
                    "https://api.confinia.io/healthz"):   # public edge -> active
         assert target in cfg, f"missing probe: {target}"
     assert "filestats" in cfg and "/edge-state/active-*" in cfg
@@ -38,7 +38,7 @@ def test_promote_maintains_active_marker():
 
 
 def test_prometheus_scrapes_host_collector():
-    assert "host.containers.internal:8889" in _read("deploy", "prometheus.yml")
+    assert "host.containers.internal:8094" in _read("deploy", "prometheus.yml")
 
 
 def test_dashboard_shows_roles_and_liveness():
@@ -47,8 +47,8 @@ def test_dashboard_shows_roles_and_liveness():
     assert d["uid"] == "confinia-environments"
     exprs = " ".join(t["expr"] for p in d["panels"] for t in p.get("targets", []))
     assert 'file_name="active-blue"' in exprs and 'file_name="active-green"' in exprs
-    for url in ("127.0.0.1:8000", "127.0.0.1:8001", "127.0.0.1:8089",
-                "127.0.0.1:8180", "api.confinia.io"):
+    for url in ("127.0.0.1:8091", "127.0.0.1:8092", "127.0.0.1:8089",
+                "127.0.0.1:8095", "api.confinia.io"):
         assert url in exprs, f"liveness query missing for {url}"
     titles = [p["title"] for p in d["panels"]]
     assert any("BLUE" in t for t in titles) and any("GREEN" in t for t in titles)

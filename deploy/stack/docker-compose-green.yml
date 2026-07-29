@@ -27,11 +27,11 @@ services:
     env_file:
       - ../secrets.env            # PG_DSN (host `db` = THIS color's db), OPS_DSN
     environment:
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.containers.internal:4318
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.containers.internal:8088
     volumes:
       - ../../data/geoip:/geoip:ro
     ports:
-      - "127.0.0.1:8001:8000"
+      - "127.0.0.1:8092:8000"
     depends_on:
       db:
         condition: service_healthy
