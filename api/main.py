@@ -1392,7 +1392,9 @@ def _polar_get(path: str):
     import urllib.request
     req = urllib.request.Request(
         f"{POLAR_API_BASE}{path}",
-        headers={"Authorization": f"Bearer {POLAR_ACCESS_TOKEN}"})
+        headers={"Authorization": f"Bearer {POLAR_ACCESS_TOKEN}",
+                 # Cloudflare 403s the default Python-urllib agent.
+                 "User-Agent": f"confinia-api/{APP_VERSION}"})
     try:
         with urllib.request.urlopen(req, timeout=8) as resp:
             return json.loads(resp.read())
@@ -1431,7 +1433,9 @@ def polar_portal_url(email: str) -> str | None:
         f"{POLAR_API_BASE}/v1/customer-sessions/",   # trailing slash: no-slash gets a 307 that urllib won't re-POST
         data=json.dumps({"customer_id": customer_id}).encode(),
         headers={"Authorization": f"Bearer {POLAR_ACCESS_TOKEN}",
-                 "Content-Type": "application/json"},
+                 "Content-Type": "application/json",
+                 # Cloudflare 403s the default Python-urllib agent.
+                 "User-Agent": f"confinia-api/{APP_VERSION}"},
         method="POST")
     try:
         with urllib.request.urlopen(req, timeout=8) as resp:
