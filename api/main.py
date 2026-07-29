@@ -1234,6 +1234,51 @@ def reports_quota(request: Request, country: str = "FR", code: str | None = None
     return premium_status(request, unit)
 
 
+# Feature entitlements per tier, for the account page (issue #73). Static,
+# public wording — mirrors /pricing; a "report" is a TOWN, counted once (issue #83).
+PLAN_FEATURES = {
+    "free": ["All point-in-time lookups & unit history",
+             "Interactive demo & commune pages",
+             f"{PREMIUM_FREE} town reports to try (a town counts once — re-downloads free)",
+             "Attribution of sources required", "Community support"],
+    "pro": ["Everything in Free",
+            f"Up to {PRO_MONTHLY} town reports per month (re-downloads free)",
+            "Area-change reports & commune SVG/PDF records", "Passage tables",
+            "R & Python clients", "Versioned endpoints", "Email support"],
+    "enterprise": ["Everything in Pro", "Unlimited town reports (fair use)",
+                   "One-shot bulk exports (full-country dumps)",
+                   "Priority country coverage", "Premium datasets as they land",
+                   "SLA 99.9%", "Invoice billing"],
+}
+
+
+@app.get("/v1/usage")
+def account_usage(request: Request):
+    """Read-only usage summary for the caller's key (issue #73): tier, plan
+    features and the current town-report consumption (this month for Pro,
+    lifetime trial for Free, unlimited for Enterprise). Does NOT consume quota."""
+    key = request.headers.get("x-api-key") or request.query_params.get("api_key")
+    if not key:
+        raise HTTPException(401, "API key required (X-API-Key or ?api_key=).")
+    with ops_cursor() as cur:
+        cur.execute("SELECT active, tier FROM public.api_key WHERE key = %s::uuid", (key,))
+        row = cur.fetchone()
+    if not row or not row[0]:
+        raise HTTPException(404, "Unknown or inactive key.")
+    tier = row[1]
+    q = premium_status(request)            # distinct-town counters (issue #83)
+    q.pop("unlocked", None); q.pop("tier", None)
+    q["window"] = {"free": "lifetime", "pro": "month"}.get(tier, "none")
+    with ops_cursor() as cur:
+        cur.execute("SELECT coalesce(sum(requests),0) FROM public.api_usage "
+                    "WHERE key = %s::uuid AND day >= date_trunc('month', now())::date", (key,))
+        api_calls_month = int(cur.fetchone()[0])
+    return {"tier": tier, "premium_reports": q,
+            "api_requests_this_month": api_calls_month,
+            "features": PLAN_FEATURES.get(tier, []),
+            "all_plans": PLAN_FEATURES}
+
+
 @app.get("/v1/passage")
 def passage(
     code: str = Query(..., description="Source unit code"),
