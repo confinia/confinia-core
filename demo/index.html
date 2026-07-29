@@ -21,7 +21,12 @@
     padding:.2rem .5rem; border-radius:6px; align-self:center; }
   #envbadge.sbx { display:inline-block; background:#3a2a10; color:#e6ac63; border:1px solid #e6ac63; }
   #envbadge.stg { display:inline-block; background:#10233a; color:#7ab8ff; border:1px solid #7ab8ff; }
-  .authbtns { margin-left: auto; display: flex; gap: .4rem; }
+  .langtoggle { margin-left: auto; font: 700 .74rem/1 ui-monospace, monospace;
+    letter-spacing: .06em; padding: .32rem .55rem; border-radius: 7px; cursor: pointer;
+    border: 1px solid #33405a; color: #cfe0f5; background: none; }
+  .langtoggle:hover { border-color: #7ab8ff; }
+  .langtoggle b { color: #7ab8ff; }
+  .authbtns { display: flex; gap: .4rem; }
   .authbtns a { font-size: .82rem; padding: .32rem .7rem; border-radius: 7px;
     border: 1px solid #33405a; color: #cfe0f5; text-decoration: none;
     white-space: nowrap; }
@@ -144,6 +149,7 @@
 <div id="map"></div>
 <header>
   <h1><span>Confinia</span><span class="tagline"> · boundaries have a history</span></h1><span id="envbadge"></span>
+  <button id="langtoggle" class="langtoggle" type="button" title="Change language / changer de langue">FR · EN</button>
   <div class="authbtns" id="authbtns"></div>
   <div id="controls">
     <label>Dept <input id="dept" type="text" value="01" maxlength="3" spellcheck="false"></label>
@@ -186,6 +192,117 @@
   basemap © OpenStreetMap contributors © CARTO ·
   <a href="https://api.confinia.io/docs">Confinia API</a> · <a data-acct="/account.html" href="/account.html" target="_blank" rel="noopener" style="color:#7ab8ff">Account</a> <span id="ver"></span>
 </footer>
+<script>
+// --- Internationalization (issue #79): French for French visitors, English as
+// the fallback; an explicit ?lang= or the header toggle always wins. Shared by
+// both the map script and the session-aware header script below. ---
+(function () {
+  var SUPPORTED = ["fr", "en"];
+  var qp = new URLSearchParams(location.search).get("lang");
+  var stored = null; try { stored = localStorage.getItem("confinia_lang"); } catch (e) {}
+  var nav = (navigator.language || "en").toLowerCase().slice(0, 2);
+  var pick = [qp, stored, nav].map(function (v) { return (v || "").toLowerCase().slice(0, 2); })
+    .find(function (v) { return SUPPORTED.indexOf(v) >= 0; }) || "en";
+  var LANG = pick;
+  document.documentElement.lang = LANG;
+  var T = {
+    en: {
+      tagline: " · boundaries have a history",
+      signin: "Sign in", createacct: "Create account", account: "Account", signout: "Sign out",
+      play_title: "Play through time", compare: "⇄ Compare", compare_short: "⇄",
+      compare_title: "Compare with another date", comparison_date_title: "Comparison date",
+      pick_month_title: "Pick a specific month", dept_label: "Dept", footer_account: "Account",
+      hint: '🖱 scroll / buttons bottom-right: zoom · <b>click a colored commune → its full '
+          + 'history</b> (click a period to time-travel) · <b>click grey areas</b> — the local '
+          + '"department" opens whole (département, Land, province, canton…) · civil validity dates '
+          + '(state as of the 1st of the chosen month) · <b>before 2017: département view</b> '
+          + '(exact 1870-1940, current outline as approximation after) · the URL remembers the view',
+      legend_changes_vs: "Changes vs", legend_new: "only at the displayed date",
+      legend_chg: "changed (name or period)", legend_gone: "only at the comparison date",
+      legend_dimmed: "unchanged units are dimmed",
+      coach: 'Click a grey <b>département</b> — or any coloured commune — to explore its history',
+      dismiss: "dismiss", api_error: "API error", today: "today",
+      diff_label: function (d) { return "+" + d.nNew + " new · ~" + d.nChg + " changed · -" + d.nGone + " gone"; },
+      as_of: function (s) { return "as of " + s; },
+      zoom_hint: function (c) { return "zoom in (≥ 7) to load " + c + " — or click another country"; },
+      diff_needs_view: " · comparison needs a département/region view",
+      diff_word_new: "only at the displayed date", diff_word_chg: "changed between the two dates",
+      diff_word_gone: "only at the comparison date", info_valid: "valid",
+      flash_no_unit: "No known unit here at this date (sea? outside coverage?).",
+      loading: "loading…", histo_click_period: "Click a period to travel to that time.",
+      histo_full_record: "Full record &amp; downloadable report →", histo_unavailable: "history unavailable",
+      histo_from: "from", histo_events: "Events", close: "Close",
+      date_locale: "en-GB",
+    },
+    fr: {
+      tagline: " · les frontières ont une histoire",
+      signin: "Se connecter", createacct: "Créer un compte", account: "Mon compte", signout: "Se déconnecter",
+      play_title: "Défiler dans le temps", compare: "⇄ Comparer", compare_short: "⇄",
+      compare_title: "Comparer avec une autre date", comparison_date_title: "Date de comparaison",
+      pick_month_title: "Choisir un mois précis", dept_label: "Dépt", footer_account: "Mon compte",
+      hint: '🖱 molette / boutons en bas à droite : zoom · <b>cliquez une commune colorée → son '
+          + 'histoire complète</b> (cliquez une période pour voyager dans le temps) · <b>cliquez les '
+          + 'zones grises</b> — le « département » local s\'ouvre en entier (département, Land, '
+          + 'province, canton…) · dates de validité civile (état au 1er du mois choisi) · '
+          + '<b>avant 2017 : vue départementale</b> (exact 1870-1940, contour actuel en approximation '
+          + 'ensuite) · l\'URL retient la vue',
+      legend_changes_vs: "Changements vs", legend_new: "uniquement à la date affichée",
+      legend_chg: "modifié (nom ou période)", legend_gone: "uniquement à la date de comparaison",
+      legend_dimmed: "les unités inchangées sont estompées",
+      coach: 'Cliquez un <b>département</b> gris — ou une commune colorée — pour explorer son histoire',
+      dismiss: "fermer", api_error: "erreur API", today: "aujourd'hui",
+      diff_label: function (d) { return "+" + d.nNew + " nouv. · ~" + d.nChg + " modif. · -" + d.nGone + " disparues"; },
+      as_of: function (s) { return "au " + s; },
+      zoom_hint: function (c) { return "zoomez (≥ 7) pour charger " + c + " — ou cliquez un autre pays"; },
+      diff_needs_view: " · la comparaison requiert une vue départementale/régionale",
+      diff_word_new: "uniquement à la date affichée", diff_word_chg: "modifié entre les deux dates",
+      diff_word_gone: "uniquement à la date de comparaison", info_valid: "valide",
+      flash_no_unit: "Aucune unité connue ici à cette date (mer ? hors couverture ?).",
+      loading: "chargement…", histo_click_period: "Cliquez une période pour voyager à cette date.",
+      histo_full_record: "Fiche complète &amp; rapport téléchargeable →", histo_unavailable: "histoire indisponible",
+      histo_from: "issu de", histo_events: "Événements", close: "Fermer",
+      date_locale: "fr-FR",
+    },
+  };
+  var dict = T[LANG] || T.en;
+  window.CONFINIA_LANG = LANG;
+  window.t = function (key) { return dict[key]; };
+  // Apply the static chrome as soon as the DOM is ready.
+  function applyStatic() {
+    var tg = document.querySelector(".tagline"); if (tg) tg.textContent = dict.tagline;
+    var hint = document.getElementById("hint"); if (hint) hint.innerHTML = dict.hint;
+    var coach = document.querySelector("#coach span:first-child");
+    if (coach) coach.innerHTML = dict.coach;
+    var cx = document.querySelector("#coach .x"); if (cx) cx.title = dict.dismiss;
+    var play = document.getElementById("play"); if (play) play.title = dict.play_title;
+    var db = document.getElementById("diffbtn");
+    if (db) { db.title = dict.compare_title; if (!/^⇄$/.test(db.textContent.trim())) db.textContent = dict.compare; }
+    var mo = document.getElementById("month"); if (mo) mo.title = dict.pick_month_title;
+    var mo2 = document.getElementById("month2"); if (mo2) mo2.title = dict.comparison_date_title;
+    var dl = document.querySelector('#controls label'); if (dl)
+      dl.childNodes[0].textContent = dict.dept_label + " ";
+    var fa = document.querySelector('[data-acct]'); if (fa) fa.textContent = dict.footer_account;
+    var lg = document.getElementById("difflegend");
+    if (lg) lg.innerHTML = '<b>' + dict.legend_changes_vs + ' <span id="difflegend-date"></span></b><br>'
+      + '<span class="dot dot-new"></span>' + dict.legend_new + '<br>'
+      + '<span class="dot dot-chg"></span>' + dict.legend_chg + '<br>'
+      + '<span class="dot dot-gone"></span>' + dict.legend_gone + '<br>'
+      + '<span class="dim">' + dict.legend_dimmed + '</span>';
+    var lt = document.getElementById("langtoggle");
+    if (lt) {
+      lt.innerHTML = LANG === "fr" ? 'FR · <span style="opacity:.6">en</span>'
+                                   : '<span style="opacity:.6">fr</span> · EN';
+      lt.addEventListener("click", function () {
+        var next = LANG === "fr" ? "en" : "fr";
+        try { localStorage.setItem("confinia_lang", next); } catch (e) {}
+        var u = new URL(location.href); u.searchParams.set("lang", next); location.href = u.toString();
+      });
+    }
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", applyStatic);
+  else applyStatic();
+})();
+</script>
 <script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
 <script>
 "use strict";
@@ -304,7 +421,7 @@ if (H_vs && DATES.some(d => d.slice(0, 7) === H_vs)) {
 }
 function syncDiffBtn() {
   document.body.classList.toggle("diffing", diffOn);
-  $("diffbtn").textContent = diffOn ? "⇄" : "⇄ Compare";
+  $("diffbtn").textContent = diffOn ? window.t("compare_short") : window.t("compare");
 }
 syncDiffBtn();
 
@@ -580,7 +697,7 @@ function fitTo(fc) {
   if (minX < maxX) map.fitBounds([[minX, minY], [maxX, maxY]], { padding: 60, duration: 400 });
 }
 
-const UI_DATE = new Intl.DateTimeFormat("en-GB",
+const UI_DATE = new Intl.DateTimeFormat(window.t("date_locale"),
   { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
 let pending = 0;
@@ -629,7 +746,7 @@ async function applyDiff(decorated, fetchAt) {
   return { nNew, nChg, nGone: gone.features.length };
 }
 
-const diffLabel = d => `+${d.nNew} new · ~${d.nChg} changed · -${d.nGone} gone`;
+const diffLabel = d => window.t("diff_label")(d);
 
 function show(decorated, countLabel) {
   const src = map.getSource("communes");
@@ -682,13 +799,13 @@ async function renderHistFrance() {
     show(decorated, diff ? diffLabel(diff)
       : `${decorated.fc.features.length} départements` + (exact ? "" : " · approx. (tracé actuel)"));
   } catch {
-    $("count").textContent = "API error";
+    $("count").textContent = window.t("api_error");
   }
 }
 
 async function render() {
   const date = DATES[slider.value];
-  $("datefr").textContent = "as of " + UI_DATE.format(new Date(date + "T00:00:00Z"));
+  $("datefr").textContent = window.t("as_of")(UI_DATE.format(new Date(date + "T00:00:00Z")));
   if (month.value !== date.slice(0, 7)) month.value = date.slice(0, 7);
   writeHash();
   // La vue historique France ne s'impose qu'en contexte France (mode dept) :
@@ -711,7 +828,7 @@ async function render() {
     show(decorated, d ? diffLabel(d) : `${decorated.fc.features.length} communes`);
     if (firstFit && decorated.fc.features.length) { fitTo(decorated.fc); firstFit = false; }
   } catch (e) {
-    $("count").textContent = "API error";
+    $("count").textContent = window.t("api_error");
   }
 }
 
@@ -742,7 +859,7 @@ async function renderRegion() {
                       : `${decorated.fc.features.length} units · ${regionName || regionCode}`);
     if (firstFit && decorated.fc.features.length) { fitTo(decorated.fc); firstFit = false; }
   } catch {
-    $("count").textContent = "API error";
+    $("count").textContent = window.t("api_error");
   }
 }
 
@@ -753,7 +870,7 @@ async function renderArea() {
   $("deptname").textContent = COUNTRY_NAMES[areaCountry] || areaCountry;
   if (map.getZoom() < 7) {
     clearCommunes();
-    $("count").textContent = `zoom in (≥ 7) to load ${areaCountry} — or click another country`;
+    $("count").textContent = window.t("zoom_hint")(areaCountry);
     return;
   }
   const b = map.getBounds();
@@ -766,9 +883,9 @@ async function renderArea() {
     const decorated = decorate(await r.json());
     if (ticket !== pending) return;
     show(decorated, `${decorated.fc.features.length} units (${areaCountry})`
-      + (diffOn ? " · comparison needs a département/region view" : ""));
+      + (diffOn ? window.t("diff_needs_view") : ""));
   } catch {
-    $("count").textContent = "API error";
+    $("count").textContent = window.t("api_error");
   }
 }
 
@@ -832,13 +949,13 @@ map.on("load", () => {
     .catch(() => {});
 
   const info = $("info");
-  const DIFF_WORDS = { "new": "only at the displayed date", chg: "changed between the two dates",
-                       gone: "only at the comparison date" };
+  const DIFF_WORDS = { "new": window.t("diff_word_new"), chg: window.t("diff_word_chg"),
+                       gone: window.t("diff_word_gone") };
   for (const lyr of ["communes-fill", "communes-gone-fill"]) {
     map.on("mousemove", lyr, e => {
       const p = e.features[0].properties;
       info.innerHTML = `<b>${p.nom}</b> (${p.code})<br>` +
-        `valid: ${p.valid_from} → ${p.valid_to === "null" || !p.valid_to ? "today" : p.valid_to}<br>` +
+        `${window.t("info_valid")}: ${p.valid_from} → ${p.valid_to === "null" || !p.valid_to ? window.t("today") : p.valid_to}<br>` +
         `geometry: ${p.geometry_vintage || "?"} edition${p.geometry_approx === "true" || p.geometry_approx === true ? " (approx.)" : ""}` +
         (DIFF_WORDS[p._diff] ? `<br><b>${DIFF_WORDS[p._diff]}</b>` : "");
       info.style.visibility = "visible";
@@ -903,7 +1020,7 @@ map.on("load", () => {
     const date = realDate < HIST_CUTOFF ? NAV_AT : realDate;
     try {
       const r = await fetch(`${API}/v1/units?lat=${lat.toFixed(5)}&lon=${lng.toFixed(5)}&at=${date}`);
-      if (r.status === 404) { flash("No known unit here at this date (sea? outside coverage?)."); return; }
+      if (r.status === 404) { flash(window.t("flash_no_unit")); return; }
       if (!r.ok) throw new Error();
       const f = await r.json();
       const country = f.properties.country;
@@ -970,43 +1087,44 @@ async function showHistory(code, country, currentName) {
   const el = $("histo");
   el.style.display = "block";
   beacon("commune_history");
-  el.innerHTML = `<h2><b>${currentName}</b> (${code})</h2>loading…`;
+  el.innerHTML = `<h2><b>${currentName}</b> (${code})</h2>${window.t("loading")}`;
   try {
+    const L = window.CONFINIA_LANG;
     const url = country === "FR"
-      ? `${API}/v1/communes/${code}/history`
-      : `${API}/v1/units/${encodeURIComponent(code)}/history?country=${country}`;
+      ? `${API}/v1/communes/${code}/history?lang=${L}`
+      : `${API}/v1/units/${encodeURIComponent(code)}/history?country=${country}&lang=${L}`;
     const r = await fetch(url);
     if (!r.ok) throw new Error();
     const d = await r.json();
     const rows = d.versions.map(v => {
       const p = v.properties;
       const links = [
-        p.parents?.length ? `from ${p.parents.join(", ")}` : "",
+        p.parents?.length ? `${window.t("histo_from")} ${p.parents.join(", ")}` : "",
         p.children?.length ? `→ ${p.children.join(", ")}` : "",
       ].filter(Boolean).join(" · ");
       return `<div class="v" data-vf="${p.valid_from}">
         <b>${p.nom}</b><br>
-        <span class="dates">${p.valid_from} → ${p.valid_to || "today"}</span>
+        <span class="dates">${p.valid_from} → ${p.valid_to || window.t("today")}</span>
         ${links ? `<br><span class="links">${links}</span>` : ""}
       </div>`;
     }).join("");
     const evts = (d.events || []).length
       ? `<div style="margin-top:.5rem;border-top:1px solid #26314a;padding-top:.4rem">
-           <b style="font-size:.85em">Events</b>` +
+           <b style="font-size:.85em">${window.t("histo_events")}</b>` +
         d.events.map(ev => `<div class="links">• ${ev.date ? `<b>${ev.date}</b> — ` : ""}${ev.detail}</div>`).join("") +
         `</div>`
       : "";
-    el.innerHTML = `<span class="close" title="Close">✕</span>
+    el.innerHTML = `<span class="close" title="${window.t("close")}">✕</span>
       <h2><b>${currentName}</b> (${code}) · ${COUNTRY_NAMES[country] || country}</h2>
       ${rows}${evts}
-      <div class="tip">Click a period to travel to that time.</div>
-      <div class="tip"><a href="${location.hostname==='confinia.github.io'?'https://www.confinia.io':location.origin}/commune/${code}?country=${country}"
-        target="_blank" rel="noopener" style="color:#7ab8ff">Full record &amp; downloadable report →</a></div>`;
+      <div class="tip">${window.t("histo_click_period")}</div>
+      <div class="tip"><a href="${location.hostname==='confinia.github.io'?'https://www.confinia.io':location.origin}/commune/${code}?country=${country}&lang=${window.CONFINIA_LANG}"
+        target="_blank" rel="noopener" style="color:#7ab8ff">${window.t("histo_full_record")}</a></div>`;
     el.querySelector(".close").onclick = () => { el.style.display = "none"; };
     el.querySelectorAll(".v").forEach(n =>
       n.addEventListener("click", () => jumpTo(n.dataset.vf)));
   } catch {
-    el.innerHTML = `<span class="close">✕</span><h2>${currentName} (${code})</h2>history unavailable`;
+    el.innerHTML = `<span class="close">✕</span><h2>${currentName} (${code})</h2>${window.t("histo_unavailable")}`;
     el.querySelector(".close").onclick = () => { el.style.display = "none"; };
   }
 }
@@ -1080,8 +1198,8 @@ cacheWarm();
   if (sess && sess.email) {
     var t = (sess.tier || "free").toLowerCase();
     var badge = t !== "free" ? ' <span class="planbadge">' + t.toUpperCase() + '</span>' : '';
-    box.innerHTML = '<a href="' + base + '/account.html">Account' + badge + '</a>' +
-      '<a class="primary" href="#" id="demo-logout">Sign out</a>';
+    box.innerHTML = '<a href="' + base + '/account.html">' + window.t("account") + badge + '</a>' +
+      '<a class="primary" href="#" id="demo-logout">' + window.t("signout") + '</a>';
     document.getElementById("demo-logout").addEventListener("click", function (e) {
       e.preventDefault();
       try { localStorage.removeItem("confinia_session"); } catch (x) {}
@@ -1090,8 +1208,8 @@ cacheWarm();
         encodeURIComponent(location.origin + "/") + "&client_id=confinia-web";
     });
   } else {
-    box.innerHTML = '<a href="' + base + '/account.html">Sign in</a>' +
-      '<a class="primary" href="' + base + '/account.html?action=register">Create account</a>';
+    box.innerHTML = '<a href="' + base + '/account.html">' + window.t("signin") + '</a>' +
+      '<a class="primary" href="' + base + '/account.html?action=register">' + window.t("createacct") + '</a>';
   }
 })();
 </script>
