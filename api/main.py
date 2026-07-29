@@ -322,17 +322,22 @@ def rate_limited(ip: str) -> bool:
 # resolves to (or creates) the caller's key, and the organization claim rides
 # along as the tenant dimension. Optional: absent config = feature off.
 KC_ISSUER = os.environ.get("KC_ISSUER", "")   # e.g. https://www.confinia.io/auth/realms/confinia
+# WHERE to fetch discovery/JWKS from. On a basic-auth host (sandbox/staging) the
+# public issuer URL is gated by the edge, so the API's server-side fetch is
+# blocked; point KC_DISCOVERY at the INTERNAL Keycloak realm base instead. The
+# token's `iss` is still validated against KC_ISSUER. Defaults to KC_ISSUER.
+KC_DISCOVERY = os.environ.get("KC_DISCOVERY", "") or KC_ISSUER
 _JWKS: dict = {}
 
 
 def _jwks():
     global _JWKS
-    if _JWKS or not KC_ISSUER:
+    if _JWKS or not KC_DISCOVERY:
         return _JWKS
     try:
         import urllib.request
         conf = json.loads(urllib.request.urlopen(
-            f"{KC_ISSUER}/.well-known/openid-configuration", timeout=5).read())
+            f"{KC_DISCOVERY}/.well-known/openid-configuration", timeout=5).read())
         keys = json.loads(urllib.request.urlopen(conf["jwks_uri"], timeout=5).read())
         _JWKS = {k["kid"]: k for k in keys["keys"]}
     except Exception:
