@@ -58,3 +58,36 @@ def test_quota_unlocked_flag_is_per_town(base):
     _download(base, key, "99901")
     assert _quota(base, key, "99901")["unlocked"] is True    # opened
     assert _quota(base, key, "99902")["unlocked"] is False   # not opened
+
+
+# --- /v1/usage: plan features + consumption for the account page (issue #73) ---
+
+def test_usage_endpoint_free_tier(base):
+    key = _key(base)
+    r = requests.get(f"{base}/v1/usage", headers={"X-API-Key": key})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["tier"] == "free"
+    p = d["premium_reports"]
+    assert p["limit"] == 10 and p["window"] == "lifetime" and p["used"] == 0
+    assert any("town reports" in f for f in d["features"])
+    assert set(d["all_plans"]) == {"free", "pro", "enterprise"}
+    # a download moves the counter, distinct-town style (re-check after 1 town)
+    _download(base, key)
+    d2 = requests.get(f"{base}/v1/usage", headers={"X-API-Key": key}).json()
+    assert d2["premium_reports"]["used"] == 1 and d2["premium_reports"]["remaining"] == 9
+
+
+def test_usage_requires_key(base):
+    assert requests.get(f"{base}/v1/usage").status_code == 401
+    assert requests.get(f"{base}/v1/usage",
+                        params={"api_key": "00000000-0000-0000-0000-000000000000"}).status_code == 404
+
+
+def test_account_pages_wire_the_usage_card():
+    import os
+    root = os.path.join(os.path.dirname(__file__), "..", "deploy", "site")
+    for page in ("account.html", os.path.join("sbx", "account.html")):
+        html = open(os.path.join(root, page), encoding="utf-8").read()
+        assert "/v1/usage" in html, page
+        assert 'id="usage-card"' in html and 'id="usage-feats"' in html, page
