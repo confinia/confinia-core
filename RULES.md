@@ -43,12 +43,11 @@
    travail, puis la passer en "ready"/merger seulement une fois les tests
    verts. La PR trace le travail en cours, pas seulement le résultat.
 
-8. **Ne jamais toucher directement au Caddyfile de la PLATEFORME** sur la VM
-   (`debian@confinia:~/projects/platform`). Ce fichier ne se modifie que via
-   la plateforme :
-   - lire d'abord les commentaires dans le `Caddyfile` de la plateforme ;
-   - passer par une issue + PR sur https://github.com/confinia/platform ;
-   - puis `git pull` dans `confinia:~/projects/platform` sur la VM.
+8. **Ne JAMAIS toucher au Caddyfile de la PLATEFORME** — ni sur la VM
+   (`debian@confinia:~/projects/platform`), ni via le repo
+   https://github.com/confinia/platform. **Le fondateur s'en charge lui-même,
+   exclusivement.** Si un changement plateforme est nécessaire, le décrire au
+   fondateur (bloc de config proposé + pourquoi) et attendre qu'il l'applique.
    (Le Caddyfile applicatif `deploy/caddy/Caddyfile` de ce repo reste, lui,
    modifiable normalement — c'est un fichier suivi de confinia-core.)
 
