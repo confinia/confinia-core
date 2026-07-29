@@ -88,6 +88,9 @@ jobs:
       - name: Environments dashboard wiring (issue #85)
         if: always()
         run: pytest -v tests/test_env_dashboard_static.py
+      - name: Billing portal auth gate (issue #81)
+        if: always()
+        run: pytest -v tests/test_billing.py
       - name: API log on failure
         if: failure()
         run: tail -80 /tmp/api.log
@@ -180,6 +183,9 @@ jobs:
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/healthz && break || sleep 2; done
       - name: Bearer JWT journey (issue #36)
         run: pytest -v tests/test_bearer.py
+      - name: Billing portal + real Bearer-auth guard (issues #81, #36)
+        if: always()
+        run: pytest -v tests/test_billing.py
       - name: Logs on failure
         if: failure()
         run: docker logs --tail 60 kc; tail -40 /tmp/api.log

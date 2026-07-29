@@ -160,6 +160,11 @@ http://staging.confinia.io {
 		root * /srv/site
 		file_server
 	}
+	# Keycloak (confinia realm) so the account page's sign-in / registration
+	# works on staging too — same instance as prod, hostname-flexible.
+	handle /auth/* {
+		reverse_proxy 127.0.0.1:8180
+	}
 	handle {
 		root * /srv/demo
 		file_server
