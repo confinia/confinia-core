@@ -7,7 +7,7 @@ set -eu
 cd "$(dirname "$0")/.."
 # CI override: KC_SETUP_URL / KC_SETUP_ADMIN_USER / KC_SETUP_ADMIN_PASS let
 # the exact same script run against a throwaway Keycloak (no secrets.env).
-KC=${KC_SETUP_URL:-http://127.0.0.1:8180/auth}
+KC=${KC_SETUP_URL:-http://127.0.0.1:8095/auth}
 ADMIN_USER=${KC_SETUP_ADMIN_USER:-$(grep '^KC_BOOTSTRAP_ADMIN_USERNAME=' secrets.env | cut -d= -f2-)}
 ADMIN_PASS=${KC_SETUP_ADMIN_PASS:-$(grep '^KC_BOOTSTRAP_ADMIN_PASSWORD=' secrets.env | cut -d= -f2-)}
 

@@ -17,7 +17,7 @@ cd "$(dirname "$0")/.."
 
 active() { cat ~/confinia-edge-state/ACTIVE_COLOR 2>/dev/null || echo green; }
 other()  { if [ "$1" = blue ]; then echo green; else echo blue; fi; }
-port_of() { if [ "$1" = blue ]; then echo 8000; else echo 8001; fi; }
+port_of() { if [ "$1" = blue ]; then echo 8091; else echo 8092; fi; }
 
 wait_ok() {
 	for _ in $(seq 1 60); do

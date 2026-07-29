@@ -61,7 +61,7 @@ import /etc/caddy/active/*.caddy
 http://www.confinia.io {
 	encode zstd gzip
 	handle /grafana* {
-		reverse_proxy 127.0.0.1:3000
+		reverse_proxy 127.0.0.1:8086
 	}
 	# bare /api -> /api/ (probes and humans type it without a trailing slash).
 	redir /api /api/ 308
@@ -84,11 +84,11 @@ http://www.confinia.io {
 	}
 	# Keycloak IdP (issue #19): relative path /auth, local container 8180.
 	# The ADMIN console and the master realm are NEVER exposed publicly:
-	# administer through an SSH tunnel (ssh -L 8180:127.0.0.1:8180).
+	# administer through an SSH tunnel (ssh -L 8180:127.0.0.1:8095).
 	handle /auth/* {
 		@kc_admin path /auth/admin* /auth/realms/master*
 		respond @kc_admin 403
-		reverse_proxy 127.0.0.1:8180
+		reverse_proxy 127.0.0.1:8095
 	}
 	# Pricing + intent capture (issue #7): the purchase surface.
 	handle /pricing {
@@ -163,7 +163,7 @@ http://staging.confinia.io {
 	# Keycloak (confinia realm) so the account page's sign-in / registration
 	# works on staging too — same instance as prod, hostname-flexible.
 	handle /auth/* {
-		reverse_proxy 127.0.0.1:8180
+		reverse_proxy 127.0.0.1:8095
 	}
 	handle {
 		root * /srv/demo
@@ -199,7 +199,7 @@ http://sandbox.confinia.io {
 		# Keycloak on the sandbox host (confinia-sbx realm): the whole auth
 		# flow stays on sandbox.confinia.io.
 		handle /auth/* {
-			reverse_proxy 127.0.0.1:8180
+			reverse_proxy 127.0.0.1:8095
 		}
 		handle_path /api/* {
 			route {
