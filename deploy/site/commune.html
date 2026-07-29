@@ -19,6 +19,8 @@
   .dl a.primary { background: #7ab8ff; color: #10151d; border-color: #7ab8ff; }
   .dl a:hover { border-color: #7ab8ff; }
   .dl small { opacity: .7; font-size: .8rem; }
+  #quota { width: 100%; margin-top: .2rem; font-size: .85rem; color: #9fb3d1; }
+  #quota a { color: #7ab8ff; }
   .dl select { background: #0b0f16; color: #e8eaed; border: 1px solid #33405a;
                border-radius: 8px; padding: .5rem .6rem; font: inherit; font-size: .9rem; }
   .dl label { font-size: .85rem; opacity: .8; }
@@ -50,6 +52,7 @@
     <option value="en">English</option>
   </select>
   <small id="dl-note">9 reports free per caller, then the <a href="/pricing">Pro tier</a> · every fact carries its source</small>
+  <div id="quota"></div>
 </div>
 <div id="err"></div>
 <h2 id="ev-h" style="display:none">Chronology</h2>
@@ -77,14 +80,20 @@ const lang = SUPPORTED_LANGS.includes(langParam) ? langParam : (country === "FR"
 const UI = {
   en: { crumb: "commune record", meta: n => `${n} recorded version(s) · full lineage with per-fact provenance · Confinia`,
         chronology: "Chronology", boundaries: "Boundaries by period", scale: "(same scale)",
-        free: "9 reports free per caller, then the", pro: "Pro tier", provenance: "· every fact carries its source",
+        free: "10 town reports free per caller, then the", pro: "Pro tier", provenance: "· re-downloading a town is free",
         loading: "Loading…", today: "today", vintage: d => `geometry vintage ${d}`, approx: " (approx.)",
-        noGeom: "no geometry", data: "Data: ", notFound: "Not found" },
+        noGeom: "no geometry", data: "Data: ", notFound: "Not found",
+        qLeft: (r, l) => `${r} of ${l} free town reports left`, qUnlocked: " · this town is already unlocked (free re-download)",
+        qPro: (r, l) => `Pro · ${r} of ${l} town reports left this month`, qUnlimited: "Unlimited reports (Enterprise)",
+        qNone: "No free reports left —", preparing: "preparing…", dlFail: "download failed, please retry" },
   fr: { crumb: "fiche communale", meta: n => `${n} version(s) enregistrée(s) · filiation complète avec provenance par fait · Confinia`,
         chronology: "Chronologie", boundaries: "Contours par période", scale: "(même échelle)",
-        free: "9 rapports gratuits par appelant, puis l'", pro: "offre Pro", provenance: "· chaque fait porte sa source",
+        free: "10 fiches communales gratuites par appelant, puis l'", pro: "offre Pro", provenance: "· retélécharger une commune est gratuit",
         loading: "Chargement…", today: "aujourd'hui", vintage: d => `géométrie de ${d}`, approx: " (approx.)",
-        noGeom: "aucune géométrie", data: "Données : ", notFound: "Introuvable" },
+        noGeom: "aucune géométrie", data: "Données : ", notFound: "Introuvable",
+        qLeft: (r, l) => `${r} fiches gratuites sur ${l} restantes`, qUnlocked: " · cette commune est déjà débloquée (retéléchargement gratuit)",
+        qPro: (r, l) => `Pro · ${r} fiches sur ${l} restantes ce mois-ci`, qUnlimited: "Rapports illimités (Enterprise)",
+        qNone: "Plus de fiches gratuites —", preparing: "préparation…", dlFail: "échec du téléchargement, réessayez" },
 }[lang];
 document.documentElement.lang = lang;
 document.getElementById("crumb-label").textContent = UI.crumb;
@@ -123,8 +132,49 @@ function pathFor(rings, bbox, w, h) {
       `${latest.nom} <small>(${code}, ${country})</small>`;
     document.getElementById("meta").textContent = UI.meta(vs.length);
     const q = (country === "FR" ? `?lang=${lang}` : `?country=${country}&lang=${lang}`);
-    document.getElementById("dl-pdf").href = `${API}/v1/communes/${code}/report.pdf${q}`;
-    document.getElementById("dl-svg").href = `${API}/v1/communes/${code}/report.svg${q}`;
+    const pdfUrl = `${API}/v1/communes/${code}/report.pdf${q}`;
+    const svgUrl = `${API}/v1/communes/${code}/report.svg${q}`;
+    document.getElementById("dl-pdf").href = pdfUrl;
+    document.getElementById("dl-svg").href = svgUrl;
+
+    // Report allowance counter (issue #83): distinct towns count once, re-downloads free.
+    const quotaEl = document.getElementById("quota");
+    function renderQuota(qd) {
+      if (!qd) { quotaEl.textContent = ""; return; }
+      if (qd.limit === null || qd.remaining === "unlimited") { quotaEl.textContent = UI.qUnlimited; return; }
+      if (qd.tier === "pro") {
+        quotaEl.textContent = UI.qPro(qd.remaining, qd.limit) + (qd.unlocked ? UI.qUnlocked : "");
+      } else if (qd.remaining > 0 || qd.unlocked) {
+        quotaEl.textContent = UI.qLeft(qd.remaining, qd.limit) + (qd.unlocked ? UI.qUnlocked : "");
+      } else {
+        quotaEl.innerHTML = `${UI.qNone} <a href="/pricing">${UI.pro}</a>`;
+      }
+    }
+    async function refreshQuota() {
+      try {
+        const r = await fetch(`${API}/v1/reports/quota?country=${country}&code=${encodeURIComponent(code)}`);
+        if (r.ok) renderQuota(await r.json());
+      } catch {}
+    }
+    async function downloadReport(fmt, dlUrl) {
+      const note = document.getElementById("dl-note"), prev = note.innerHTML;
+      note.textContent = UI.preparing;
+      try {
+        const r = await fetch(dlUrl);
+        if (r.status === 402) { note.innerHTML = prev;
+          quotaEl.innerHTML = `${UI.qNone} <a href="/pricing">${UI.pro}</a>`; return; }
+        if (!r.ok) throw new Error();
+        const blob = await r.blob(), a = document.createElement("a");
+        a.href = URL.createObjectURL(blob); a.download = `confinia-${country}-${code}.${fmt}`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        note.innerHTML = prev; refreshQuota();     // authoritative counter refresh
+      } catch { note.textContent = UI.dlFail; }
+    }
+    document.getElementById("dl-pdf").onclick = e => { e.preventDefault(); downloadReport("pdf", pdfUrl); };
+    document.getElementById("dl-svg").onclick = e => { e.preventDefault(); downloadReport("svg", svgUrl); };
+    refreshQuota();
+
     const sel = document.getElementById("lang");
     sel.value = lang;
     // Changing language reloads the page with ?lang= so chronology + report links
