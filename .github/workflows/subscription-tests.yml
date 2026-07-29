@@ -82,6 +82,9 @@ jobs:
       - name: Language coherency (issue #79)
         if: always()
         run: pytest -v tests/test_i18n.py
+      - name: Distinct-town report quota (issue #83)
+        if: always()
+        run: pytest -v tests/test_report_quota.py
       - name: API log on failure
         if: failure()
         run: tail -80 /tmp/api.log
