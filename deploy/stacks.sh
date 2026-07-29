@@ -72,6 +72,11 @@ write-upstreams|promote)
 }
 CADDY
 	echo "$c" > ~/confinia-edge-state/ACTIVE_COLOR
+	# Active-color MARKER file (issue #85): exactly one active-<color> file
+	# exists; the otel collector (filestats) turns it into the Grafana
+	# "which color is PROD" panel, its mtime = last promotion time.
+	rm -f ~/confinia-edge-state/active-blue ~/confinia-edge-state/active-green
+	touch ~/confinia-edge-state/"active-$c"
 	podman run --rm --env-file deploy/secrets.env 		-v "$PWD/deploy/caddy:/etc/caddy:ro" 		-v "$HOME/confinia-edge-state:/etc/caddy/active:ro" 		docker.io/library/caddy:2 caddy validate --config /etc/caddy/Caddyfile >/dev/null
 	podman exec confinia_caddy_1 caddy reload --config /etc/caddy/Caddyfile
 	echo "OK: active color = $c (public on $ACT, staging on 8002 then $PAS)"

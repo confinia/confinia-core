@@ -1,4 +1,7 @@
 # OTel Collector : reçoit les métriques OTLP de l'API, les expose à Prometheus.
+# Issue #85 : sondes d'environnement (httpcheck) + couleur active (filestats).
+# Le conteneur tourne en réseau hôte : les cibles sondées sont liées à la
+# loopback (choix de sécurité), injoignables depuis un réseau bridge.
 receivers:
   otlp:
     protocols:
@@ -7,8 +10,36 @@ receivers:
       grpc:
         endpoint: 0.0.0.0:4317
 
+  # Liveness of every environment, one probe each (issue #85).
+  httpcheck:
+    collection_interval: 30s
+    targets:
+      - endpoint: http://127.0.0.1:8000/healthz   # blue API (direct)
+      - endpoint: http://127.0.0.1:8001/healthz   # green API (direct)
+      - endpoint: http://127.0.0.1:8089/healthz   # sandbox API (direct)
+      - endpoint: http://127.0.0.1:8180/auth/realms/confinia   # Keycloak
+      - endpoint: https://api.confinia.io/healthz # public edge -> ACTIVE color
+
+  # Active color (issue #85): stacks.sh promote maintains ONE marker file
+  # active-blue|active-green in the edge-state dir; its presence tells Grafana
+  # which color is PROD, its mtime when the last promotion happened.
+  filestats:
+    collection_interval: 60s
+    include: /edge-state/active-*
+    metrics:
+      file.mtime:
+        enabled: true
+
 processors:
   batch: {}
+  # file.name lives on the RESOURCE, which the prometheus exporter drops;
+  # copy it onto the datapoints so Grafana can tell active-blue from
+  # active-green (issue #85).
+  transform/env:
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(attributes["file_name"], resource.attributes["file.name"]) where resource.attributes["file.name"] != nil
 
 exporters:
   prometheus:
@@ -19,4 +50,10 @@ service:
     metrics:
       receivers: [otlp]
       processors: [batch]
+      exporters: [prometheus]
+    # Environment probes (issue #85) get their own pipeline so the transform
+    # never touches the application metrics.
+    metrics/env:
+      receivers: [httpcheck, filestats]
+      processors: [transform/env, batch]
       exporters: [prometheus]

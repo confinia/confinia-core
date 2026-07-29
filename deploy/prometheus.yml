@@ -4,7 +4,9 @@ global:
 scrape_configs:
   - job_name: otel
     static_configs:
-      - targets: ["otel-collector:8889"]
+      # The collector runs on the HOST network (issue #85: loopback probes);
+      # prometheus (bridge) reaches its exporter via the host gateway.
+      - targets: ["host.containers.internal:8889"]
   - job_name: prometheus
     static_configs:
       - targets: ["localhost:9090"]
