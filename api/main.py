@@ -1428,7 +1428,7 @@ def polar_portal_url(email: str) -> str | None:
         return None
     import urllib.request
     req = urllib.request.Request(
-        f"{POLAR_API_BASE}/v1/customer-sessions",
+        f"{POLAR_API_BASE}/v1/customer-sessions/",   # trailing slash: no-slash gets a 307 that urllib won't re-POST
         data=json.dumps({"customer_id": customer_id}).encode(),
         headers={"Authorization": f"Bearer {POLAR_ACCESS_TOKEN}",
                  "Content-Type": "application/json"},
