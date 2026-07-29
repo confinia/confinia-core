@@ -83,12 +83,15 @@ services:
   otel-collector:
     image: docker.io/otel/opentelemetry-collector-contrib:latest
     command: ["--config=/etc/otelcol/config.yaml"]
-    ports:
-      # All interfaces: the color stacks' APIs push their metrics via
-      # host.containers.internal; ufw blocks 4318 from the outside.
-      - "4318:4318"
+    # Host network (issue #85): the environment probes (httpcheck) target the
+    # loopback-bound APIs (blue 8000, green 8001, sandbox 8089, keycloak 8180),
+    # unreachable from a bridge network. OTLP 4318 and the prometheus exporter
+    # 8889 now bind on the host; ufw blocks both from the outside.
+    network_mode: host
     volumes:
       - ./deploy/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+      # Active-color markers written by deploy/stacks.sh promote (issue #85).
+      - /home/debian/confinia-edge-state:/edge-state:ro
     restart: unless-stopped
 
   prometheus:
