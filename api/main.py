@@ -97,6 +97,17 @@ CREATE TABLE IF NOT EXISTS public.premium_usage_daily (
     requests bigint NOT NULL DEFAULT 0,
     PRIMARY KEY (caller, day)
 );
+-- Distinct billable artifacts per caller per period (issue #83): a "report" is
+-- a town record (or a specific area-change query), counted ONCE — re-fetching
+-- the same artifact is free. `period` = EPOCH for the free lifetime bucket, the
+-- 1st of the month for a Pro caller.
+CREATE TABLE IF NOT EXISTS public.premium_seen (
+    caller  text NOT NULL,
+    period  date NOT NULL,
+    unit    text NOT NULL,
+    seen_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (caller, period, unit)
+);
 -- Abonnements Polar (Merchant of Record, issue #8) : état par souscription,
 -- alimenté par le webhook. Le palier d'un email = sa meilleure souscription
 -- active ; appliqué aux clés existantes ET aux clés créées ensuite.
@@ -775,60 +786,86 @@ PRO_MONTHLY = int(os.environ.get("PRO_REPORTS_PER_MONTH", "100"))
 PRICING_URL = "https://www.confinia.io/pricing"
 
 
-def premium_gate(request: Request) -> dict:
-    """Return the caller's quota {tier, used, limit, remaining} or raise 402.
-    Caller = a valid API key (enterprise = unlimited; pro = monthly allowance),
-    otherwise a STABLE irreversible hash of the IP (never the IP itself)."""
+EPOCH = date(1970, 1, 1)   # the free tier's lifetime bucket (period sentinel)
+
+
+def _premium_caller(request: Request) -> tuple:
+    """Resolve (tier, limit, period, caller) for the premium quota. Caller = a
+    valid API key (enterprise unlimited → limit None; pro monthly) else a STABLE
+    irreversible IP hash (never the IP). Free = lifetime bucket."""
     key = request.headers.get("x-api-key") or request.query_params.get("api_key")
-    caller = None
     if key:
         with ops_cursor() as cur:
             cur.execute("SELECT active, tier FROM public.api_key WHERE key = %s::uuid", (key,))
             row = cur.fetchone()
         if row and row[0]:
-            tier = row[1]
-            if tier == "enterprise":
-                return {"tier": "enterprise", "used": None, "limit": None,
-                        "remaining": "unlimited"}
-            if tier == "pro":
-                # Monthly allowance: the counter is keyed on the first day of the
-                # current month, so it resets at each month boundary.
-                with ops_cursor() as cur:
-                    cur.execute(
-                        "INSERT INTO public.premium_usage_daily (caller, day, requests) "
-                        "VALUES (%s, date_trunc('month', now())::date, 1) "
-                        "ON CONFLICT (caller, day) DO UPDATE SET "
-                        " requests = premium_usage_daily.requests + 1 RETURNING requests",
-                        (f"key:{key}",))
-                    used = cur.fetchone()[0]
-                if used > PRO_MONTHLY:
-                    raise HTTPException(402, {
-                        "detail": f"Monthly allowance of the Pro tier reached "
-                                  f"({PRO_MONTHLY} reports per month).",
-                        "pricing": PRICING_URL,
-                        "note": "Resets on the 1st; Enterprise is unlimited."})
-                return {"tier": "pro", "used": used, "limit": PRO_MONTHLY,
-                        "remaining": PRO_MONTHLY - used}
-            caller = f"key:{key}"
-    if caller is None:
-        ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \
-            or (request.client.host if request.client else "anon")
-        caller = "ip:" + hashlib.sha256(f"{VISITOR_SECRET}|premium|{ip}".encode()).hexdigest()[:32]
-    with ops_cursor() as cur:
-        cur.execute(
-            "INSERT INTO public.premium_usage (caller, requests) VALUES (%s, 1) "
-            "ON CONFLICT (caller) DO UPDATE SET requests = premium_usage.requests + 1, "
-            " updated_at = now() RETURNING requests", (caller,))
-        used = cur.fetchone()[0]
-    if used > PREMIUM_FREE:
+            if row[1] == "enterprise":
+                return ("enterprise", None, None, f"key:{key}")
+            if row[1] == "pro":
+                return ("pro", PRO_MONTHLY, date.today().replace(day=1), f"key:{key}")
+            return ("free", PREMIUM_FREE, EPOCH, f"key:{key}")
+    ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \
+        or (request.client.host if request.client else "anon")
+    caller = "ip:" + hashlib.sha256(f"{VISITOR_SECRET}|premium|{ip}".encode()).hexdigest()[:32]
+    return ("free", PREMIUM_FREE, EPOCH, caller)
+
+
+def _premium_402(tier: str) -> None:
+    if tier == "pro":
         raise HTTPException(402, {
-            "detail": f"The first {PREMIUM_FREE} reports are free; beyond that, "
-                      "the Pro tier.",
+            "detail": f"Monthly allowance of the Pro tier reached "
+                      f"({PRO_MONTHLY} town reports per month).",
             "pricing": PRICING_URL,
-            "note": "Reserve now to lock the launch price.",
-        })
-    return {"tier": "free", "used": used, "limit": PREMIUM_FREE,
-            "remaining": PREMIUM_FREE - used}
+            "note": "Resets on the 1st; re-downloading a town you already opened is free."})
+    raise HTTPException(402, {
+        "detail": f"The first {PREMIUM_FREE} town reports are free; beyond that, the Pro tier.",
+        "pricing": PRICING_URL,
+        "note": "Re-downloading a town you already opened is free."})
+
+
+def premium_status(request: Request, unit: str | None = None) -> dict:
+    """Read-only quota snapshot (NO consumption): {tier, used, limit, remaining,
+    unlocked}. `unlocked` = this `unit` already counts for the caller this period,
+    so re-fetching it is free (issue #83)."""
+    tier, limit, period, caller = _premium_caller(request)
+    if limit is None:
+        return {"tier": tier, "used": None, "limit": None,
+                "remaining": "unlimited", "unlocked": True}
+    with ops_cursor() as cur:
+        cur.execute("SELECT count(*) FROM public.premium_seen WHERE caller=%s AND period=%s",
+                    (caller, period))
+        used = cur.fetchone()[0]
+        unlocked = False
+        if unit is not None:
+            cur.execute("SELECT 1 FROM public.premium_seen "
+                        "WHERE caller=%s AND period=%s AND unit=%s", (caller, period, unit))
+            unlocked = cur.fetchone() is not None
+    return {"tier": tier, "used": used, "limit": limit,
+            "remaining": max(limit - used, 0), "unlocked": unlocked}
+
+
+def premium_gate(request: Request, unit: str) -> dict:
+    """Consume one DISTINCT-artifact unit of premium quota (issue #83). A "report"
+    is a town record (or a specific area-change query); re-using the same `unit`
+    this period is FREE. Raises 402 when a NEW unit would exceed the allowance.
+    Returns {tier, used, limit, remaining}."""
+    tier, limit, period, caller = _premium_caller(request)
+    if limit is None:
+        return {"tier": tier, "used": None, "limit": None, "remaining": "unlimited"}
+    with ops_cursor() as cur:
+        cur.execute("SELECT 1 FROM public.premium_seen "
+                    "WHERE caller=%s AND period=%s AND unit=%s", (caller, period, unit))
+        seen = cur.fetchone() is not None
+        cur.execute("SELECT count(*) FROM public.premium_seen WHERE caller=%s AND period=%s",
+                    (caller, period))
+        used = cur.fetchone()[0]
+        if not seen:
+            if used >= limit:
+                _premium_402(tier)
+            cur.execute("INSERT INTO public.premium_seen (caller, period, unit) "
+                        "VALUES (%s, %s, %s) ON CONFLICT DO NOTHING", (caller, period, unit))
+            used += 1
+    return {"tier": tier, "used": used, "limit": limit, "remaining": limit - used}
 
 
 def require_tier(request: Request, allowed: tuple) -> str:
@@ -869,7 +906,8 @@ def area_changes(
         w, s, e, n = (float(x) for x in bbox.split(","))
     except ValueError:
         raise HTTPException(422, "bbox attendu : w,s,e,n")
-    quota = premium_gate(request)
+    # Same area-change query (bbox + window) = same report → counts once (issue #83).
+    quota = premium_gate(request, f"changes:{bbox}:{date_from}:{date_to}")
     with cursor() as cur:
         cur.execute(
             "SELECT country, unit_type, code FROM commune_version "
@@ -1152,8 +1190,8 @@ def commune_report_svg(request: Request, code: str, country: str = "FR",
                            description="Report language (fr/en); default: French for FR, English otherwise")):
     """PREMIUM — rapport SVG : traçabilité complète + contours par période.
     Même quota gratuit que /v1/changes (9 rapports), palier Pro ensuite."""
-    quota = premium_gate(request)
     country = country.upper()
+    quota = premium_gate(request, f"{country}/{code}")   # distinct-town (issue #83)
     svg = _report_svg(_report_data(code, country, resolve_lang(lang, country)))
     return Response(svg, media_type="image/svg+xml", headers={
         "Content-Disposition": f'inline; filename="confinia-{country}-{code}.svg"',
@@ -1166,13 +1204,22 @@ def commune_report_pdf(request: Request, code: str, country: str = "FR",
                        lang: str | None = Query(None,
                            description="Report language (fr/en); default: French for FR, English otherwise")):
     """PREMIUM — le même rapport en PDF (document citable)."""
-    quota = premium_gate(request)
     country = country.upper()
+    quota = premium_gate(request, f"{country}/{code}")   # distinct-town (issue #83)
     pdf = _report_pdf(_report_data(code, country, resolve_lang(lang, country)))
     return Response(pdf, media_type="application/pdf", headers={
         "Content-Disposition": f'attachment; filename="confinia-{country}-{code}.pdf"',
         "Cache-Control": "no-store",
         "X-Premium-Remaining": str(quota.get("remaining"))})
+
+
+@app.get("/v1/reports/quota")
+def reports_quota(request: Request, country: str = "FR", code: str | None = None):
+    """Read-only report allowance for the caller (issue #83): {tier, used, limit,
+    remaining, unlocked}. `unlocked` tells whether the given town already counts
+    (free re-download). Powers the "N of 10 towns left" counter on the commune page."""
+    unit = f"{country.upper()}/{code}" if code else None
+    return premium_status(request, unit)
 
 
 @app.get("/v1/passage")
