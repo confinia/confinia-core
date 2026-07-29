@@ -54,3 +54,35 @@ def test_ingester_documents_the_harmonisation():
                             "ingest_pop.py"), encoding="utf-8").read()
     assert "HARMONISED" in src and "harmonised_on" in src
     assert "U+FFFD" in src                              # repo doctrine on sources
+
+
+# --- The curve in the premium report (issue #88, phase 3) --------------------
+# Re-downloading the same town is free (issue #83), so these calls cost one unit.
+
+def test_report_svg_draws_the_curve_with_events(base):
+    svg = requests.get(f"{base}/v1/communes/99901/report.svg").text
+    assert "Population dans le temps" in svg            # FR by default for FR
+    assert "stroke-dasharray" in svg                    # the dated-event markers
+    assert ">2019<" in svg                              # the merger year, on the axis
+    # provenance is never hidden
+    assert "harmonisés sur la géographie du 2025-01-01" in svg
+    # the census source joins the report's attribution block
+    assert "Recensement de la population" in svg
+
+
+def test_report_svg_flags_the_successor_substitution(base):
+    svg = requests.get(f"{base}/v1/communes/99902/report.svg").text
+    assert "successeur de ce code" in svg
+
+
+def test_report_curve_is_localized(base):
+    svg = requests.get(f"{base}/v1/communes/99901/report.svg", params={"lang": "en"}).text
+    assert "Population through time" in svg
+    assert "harmonised on the geography of 2025-01-01" in svg
+    assert "Population dans le temps" not in svg
+
+
+def test_report_pdf_still_valid_with_the_curve(base):
+    r = requests.get(f"{base}/v1/communes/99901/report.pdf")
+    assert r.status_code == 200
+    assert r.content.startswith(b"%PDF") and len(r.content) > 2000

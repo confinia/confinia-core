@@ -992,6 +992,11 @@ REPORT_LABELS = {
         "vintage_na": "geometry vintage n/a",
         "approx": " (approx.)",
         "today": "today",
+        "population": "Population through time",
+        "pop_inhabitants": "inhabitants",
+        "pop_harmonised": lambda dt: f"census figures harmonised on the geography of {dt}",
+        "pop_via": lambda c: f"series of {c}, this code's successor",
+        "pop_events": "vertical marks = dated boundary events",
     },
     "fr": {
         "record": "Confinia · fiche communale",
@@ -1007,6 +1012,11 @@ REPORT_LABELS = {
         "vintage_na": "géométrie n/d",
         "approx": " (approx.)",
         "today": "aujourd'hui",
+        "population": "Population dans le temps",
+        "pop_inhabitants": "habitants",
+        "pop_harmonised": lambda dt: f"chiffres harmonisés sur la géographie du {dt}",
+        "pop_via": lambda c: f"série de {c}, successeur de ce code",
+        "pop_events": "repères verticaux = événements de frontière datés",
     },
 }
 
@@ -1045,12 +1055,17 @@ def _report_data(code: str, country: str, lang: str = "en") -> dict:
         "parents": v["parents"], "children": v["children"]}} for v in versions]
     xs = [x for v in versions for ring in v["rings"] for x, _ in ring]
     ys = [y for v in versions for ring in v["rings"] for _, y in ring]
+    attributions = sorted({src_info[v["source"]] for v in versions
+                           if v["source"] in src_info})
+    pop = population_series(code, country, lang)
+    if pop and pop["source"] in src_info:
+        # The census source must appear in the report's attribution block too.
+        attributions = sorted(set(attributions) | {src_info[pop["source"]]})
     return {"code": code, "country": country, "lang": lang, "versions": versions,
             "events": derive_events(feats, lang),
             "bbox": (min(xs), min(ys), max(xs), max(ys)) if xs else None,
-            "attributions": sorted({src_info[v["source"]]
-                                    for v in versions
-                                    if v["source"] in src_info})}
+            "population": pop,
+            "attributions": attributions}
 
 
 def _ring_points(ring, bbox, ox, oy, w, h):
@@ -1070,6 +1085,34 @@ def _period_str(v, lang: str = "en") -> str:
     today = REPORT_LABELS.get(lang, REPORT_LABELS["en"])["today"]
     vt = today if v["valid_to"] == FAR_FUTURE else v["valid_to"].isoformat()
     return f"{v['valid_from'].isoformat()} → {vt}"
+
+
+def _pop_layout(pop: dict, events: list, w: float, h: float) -> dict | None:
+    """Geometry of the population curve, shared by the SVG and PDF renderers
+    (issue #88). Returns points in a top-left origin box of (w, h), plus the
+    dated events placed on the same x axis — the breaks the curve cannot
+    explain on its own. y starts at 0 so amplitudes are not exaggerated."""
+    series = (pop or {}).get("series") or []
+    if len(series) < 2:
+        return None
+    years = [s["year"] for s in series]
+    values = [s["population"] for s in series]
+    y0, y1 = min(years), max(years)
+    vmax = max(values) or 1
+    span = (y1 - y0) or 1
+    px = lambda yr: (yr - y0) / span * w
+    py = lambda v: h - (v / vmax) * h
+    pts = [(px(s["year"]), py(s["population"])) for s in series]
+    marks = []
+    for ev in events:
+        dt = ev.get("date")
+        if not dt:
+            continue
+        yr = int(str(dt)[:4])
+        if y0 <= yr <= y1:
+            marks.append({"x": px(yr), "year": yr, "type": ev.get("type", "")})
+    return {"points": pts, "marks": marks, "vmax": vmax,
+            "first": (y0, values[0]), "last": (y1, values[-1])}
 
 
 def _report_svg(d: dict) -> str:
@@ -1092,6 +1135,45 @@ def _report_svg(d: dict) -> str:
         pre = f"{ev['date']} · " if ev.get("date") else ""
         text(PAD + 8, y, f"• {pre}{ev['detail']}"[:130], 12)
     y += 26
+    # Population curve (issue #88): the one chart that shows both the series and
+    # the boundary events that break it. Drawn only when we actually have data.
+    CH_W, CH_H = W - 2 * PAD - 60, 150
+    lay = _pop_layout(d.get("population"), d["events"], CH_W, CH_H)
+    if lay:
+        pop = d["population"]
+        text(PAD, y, lab["population"], 15, "bold"); y += 10
+        ox, oy = PAD + 46, y + 6
+        # dated events first, so the curve reads above them
+        for m in lay["marks"]:
+            parts.append(f'<line x1="{ox + m["x"]:.1f}" y1="{oy}" x2="{ox + m["x"]:.1f}" '
+                         f'y2="{oy + CH_H}" stroke="#e6b800" stroke-width="1" '
+                         'stroke-dasharray="3 3"/>')
+            text(ox + m["x"], oy - 3, str(m["year"]), 8, fill="#a8862a", anchor="middle")
+        parts.append(f'<line x1="{ox}" y1="{oy + CH_H}" x2="{ox + CH_W}" y2="{oy + CH_H}" '
+                     'stroke="#d5dbe6" stroke-width="1"/>')
+        path = " ".join(("M" if i == 0 else "L") + f" {ox + x:.1f} {oy + yy:.1f}"
+                        for i, (x, yy) in enumerate(lay["points"]))
+        parts.append(f'<path d="{path}" fill="none" stroke="#3a5f95" stroke-width="2"/>')
+        for x, yy in (lay["points"][0], lay["points"][-1]):
+            parts.append(f'<circle cx="{ox + x:.1f}" cy="{oy + yy:.1f}" r="3" fill="#3a5f95"/>')
+        # direct labels only at the ends (no number on every point)
+        fy, fv = lay["first"]; ly_, lv = lay["last"]
+        text(ox - 6, oy + lay["points"][0][1] + 4, f"{fv:,}".replace(",", " "), 9,
+             fill="#5b6b85", anchor="end")
+        text(ox + CH_W + 6, oy + lay["points"][-1][1] + 4, f"{lv:,}".replace(",", " "), 9,
+             fill="#5b6b85", anchor="start")
+        text(ox, oy + CH_H + 12, str(fy), 9, fill="#5b6b85")
+        text(ox + CH_W, oy + CH_H + 12, str(ly_), 9, fill="#5b6b85", anchor="end")
+        text(ox, oy + CH_H + 24, lab["pop_events"], 8, fill="#8a94a6")
+        y = oy + CH_H + 38
+        # Provenance, never hidden: harmonisation date and successor substitution.
+        if pop.get("harmonised_on"):
+            text(PAD, y, "· " + lab["pop_harmonised"](pop["harmonised_on"]), 9, fill="#8a94a6")
+            y += 12
+        if pop.get("via_successor"):
+            text(PAD, y, "· " + lab["pop_via"](pop["code"]), 9, fill="#8a94a6")
+            y += 12
+        y += 14
     text(PAD, y, lab["boundaries"], 15, "bold"); y += 12
     CELL_W, CELL_H, DRAW_H = (W - 2 * PAD) // 2, 320, 250
     for i, v in enumerate(d["versions"]):
@@ -1162,6 +1244,48 @@ def _report_pdf(d: dict) -> bytes:
         pre = f"{ev['date']} · " if ev.get("date") else ""
         c.setFillColorRGB(.1, .14, .2)
         c.drawString(PAD + 6, y, f"• {pre}{ev['detail']}"[:118]); y -= 14
+    # Population curve (issue #88). PDF is y-up: Y = top - py.
+    CH_W, CH_H = W - 2 * PAD - 60, 130
+    lay = _pop_layout(d.get("population"), d["events"], CH_W, CH_H)
+    if lay:
+        pop = d["population"]
+        if y < 220:
+            footer(); c.showPage(); y = H - 70
+        c.setFont("Helvetica-Bold", 13); c.setFillColorRGB(.1, .14, .2)
+        c.drawString(PAD, y, lab["population"]); y -= 16
+        ox, top = PAD + 46, y
+        c.setStrokeColorRGB(.90, .72, .0); c.setLineWidth(.6); c.setFont("Helvetica", 6.5)
+        for m in lay["marks"]:
+            c.setDash(2, 2)
+            c.line(ox + m["x"], top - CH_H, ox + m["x"], top)
+            c.setDash()
+            c.setFillColorRGB(.66, .53, .16)
+            c.drawCentredString(ox + m["x"], top + 3, str(m["year"]))
+        c.setStrokeColorRGB(.84, .86, .90); c.setLineWidth(.8)
+        c.line(ox, top - CH_H, ox + CH_W, top - CH_H)
+        c.setStrokeColorRGB(.23, .37, .58); c.setLineWidth(1.6)
+        path = c.beginPath()
+        px0, py0 = lay["points"][0]
+        path.moveTo(ox + px0, top - py0)
+        for px_, py_ in lay["points"][1:]:
+            path.lineTo(ox + px_, top - py_)
+        c.drawPath(path)
+        c.setFillColorRGB(.23, .37, .58)
+        for px_, py_ in (lay["points"][0], lay["points"][-1]):
+            c.circle(ox + px_, top - py_, 2, stroke=0, fill=1)
+        fy, fv = lay["first"]; ly_, lv = lay["last"]
+        c.setFont("Helvetica", 7); c.setFillColorRGB(.36, .42, .52)
+        c.drawRightString(ox - 5, top - lay["points"][0][1] - 2, f"{fv:,}".replace(",", " "))
+        c.drawString(ox + CH_W + 5, top - lay["points"][-1][1] - 2, f"{lv:,}".replace(",", " "))
+        c.drawString(ox, top - CH_H - 10, str(fy))
+        c.drawRightString(ox + CH_W, top - CH_H - 10, str(ly_))
+        c.setFont("Helvetica", 6.5); c.setFillColorRGB(.54, .58, .65)
+        c.drawString(ox, top - CH_H - 20, lab["pop_events"])
+        y = top - CH_H - 32
+        if pop.get("harmonised_on"):
+            c.drawString(PAD, y, "· " + lab["pop_harmonised"](pop["harmonised_on"])); y -= 10
+        if pop.get("via_successor"):
+            c.drawString(PAD, y, "· " + lab["pop_via"](pop["code"])); y -= 10
     footer(); c.showPage()
     per_page, slot_h = 2, (H - 140) / 2
     for i, v in enumerate(d["versions"]):
