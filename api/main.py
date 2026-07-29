@@ -1627,10 +1627,91 @@ def commune_at(
     return feature(row)
 
 
+# --- Historical population (issue #88) --------------------------------------
+# INSEE back-projects every census onto ONE reference geography, so the figures
+# describe a CURRENT commune's territory, not the historical commune. Two
+# consequences we must never hide: `harmonised_on` travels with the series, and
+# a code that has died is ABSENT from the source — we then follow our own
+# lineage to its living successor and say so (`via_successor`).
+POP_NOTE = {
+    "en": ("Figures are harmonised by INSEE on the geography of {d}: they describe "
+           "the territory of the commune as it exists at that date, summed back "
+           "through time — not the population of the historical commune. "
+           "Censuses from 2006 on should only be compared at 5-year intervals."),
+    "fr": ("Chiffres harmonisés par l'INSEE sur la géographie du {d} : ils décrivent "
+           "le territoire de la commune telle qu'elle existe à cette date, sommé "
+           "rétrospectivement — et non la population de la commune historique. "
+           "Les recensements depuis 2006 ne se comparent qu'à 5 ans d'intervalle."),
+}
+
+
+def _live_successor(code: str, country: str = "FR") -> str | None:
+    """Follow the lineage of a dead code to a still-living one (issue #88)."""
+    seen, queue = {code}, [code]
+    while queue:
+        cur_code = queue.pop(0)
+        with cursor() as cur:
+            cur.execute(
+                "SELECT valid_to, children FROM commune_version "
+                "WHERE unit_type = ANY(%s) AND country = %s AND code = %s "
+                "ORDER BY valid_from DESC LIMIT 1",
+                (list(MUNICIPAL_TYPES), country, cur_code))
+            row = cur.fetchone()
+        if not row:
+            continue
+        valid_to, children = row
+        if valid_to == FAR_FUTURE:
+            return cur_code
+        for child in (children or []):
+            if child not in seen:
+                seen.add(child)
+                queue.append(child)
+    return None
+
+
+def population_series(code: str, country: str = "FR", lang: str = "en") -> dict | None:
+    """Harmonised census series for `code`, or for its living successor when the
+    code itself has disappeared (issue #88). None when nothing is available."""
+    def fetch(c):
+        with cursor() as cur:
+            cur.execute(
+                "SELECT census_year, population, harmonised_on, source "
+                "FROM commune_population WHERE country = %s AND code = %s "
+                "ORDER BY census_year", (country, c))
+            return cur.fetchall()
+    served_for, rows = code, fetch(code)
+    via_successor = False
+    if not rows:
+        succ = _live_successor(code, country)
+        if succ and succ != code:
+            rows = fetch(succ)
+            if rows:
+                served_for, via_successor = succ, True
+    if not rows:
+        return None
+    harmonised_on = rows[0][2]
+    out = {
+        "code": served_for,
+        "harmonised_on": harmonised_on.isoformat() if harmonised_on else None,
+        "source": rows[0][3],
+        "series": [{"year": y, "population": p} for y, p, _, _ in rows],
+        "note": POP_NOTE.get(lang, POP_NOTE["en"]).format(
+            d=harmonised_on.isoformat() if harmonised_on else "?"),
+    }
+    if via_successor:
+        # The requested commune no longer exists: INSEE has no row for it, so we
+        # serve its successor's series and make the substitution explicit.
+        out["via_successor"] = True
+        out["requested_code"] = code
+    return out
+
+
 @app.get("/v1/communes/{code}/history")
 def commune_history(code: str, geometry: bool = Query(False),
                     lang: str | None = Query(None,
-                        description="Chronology language (fr/en); default French for these FR units")):
+                        description="Chronology language (fr/en); default French for these FR units"),
+                    population: bool = Query(False,
+                        description="Add the harmonised INSEE census series (issue #88)")):
     """Toutes les versions d'un code INSEE, avec liens parents/enfants."""
     with cursor() as cur:
         cur.execute(
@@ -1641,8 +1722,11 @@ def commune_history(code: str, geometry: bool = Query(False),
     if not rows:
         raise HTTPException(404, f"Code INSEE inconnu : {code}")
     versions = [feature(r) for r in rows]
-    return {"code": code, "versions": versions,
-            "events": derive_events(versions, resolve_lang(lang, "FR"))}
+    L = resolve_lang(lang, "FR")
+    out = {"code": code, "versions": versions, "events": derive_events(versions, L)}
+    if population:
+        out["population"] = population_series(code, "FR", L)
+    return out
 
 
 @app.get("/v1/departements")
