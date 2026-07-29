@@ -26,6 +26,11 @@
           background: #26314a; color: #9fb3d1; }
   .tier.pro, .tier.enterprise { background: #7ab8ff; color: #10151d; }
   a { color: #7ab8ff; } .muted { opacity: .7; font-size: .9rem; }
+  .hidden { display: none; }
+  .meter { height: 8px; border-radius: 99px; background: #26314a; overflow: hidden; margin: .5rem 0 .8rem; }
+  .meter-fill { height: 100%; border-radius: 99px; background: #7ab8ff; width: 0; transition: width .4s; }
+  .feats { margin: .4rem 0 0; padding-left: 1.2rem; font-size: .9rem; }
+  .feats li { margin: .25rem 0; opacity: .85; }
 </style>
 </head>
 <body><main>
@@ -99,6 +104,12 @@ async function render(tok) {
       <p class="muted">Send it as the <code>X-API-Key</code> header.</p>
       ${key ? `<code>${key}</code>` : `<p class="muted">Key service unavailable, retry later.</p>`}
     </div>
+    <div class="card hidden" id="usage-card">
+      <b>Your plan &amp; consumption</b>
+      <p class="muted" id="usage-line"></p>
+      <div class="meter"><div class="meter-fill" id="usage-fill"></div></div>
+      <ul class="feats" id="usage-feats"></ul>
+    </div>
     ${tier === "free" ? `
     <div class="card">
       <b>Upgrade</b>
@@ -118,6 +129,30 @@ async function render(tok) {
        <a class="btn" href="/pricing">Pricing</a>
        <a class="btn" href="/">Demo</a></p>`;
   if (window.Polar && window.Polar.EmbedCheckout) window.Polar.EmbedCheckout.init();
+  // Plan & consumption card (issue #73): features of the current plan and the
+  // town-report counter (this month for Pro, lifetime for Free). Read-only.
+  if (key) (async () => {
+    try {
+      const u = await fetch(`${API}/v1/usage`, {headers: {"x-api-key": key}}).then(x => x.ok ? x.json() : null);
+      if (!u) return;
+      const p = u.premium_reports;
+      const line = p.limit === null
+        ? `Unlimited town reports (fair use) · ${u.api_requests_this_month} API requests this month`
+        : `${p.used} of ${p.limit} town reports used ${p.window === "month" ? "this month" : "(lifetime trial)"}` +
+          ` · ${p.remaining} left · ${u.api_requests_this_month} API requests this month`;
+      document.getElementById("usage-line").textContent = line;
+      const fill = document.getElementById("usage-fill");
+      if (p.limit !== null) {
+        const pct = Math.min(100, Math.round(100 * p.used / p.limit));
+        fill.style.width = pct + "%";
+        if (pct >= 90) fill.style.background = "#f87171";
+        else if (pct >= 70) fill.style.background = "#fbbf24";
+      } else { fill.style.width = "100%"; }
+      document.getElementById("usage-feats").innerHTML =
+        u.features.map(f => `<li>${f}</li>`).join("");
+      document.getElementById("usage-card").classList.remove("hidden");
+    } catch {}
+  })();
   const billBtn = document.getElementById("billing");
   if (billBtn) billBtn.onclick = async () => {
     const note = document.getElementById("billing-note");
