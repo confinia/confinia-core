@@ -1,6 +1,7 @@
 """Parcours INSCRIPTION (TEST_SUBSCRIPTION.md) : un nouvel utilisateur crée sa
 clé, elle est active en palier free, le metering la compte, et le quota premium
-gratuit s'épuise à la 10e requête (modèle fondateur : 9 offerts, 402 ensuite)."""
+gratuit s'épuise après 10 rapports DISTINCTS (modèle par artefact, issue #83 :
+rejouer le même rapport est gratuit, un nouveau consomme un crédit)."""
 import uuid
 
 import requests
@@ -45,20 +46,30 @@ def test_history_exposes_merge_event(base):
                for ev in d["events"])
 
 
-def test_premium_quota_ten_free_then_402(base):
+def test_premium_quota_ten_distinct_then_402(base):
+    # Fresh key so the free allowance is isolated from the other tests.
+    key = requests.post(f"{base}/v1/keys",
+                        json={"email": f"ci-quota-{uuid.uuid4().hex[:8]}@test.confinia.io"}).json()["key"]
+    BBOX = "4.99,45.99,5.03,46.02"
+    # 10 DISTINCT area-change queries (different windows, all covering the 2019
+    # merger) exhaust the 10 free reports.
     quotas = []
-    for _ in range(10):
+    for i in range(10):
         r = requests.get(f"{base}/v1/changes",
-                         params={"bbox": "4.99,45.99,5.03,46.02",
-                                 "api_key": KEY})
+                         params={"bbox": BBOX, "to": f"2020-01-{i + 1:02d}", "api_key": key})
         assert r.status_code == 200, r.text
         quotas.append(r.json()["quota"]["remaining"])
         assert r.json()["events"], "le rapport doit contenir la fusion de test"
     assert quotas == list(range(9, -1, -1))     # 9, 8, … 0
+    # an 11th DISTINCT query is now paid
     r = requests.get(f"{base}/v1/changes",
-                     params={"bbox": "4.99,45.99,5.03,46.02", "api_key": KEY})
-    assert r.status_code == 402                 # la 10e est payante
+                     params={"bbox": BBOX, "to": "2020-02-01", "api_key": key})
+    assert r.status_code == 402
     assert "pricing" in r.json()["detail"]
+    # but RE-RUNNING an already-seen query stays free (distinct-artifact model)
+    r = requests.get(f"{base}/v1/changes",
+                     params={"bbox": BBOX, "to": "2020-01-01", "api_key": key})
+    assert r.status_code == 200, "re-running a seen report must be free"
 
 
 def test_report_endpoints_serve_documents(base):
