@@ -56,7 +56,7 @@ async function render(tok){const c=claims(tok.id_token);const email=c.email,org=
  if(window.Polar&&window.Polar.EmbedCheckout)window.Polar.EmbedCheckout.init();
  const bb=document.getElementById("bill");
  if(bb)bb.onclick=async()=>{const n=document.getElementById("bill-note");bb.disabled=true;n.textContent="Opening the billing portal…";
-   try{const r=await fetch(API+"/v1/billing/portal",{headers:{authorization:"Bearer "+tok.id_token}});
+   try{const r=await fetch(API+"/v1/billing/portal",{headers:{"x-access-token":tok.id_token}});
      if(r.ok){const d=await r.json();n.textContent="";window.open(d.portal_url,"_blank");}
      else{const d=await r.json().catch(()=>({}));n.textContent=(d.detail&&d.detail.detail)||d.detail||"Your invoice is in the receipt Polar emailed you.";}}
    catch{n.textContent="Your invoice is in the receipt Polar emailed you.";}

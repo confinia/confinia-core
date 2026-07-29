@@ -124,7 +124,7 @@ async function render(tok) {
     billBtn.disabled = true; note.textContent = "Opening the billing portal…";
     try {
       const r = await fetch(`${API}/v1/billing/portal`,
-        {headers: {authorization: `Bearer ${tok.id_token}`}});
+        {headers: {"x-access-token": tok.id_token}});
       if (r.ok) { const d = await r.json(); note.textContent = ""; window.open(d.portal_url, "_blank"); }
       else { const d = await r.json().catch(() => ({}));
         note.textContent = (d.detail && d.detail.detail) || d.detail

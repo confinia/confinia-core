@@ -341,11 +341,15 @@ def _jwks():
 
 
 def bearer_identity(request: Request) -> dict | None:
-    """Validate a Bearer JWT and return {email, organization} or None."""
+    """Validate a Keycloak JWT and return {email, organization} or None.
+    The token may arrive as `Authorization: Bearer …` (API clients) OR as an
+    `X-Access-Token` header. The latter lets a browser call the API on a
+    basic-auth-protected host (sandbox/staging) without its JWT colliding with
+    the `Authorization: Basic` header the edge requires (issue #81)."""
     auth = request.headers.get("authorization", "")
-    if not auth.startswith("Bearer ") or not KC_ISSUER:
+    token = auth[7:] if auth.startswith("Bearer ") else request.headers.get("x-access-token", "")
+    if not token or not KC_ISSUER:
         return None
-    token = auth[7:]
     try:
         import jwt  # PyJWT
         from jwt import PyJWK
