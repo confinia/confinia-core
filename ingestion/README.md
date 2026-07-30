@@ -138,3 +138,33 @@ in a container (rules in `DEV.md`).
   the COG) and reports it. Loading an older vintage removes the ambiguity.
 - **INSEE URLs**: unstable from one vintage to the next, to be filled in the
   `INSEE_SOURCES` dictionary at the top of the file.
+
+## Historical population — `ingest_pop.py` (issue #88)
+
+Adds the INSEE census series (1876–2023) per commune, in `commune_population`.
+
+```bash
+curl -L -A Mozilla/5.0 -o base-pop.xlsx \
+  https://www.insee.fr/fr/statistiques/fichier/3698339/base-pop-historiques-1876-2023.xlsx
+python3 ingest_pop.py --xlsx base-pop.xlsx          # --geography 2025-01-01 by default
+```
+
+Verified run: **1,285,119 figures for 34,877 communes**, 37 census years.
+
+**Read this before using the figures.** INSEE back-projects every census onto a
+SINGLE reference geography (1 January 2025 for the 2023 edition). Therefore:
+
+- a merged commune carries the **sum of its constituents** back to 1876 — these
+  are not the historical commune's own numbers;
+- a commune that **disappeared is absent** from the file (verified: five dead
+  codes from our own lineage return zero rows);
+- Corsica starts in 1936, DOM in 1954/1962, **Mayotte is excluded**;
+- censuses from 2006 on should only be compared at ≥ 5-year intervals.
+
+The script stores `harmonised_on`, and the API returns it with a localized note
+so the caveat travels with the data. When a caller asks for a dead code, the API
+follows our lineage to the living successor and flags the substitution
+(`via_successor`) — that routing is the value we add over the raw file.
+
+Re-runs are idempotent (`ON CONFLICT … DO UPDATE`): replaying the same edition
+updates in place, and a new edition only needs a new `--geography`.

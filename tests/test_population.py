@@ -86,3 +86,14 @@ def test_report_pdf_still_valid_with_the_curve(base):
     r = requests.get(f"{base}/v1/communes/99901/report.pdf")
     assert r.status_code == 200
     assert r.content.startswith(b"%PDF") and len(r.content) > 2000
+
+
+def test_commune_page_wires_the_population_chart():
+    import os
+    html = open(os.path.join(os.path.dirname(__file__), "..", "deploy", "site",
+                             "commune.html"), encoding="utf-8").read()
+    assert "population=true" in html                    # the series is requested
+    assert 'id="pop-h"' in html and 'id="pop-note"' in html
+    assert "stroke-dasharray" in html                   # dated-event markers
+    assert "Population dans le temps" in html and "Population through time" in html
+    assert "popHarmonised" in html                      # provenance shown, not hidden
