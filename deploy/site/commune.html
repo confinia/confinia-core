@@ -19,6 +19,9 @@
   .dl a.primary { background: #7ab8ff; color: #10151d; border-color: #7ab8ff; }
   .dl a:hover { border-color: #7ab8ff; }
   .dl small { opacity: .7; font-size: .8rem; }
+  .hidden { display: none; }
+  #pop svg { width: 100%; height: 13rem; display: block; }
+  .popnote { font-size: .78rem; color: #9fb3d1; opacity: .8; margin-top: .3rem; }
   #quota { width: 100%; margin-top: .2rem; font-size: .85rem; color: #9fb3d1; }
   #quota a { color: #7ab8ff; }
   .dl select { background: #0b0f16; color: #e8eaed; border: 1px solid #33405a;
@@ -57,6 +60,9 @@
 <div id="err"></div>
 <h2 id="ev-h" style="display:none">Chronology</h2>
 <div id="events"></div>
+<h2 id="pop-h" class="hidden">Population through time</h2>
+<div id="pop" class="hidden"></div>
+<div id="pop-note" class="popnote"></div>
 <h2 id="gr-h" style="display:none">Boundaries by period <small style="opacity:.7">(same scale)</small></h2>
 <!-- ev-h / gr-h text is localized at runtime from the UI dictionary -->
 <div class="grid" id="grid"></div>
@@ -83,6 +89,10 @@ const UI = {
         free: "10 town reports free per caller, then the", pro: "Pro tier", provenance: "· re-downloading a town is free",
         loading: "Loading…", today: "today", vintage: d => `geometry vintage ${d}`, approx: " (approx.)",
         noGeom: "no geometry", data: "Data: ", notFound: "Not found",
+        population: "Population through time", inhabitants: "inhabitants",
+        popHarmonised: d => `Census figures harmonised on the geography of ${d} — they describe today's territory, summed back through time, not the historical commune.`,
+        popVia: c => ` This code no longer exists: series of ${c}, its successor.`,
+        popEvents: "vertical marks = dated boundary events",
         qLeft: (r, l) => `${r} of ${l} free town reports left`, qUnlocked: " · this town is already unlocked (free re-download)",
         qPro: (r, l) => `Pro · ${r} of ${l} town reports left this month`, qUnlimited: "Unlimited reports (Enterprise)",
         qNone: "No free reports left —", preparing: "preparing…", dlFail: "download failed, please retry" },
@@ -91,6 +101,10 @@ const UI = {
         free: "10 fiches communales gratuites par appelant, puis l'", pro: "offre Pro", provenance: "· retélécharger une commune est gratuit",
         loading: "Chargement…", today: "aujourd'hui", vintage: d => `géométrie de ${d}`, approx: " (approx.)",
         noGeom: "aucune géométrie", data: "Données : ", notFound: "Introuvable",
+        population: "Population dans le temps", inhabitants: "habitants",
+        popHarmonised: d => `Chiffres de recensement harmonisés sur la géographie du ${d} — ils décrivent le territoire actuel, sommé rétrospectivement, et non la commune historique.`,
+        popVia: c => ` Ce code n'existe plus : série de ${c}, son successeur.`,
+        popEvents: "repères verticaux = événements de frontière datés",
         qLeft: (r, l) => `${r} fiches gratuites sur ${l} restantes`, qUnlocked: " · cette commune est déjà débloquée (retéléchargement gratuit)",
         qPro: (r, l) => `Pro · ${r} fiches sur ${l} restantes ce mois-ci`, qUnlimited: "Rapports illimités (Enterprise)",
         qNone: "Plus de fiches gratuites —", preparing: "préparation…", dlFail: "échec du téléchargement, réessayez" },
@@ -120,8 +134,8 @@ function pathFor(rings, bbox, w, h) {
 (async () => {
   try {
     const url = country === "FR"
-      ? `${API}/v1/communes/${code}/history?geometry=true&lang=${lang}`
-      : `${API}/v1/units/${encodeURIComponent(code)}/history?country=${country}&geometry=true&lang=${lang}`;
+      ? `${API}/v1/communes/${code}/history?geometry=true&population=true&lang=${lang}`
+      : `${API}/v1/units/${encodeURIComponent(code)}/history?country=${country}&geometry=true&population=true&lang=${lang}`;
     const r = await fetch(url);
     if (!r.ok) throw new Error(`unknown unit ${country}/${code}`);
     const d = await r.json();
@@ -190,6 +204,45 @@ function pathFor(rings, bbox, w, h) {
       document.getElementById("ev-h").style.display = "block";
       document.getElementById("events").innerHTML = evs.map(ev =>
         `<div class="ev">• ${ev.date ? `<b>${ev.date}</b> · ` : ""}${ev.detail}</div>`).join("");
+    }
+
+    // Population curve (issue #88): the series plus the dated boundary events
+    // that break it. Harmonisation and successor substitution are stated, never
+    // hidden — that provenance is the product.
+    const pop = d.population;
+    if (pop && (pop.series || []).length > 1) {
+      const S = pop.series, W = 900, H = 260, L = 56, R = 56, T = 22, B = 40;
+      const cw = W - L - R, ch = H - T - B;
+      const y0 = S[0].year, y1 = S[S.length - 1].year, span = (y1 - y0) || 1;
+      const vmax = Math.max(...S.map(x => x.population)) || 1;
+      const px = yr => L + (yr - y0) / span * cw;
+      const py = v => T + ch - (v / vmax) * ch;          // y starts at 0
+      const marks = (evs || []).filter(e => e.date)
+        .map(e => parseInt(String(e.date).slice(0, 4), 10))
+        .filter(yr => yr >= y0 && yr <= y1);
+      const nb = n => n.toLocaleString(lang === "fr" ? "fr-FR" : "en-GB");
+      const path = S.map((x, i) => `${i ? "L" : "M"} ${px(x.year).toFixed(1)} ${py(x.population).toFixed(1)}`).join(" ");
+      document.getElementById("pop").innerHTML = `
+        <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${UI.population}">
+          ${marks.map(yr => `<line x1="${px(yr).toFixed(1)}" y1="${T}" x2="${px(yr).toFixed(1)}" y2="${T + ch}"
+             stroke="#e6b800" stroke-width="1" stroke-dasharray="4 3" opacity=".8"/>
+             <text x="${px(yr).toFixed(1)}" y="${T - 6}" fill="#c8a12f" font-size="11" text-anchor="middle">${yr}</text>`).join("")}
+          <line x1="${L}" y1="${T + ch}" x2="${L + cw}" y2="${T + ch}" stroke="#26314a" stroke-width="1"/>
+          <path d="${path}" fill="none" stroke="#7ab8ff" stroke-width="2.2"/>
+          <circle cx="${px(y0).toFixed(1)}" cy="${py(S[0].population).toFixed(1)}" r="3.5" fill="#7ab8ff"/>
+          <circle cx="${px(y1).toFixed(1)}" cy="${py(S[S.length - 1].population).toFixed(1)}" r="3.5" fill="#7ab8ff"/>
+          <text x="${L - 8}" y="${(py(S[0].population) + 4).toFixed(1)}" fill="#9fb3d1" font-size="12" text-anchor="end">${nb(S[0].population)}</text>
+          <text x="${L + cw + 8}" y="${(py(S[S.length - 1].population) + 4).toFixed(1)}" fill="#9fb3d1" font-size="12">${nb(S[S.length - 1].population)}</text>
+          <text x="${L}" y="${T + ch + 18}" fill="#9fb3d1" font-size="12">${y0}</text>
+          <text x="${L + cw}" y="${T + ch + 18}" fill="#9fb3d1" font-size="12" text-anchor="end">${y1}</text>
+          <text x="${L}" y="${T + ch + 33}" fill="#6b7a95" font-size="10">${UI.popEvents}</text>
+        </svg>`;
+      let note = UI.popHarmonised(pop.harmonised_on || "?");
+      if (pop.via_successor) note += UI.popVia(pop.code);
+      document.getElementById("pop-note").textContent = note;
+      document.getElementById("pop-h").textContent = UI.population;
+      document.getElementById("pop-h").classList.remove("hidden");
+      document.getElementById("pop").classList.remove("hidden");
     }
     const allRings = d.versions.flatMap(f => ringsOf(f.geometry));
     if (allRings.length) {

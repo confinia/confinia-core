@@ -25,6 +25,7 @@ INSERT INTO data_source (source, license, attribution, commercial_use, source_ur
  ('trf-gis',           'CC BY 4.0',           'Victor Gay, TRF-GIS, Mapping the Third Republic (CC BY 4.0)',              true, 'https://dataverse.harvard.edu/dataverse/TRF-GIS', 'Nomenclatures communales annuelles 1870 à 1940'),
  ('statsnz',           'CC BY 4.0',           'Stats NZ, Territorial Authority boundaries (CC BY 4.0)',                   true, 'https://maps-by-statsnz.hub.arcgis.com',      'NZ : éditions TA 2010 à 2026 (fusion Auckland incluse) ; couches iwi/traités volontairement exclues'),
  ('banatic',           'Licence Ouverte 2.0', 'BANATIC, Base nationale sur les intercommunalites (Ministere de l''Interieur)', true, 'https://www.banatic.interieur.gouv.fr', 'FR EPCI: current perimeter snapshot; historical lineage is phase 2'),
+ ('insee-pop',        'Licence Ouverte 2.0', 'INSEE, Recensement de la population (historique des populations communales)', true, 'https://www.insee.fr/fr/statistiques/3698339', 'Populations 1876-2023 HARMONISEES sur la geographie au 1er janvier 2025 ; Mayotte exclue ; Corse des 1936, DOM des 1954/1962'),
  ('ons-chd',           'OGL v3',              'Office for National Statistics, Code History Database, © Crown copyright', true, 'https://geoportal.statistics.gov.uk',         'UK : historique des codes GSS (chantier en cours)')
 ON CONFLICT (source) DO UPDATE SET
     license = EXCLUDED.license, attribution = EXCLUDED.attribution,

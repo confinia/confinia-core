@@ -62,3 +62,27 @@ VALUES
  ('200099999', 'CC de Testville', DATE '2025-01-01', DATE '9999-01-01', 'epci', 'FR', 'banatic', DATE '2025-01-01',
   ST_Multi(ST_GeomFromText('POLYGON((5.00 46.00, 5.02 46.00, 5.02 46.01, 5.00 46.01, 5.00 46.00))', 4326)),
   ST_Multi(ST_GeomFromText('POLYGON((5.00 46.00, 5.02 46.00, 5.02 46.01, 5.00 46.01, 5.00 46.00))', 4326)));
+
+-- Harmonised census series (issue #88). Mirrors the real INSEE shape: figures
+-- exist ONLY for the surviving commune (99901). 99902 died in 2019, so it has
+-- no row — exactly like a disappeared commune in the real file, which is what
+-- lets us test the successor routing.
+INSERT INTO data_source (source, license, attribution, commercial_use) VALUES
+ ('insee-pop', 'Licence Ouverte 2.0', 'INSEE, Recensement de la population', true)
+ON CONFLICT (source) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS commune_population (
+    country       text NOT NULL DEFAULT 'FR',
+    code          text NOT NULL,
+    census_year   int  NOT NULL,
+    population    int  NOT NULL,
+    source        text NOT NULL,
+    harmonised_on date,
+    PRIMARY KEY (country, code, census_year)
+);
+INSERT INTO commune_population (country, code, census_year, population, source, harmonised_on)
+VALUES ('FR','99901',1876,1520,'insee-pop',DATE '2025-01-01'),
+       ('FR','99901',1936, 893,'insee-pop',DATE '2025-01-01'),
+       ('FR','99901',1990, 618,'insee-pop',DATE '2025-01-01'),
+       ('FR','99901',2023, 717,'insee-pop',DATE '2025-01-01')
+ON CONFLICT (country, code, census_year) DO NOTHING;
