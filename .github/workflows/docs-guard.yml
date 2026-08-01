@@ -35,18 +35,19 @@ jobs:
         run: |
           set -u
           git fetch --quiet origin "$BASE_REF"
+          # Every line here MUST stay indented inside this block scalar: a line
+          # starting at column 1 ends the YAML block, and "---" would even be
+          # read as a new YAML document (this workflow failed that way once).
           removed=0
-          report=""
           for f in $PROTECTED; do
             [ -e "$f" ] || continue
             n=$(git diff --numstat "origin/$BASE_REF...HEAD" -- "$f" | awk '{print $2}')
             n=${n:-0}
             if [ "$n" -gt 0 ]; then
               removed=$((removed + n))
-              report="$report
-
---- $f: $n line(s) removed ---
-$(git diff "origin/$BASE_REF...HEAD" -- "$f" | grep '^-' | grep -v '^---')"
+              echo "### $f : $n line(s) removed"
+              git diff "origin/$BASE_REF...HEAD" -- "$f" | grep '^-' | grep -v '^---' || true
+              echo
             fi
           done
 
@@ -55,8 +56,6 @@ $(git diff "origin/$BASE_REF...HEAD" -- "$f" | grep '^-' | grep -v '^---')"
             exit 0
           fi
 
-          echo "$report"
-          echo
           if printf '%s %s' "$PR_TITLE" "$PR_BODY" | grep -q 'DOC-REMOVE-OK'; then
             echo "Removal acknowledged in the PR (DOC-REMOVE-OK). Allowed."
             exit 0
