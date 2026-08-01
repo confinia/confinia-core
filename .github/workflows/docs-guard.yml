@@ -1,0 +1,67 @@
+name: docs-guard
+# Silent content loss guard (issue #92).
+#
+# The COGugaison acknowledgement was added by #23 and removed by #20 without
+# anyone noticing: a branch created before #23 rewrote README.md wholesale from
+# its stale copy, which git recorded as a clean 9-line deletion. No conflict, no
+# failure, and we then told the person in writing that the credit was in place.
+#
+# So: for a small set of files that carry commitments, removing lines must be a
+# DELIBERATE act. This job prints exactly what would disappear and fails, unless
+# the PR says so explicitly.
+permissions:
+  contents: read
+
+on:
+  pull_request:
+
+jobs:
+  no-silent-deletion:
+    runs-on: ubuntu-latest
+    env:
+      # Files whose content is a promise to someone, or the shared contract of
+      # the project. Extend when something else gets lost.
+      PROTECTED: >-
+        README.md RULES.md SOURCES.md SPECIFICATIONS.md PORTS.md
+        ENVIRONMENTS.md ingestion/sources.sql
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+      BASE_REF: ${{ github.base_ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # the guard needs real history to diff against
+      - name: Detect removed lines in protected files
+        run: |
+          set -u
+          git fetch --quiet origin "$BASE_REF"
+          # Every line here MUST stay indented inside this block scalar: a line
+          # starting at column 1 ends the YAML block, and "---" would even be
+          # read as a new YAML document (this workflow failed that way once).
+          removed=0
+          for f in $PROTECTED; do
+            [ -e "$f" ] || continue
+            n=$(git diff --numstat "origin/$BASE_REF...HEAD" -- "$f" | awk '{print $2}')
+            n=${n:-0}
+            if [ "$n" -gt 0 ]; then
+              removed=$((removed + n))
+              echo "### $f : $n line(s) removed"
+              git diff "origin/$BASE_REF...HEAD" -- "$f" | grep '^-' | grep -v '^---' || true
+              echo
+            fi
+          done
+
+          if [ "$removed" -eq 0 ]; then
+            echo "No line removed from protected files."
+            exit 0
+          fi
+
+          if printf '%s %s' "$PR_TITLE" "$PR_BODY" | grep -q 'DOC-REMOVE-OK'; then
+            echo "Removal acknowledged in the PR (DOC-REMOVE-OK). Allowed."
+            exit 0
+          fi
+          echo "::error::This PR removes $removed line(s) from protected files (listed above)."
+          echo "If the removal is intended, put DOC-REMOVE-OK in the PR title or body."
+          echo "If it is not, you are about to lose content the way #20 lost the"
+          echo "COGugaison credit: rewritten from a stale copy, no conflict, unnoticed."
+          exit 1
