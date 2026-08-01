@@ -206,6 +206,18 @@ sudo loginctl enable-linger confinia
 - Only then, as `debian`: remove the old volumes and `~/projects/confinia`.
 - Delete `confinia_pgdata` (legacy) at the same time.
 
+## After the move: `/home/debian/projects/confinia` is dead
+
+Once the cutover is verified, that directory must never be used again. It stays
+on disk only as the rollback path, and it becomes a trap: editing it, rsyncing
+to it or deploying from it would touch a stack that no longer serves anything,
+silently, while production runs elsewhere.
+
+- All work goes through **`ssh confinia@…`** and `/home/confinia/projects/confinia`.
+- The founder's `~/.ssh/config` should make this the default alias, so the old
+  path is not reachable by muscle memory.
+- Once the old stack is deleted (step 4), remove the `debian` alias entirely.
+
 ## Rollback
 
 At any point before step 4, roll back by stopping the `confinia` containers and
