@@ -1403,6 +1403,38 @@ def account_usage(request: Request):
             "all_plans": PLAN_FEATURES}
 
 
+def _population_weights(codes: list, country: str, since_year: int):
+    """Weights from the census, following COGugaison (Kim Antunez, confirmed by
+    email 2026-08-01): the municipal populations of the communes RESULTING from
+    the split, taken at the FIRST census that follows it — never the population
+    before the split, which no harmonised source provides (issue #88).
+
+    Returns (weights, census_year) or (None, reason) when the census cannot
+    answer for every target: we fall back to area rather than mixing two methods
+    silently inside one response."""
+    with cursor() as cur:
+        cur.execute(
+            "SELECT min(census_year) FROM commune_population "
+            "WHERE country=%s AND code = ANY(%s) AND census_year >= %s",
+            (country, codes, since_year))
+        row = cur.fetchone()
+        year = row[0] if row else None
+        if not year:
+            return None, "no census on or after the split"
+        cur.execute(
+            "SELECT code, population FROM commune_population "
+            "WHERE country=%s AND code = ANY(%s) AND census_year=%s",
+            (country, codes, year))
+        pops = {c: p for c, p in cur.fetchall()}
+    missing = [c for c in codes if c not in pops or not pops[c]]
+    if missing:
+        return None, f"no census figure for {', '.join(sorted(missing))}"
+    total = sum(pops.values())
+    if not total:
+        return None, "census populations sum to zero"
+    return {c: pops[c] / total for c in codes}, year
+
+
 @app.get("/v1/passage")
 def passage(
     code: str = Query(..., description="Source unit code"),
@@ -1410,12 +1442,17 @@ def passage(
                             description="Vintage the value is expressed in"),
     date_to: date = Query(..., alias="to", description="Target date"),
     country: str = Query("FR"),
+    weighting: str = Query("area", pattern="^(area|population)$",
+                           description="area (geometric) or population "
+                                       "(municipale, COGugaison method)"),
 ):
     """Correspondence table from a source unit (as it existed at `from`) to the
-    unit(s) covering the same territory at `to`, with weights = share of the
-    source area falling in each target (geometric weighting; population-municipale
-    weighting is the documented next step, see issue #21). This is the COGugaison
-    operation as an API. Credit: methodology follows COGugaison (Kim Antunez)."""
+    unit(s) covering the same territory at `to`, with weights.
+
+    Two weightings (issue #94): `area` = share of the source area falling in each
+    target; `population` = municipal populations of the resulting communes at the
+    first census following the split. This is the COGugaison operation as an API.
+    Credit: methodology follows COGugaison (Kim Antunez)."""
     with cursor() as cur:
         cur.execute(
             "SELECT geom FROM commune_version WHERE code=%s AND country=%s "
@@ -1426,7 +1463,7 @@ def passage(
         if not src or not src[0]:
             raise HTTPException(404, f"No source unit {country}/{code} at {date_from}")
         cur.execute(
-            "SELECT code, nom, "
+            "SELECT code, nom, valid_from, "
             " ST_Area(ST_Intersection(geom, %s)::geography) AS inter, "
             " ST_Area(%s::geography) AS total "
             "FROM commune_version "
@@ -1437,16 +1474,50 @@ def passage(
             (src[0], src[0], country.upper(), list(MUNICIPAL_TYPES),
              date_to, date_to, src[0]))
         rows = cur.fetchall()
-    targets = [{"code": c, "nom": n, "weight": round(inter / total, 6)}
-               for c, n, inter, total in rows if total and inter / total > 0.005]
+    targets = [{"code": c, "nom": n, "weight": round(inter / total, 6), "_vf": vf}
+               for c, n, vf, inter, total in rows if total and inter / total > 0.005]
     ssum = sum(t["weight"] for t in targets) or 1.0
     for t in targets:
         t["weight"] = round(t["weight"] / ssum, 6)   # normalize to 1
+
+    applied, census_year, fallback = "area", None, None
+    if weighting == "population" and targets:
+        if len(targets) == 1:
+            # A merger needs no apportionment: the successor takes everything.
+            applied = "population"
+        else:
+            # The split is the moment the current targets came into being.
+            split_year = max(t["_vf"] for t in targets).year
+            weights, info = _population_weights(
+                [t["code"] for t in targets], country.upper(), split_year)
+            if weights:
+                applied, census_year = "population", info
+                for t in targets:
+                    t["weight"] = round(weights[t["code"]], 6)
+            else:
+                fallback = info          # stated, never silently substituted
+    for t in targets:
+        t.pop("_vf", None)
+
+    if applied == "population":
+        note = ("Population weighting: municipal populations of the resulting "
+                "communes at the first census following the split"
+                + (f" ({census_year})" if census_year else "")
+                + ". Figures are harmonised by INSEE on a single reference "
+                  "geography (see /v1/communes/{code}/history?population=true), "
+                  "so they describe each target's current territory.")
+    else:
+        note = "Area weighting: share of the source area falling in each target."
+        if fallback:
+            note += (f" Population weighting was requested but not applied: "
+                     f"{fallback}.")
     return {"source": {"code": code, "at": date_from.isoformat()},
-            "target_date": date_to.isoformat(), "weighting": "area",
+            "target_date": date_to.isoformat(),
+            "weighting": applied,
+            "weighting_requested": weighting,
+            "census_year": census_year,
             "targets": targets,
-            "note": "Area weighting; population-municipale weighting planned "
-                    "(issue #21). Method follows COGugaison (Kim Antunez)."}
+            "note": note + " Method follows COGugaison (Kim Antunez)."}
 
 
 @app.get("/healthz")
