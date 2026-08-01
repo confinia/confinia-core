@@ -86,3 +86,31 @@ VALUES ('FR','99901',1876,1520,'insee-pop',DATE '2025-01-01'),
        ('FR','99901',1990, 618,'insee-pop',DATE '2025-01-01'),
        ('FR','99901',2023, 717,'insee-pop',DATE '2025-01-01')
 ON CONFLICT (country, code, census_year) DO NOTHING;
+
+-- A SPLIT, for the population weighting (issue #94). Splitville (99910) splits
+-- in 2000 into 99911 and 99912. The two halves have EQUAL area but UNEQUAL
+-- population (300 / 700), so area weighting gives 0.5/0.5 while population
+-- weighting gives 0.3/0.7: the test can tell the two methods apart.
+INSERT INTO commune_version
+ (code, nom, valid_from, valid_to, source, geometry_vintage, parents, children, geom, geom_simple)
+VALUES
+ ('99910', 'Splitville', DATE '1943-01-01', DATE '2000-01-01', 'insee-cog', DATE '1999-01-01',
+  NULL, ARRAY['99911','99912'],
+  ST_Multi(ST_GeomFromText('POLYGON((6.00 47.00, 6.02 47.00, 6.02 47.01, 6.00 47.01, 6.00 47.00))', 4326)),
+  ST_Multi(ST_GeomFromText('POLYGON((6.00 47.00, 6.02 47.00, 6.02 47.01, 6.00 47.01, 6.00 47.00))', 4326))),
+ ('99911', 'Splitville-Ouest', DATE '2000-01-01', DATE '9999-01-01', 'insee-cog', DATE '2020-01-01',
+  ARRAY['99910'], NULL,
+  ST_Multi(ST_GeomFromText('POLYGON((6.00 47.00, 6.01 47.00, 6.01 47.01, 6.00 47.01, 6.00 47.00))', 4326)),
+  ST_Multi(ST_GeomFromText('POLYGON((6.00 47.00, 6.01 47.00, 6.01 47.01, 6.00 47.01, 6.00 47.00))', 4326))),
+ ('99912', 'Splitville-Est', DATE '2000-01-01', DATE '9999-01-01', 'insee-cog', DATE '2020-01-01',
+  ARRAY['99910'], NULL,
+  ST_Multi(ST_GeomFromText('POLYGON((6.01 47.00, 6.02 47.00, 6.02 47.01, 6.01 47.01, 6.01 47.00))', 4326)),
+  ST_Multi(ST_GeomFromText('POLYGON((6.01 47.00, 6.02 47.00, 6.02 47.01, 6.01 47.01, 6.01 47.00))', 4326)));
+
+-- First census AFTER the 2000 split: this is the year the method must pick.
+INSERT INTO commune_population (country, code, census_year, population, source, harmonised_on)
+VALUES ('FR','99911',2006,300,'insee-pop',DATE '2025-01-01'),
+       ('FR','99912',2006,700,'insee-pop',DATE '2025-01-01'),
+       ('FR','99911',2023,320,'insee-pop',DATE '2025-01-01'),
+       ('FR','99912',2023,780,'insee-pop',DATE '2025-01-01')
+ON CONFLICT (country, code, census_year) DO NOTHING;
