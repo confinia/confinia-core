@@ -88,6 +88,9 @@ jobs:
       - name: Historical population (issue #88)
         if: always()
         run: pytest -v tests/test_population.py
+      - name: Credits we owe to people (issue #92)
+        if: always()
+        run: pytest -v tests/test_credits_static.py
       - name: Environments dashboard wiring (issue #85)
         if: always()
         run: pytest -v tests/test_env_dashboard_static.py

@@ -51,6 +51,21 @@
    (Le Caddyfile applicatif `deploy/caddy/Caddyfile` de ce repo reste, lui,
    modifiable normalement — c'est un fichier suivi de confinia-core.)
 
+9. **Tout travail passe par une issue ET une PR GitHub, sans exception** :
+   c'est la seule trace complète (le pourquoi dans l'issue, le comment dans la
+   PR, la validation dans la CI). Y compris les corrections d'une ligne et les
+   documents de process : ce qui est commité directement sur `main` échappe à
+   la revue, à la CI, et devient invisible six mois plus tard.
+
+10. **Ne jamais réécrire un fichier existant en entier ; l'éditer.** Une
+   réécriture depuis une copie périmée supprime silencieusement ce que quelqu'un
+   d'autre a ajouté entre-temps : git n'y voit aucun conflit, la CI ne dit rien.
+   C'est ainsi que le crédit COGugaison a disparu pendant plusieurs jours
+   (PR #23 puis #20, issue #92). Garde-fous en place : le job CI `docs-guard`
+   refuse toute suppression de ligne dans les fichiers protégés sans mention
+   explicite, et `tests/test_credits_static.py` verrouille les engagements pris
+   envers des personnes.
+
 Autres règles opérationnelles (détaillées dans `DEV.md`) : rendu mobile
 vérifié par captures avant toute publication front ; adresse admin caddy
 unique par instance en réseau hôte ; `--no-deps` sur toute commande
