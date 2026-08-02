@@ -1,6 +1,14 @@
 # MOVE.md — moving the Confinia stack to its own Unix user
 
-**Status: proposal for review. Nothing here has been applied.**
+**Status: ATTEMPTED ON 2026-08-01 AND ROLLED BACK. Do not re-run as written.**
+
+The cutover was attempted and failed on the database restore. Production was
+down for about **15 hours** (17:42 UTC to 08:59 UTC) before rollback, against a
+30 to 60 minute estimate. No data was lost: the old stack was never deleted, and
+its 10 Keycloak users, 12 API keys and 1 subscription were verified intact
+afterwards.
+
+Read "What actually happened" before planning another attempt.
 
 From `/home/debian/projects/confinia` (user `debian`)
 to `/home/confinia/projects/confinia` (user `confinia`).
@@ -21,6 +29,46 @@ database, which holds customer accounts). Everything else is reversible.
 
 The `confinia` user **already exists** (uid 1001) with its subuid range
 allocated (`confinia:165536:65536`), so the groundwork is done.
+
+## What actually happened (2026-08-01)
+
+### The technical cause
+
+**`podman exec -i` silently truncates its stdin** when a large file is
+redirected into it from a non-interactive SSH session. The restore reported no
+error and exited cleanly, but only part of the dump had been read.
+
+The damage was invisible at first glance: the business database looked right
+(12 API keys, 1 subscription) while the Keycloak database had **87 tables and
+zero realms, zero users**. A superficial check would have declared success and
+lost every customer account.
+
+Copying the file into the container with `podman cp` and running `psql -f`
+removes the stdin path and is the right fix in principle, but that variant also
+failed, with **empty logs and a non-zero exit code** that was never explained.
+That is where the attempt should have stopped.
+
+### The process failures, which cost more than the bug
+
+1. **No time limit was agreed in advance.** The cutover ran for hours instead of
+   being abandoned after twenty minutes. Rollback was available the whole time
+   and cost two commands.
+2. **Success was measured by "no error shown" rather than by counting rows.**
+   The restore was called clean while Keycloak was empty.
+3. **The procedure had never been rehearsed.** It went straight to production on
+   its first ever run.
+
+### Rules for any future attempt
+
+- **Rehearse first, with no downtime**: restore the dump into a throwaway
+  database and verify it there. Production is touched only once the restore is
+  *proven*, not hoped for.
+- **Success criteria are counts, not the absence of messages** (see step 3).
+- **Hard time limit: 30 minutes.** Past that, roll back and investigate with the
+  service up. The incident above is what ignoring this costs.
+- **Never restore through `podman exec -i < file`.** Use `podman cp` then
+  `psql -f`, and verify the row counts afterwards regardless.
+- Announce the maintenance window beforehand: the service is public.
 
 ## The one fact that shapes the whole procedure
 
@@ -190,14 +238,19 @@ sudo loginctl enable-linger confinia
 
 ### 3. Verify before declaring success
 
+- **count the rows before anything else**: `SELECT count(*) FROM user_entity`
+  in `keycloak` must return **10**, `api_key` **12**, `polar_subscription` **1**.
+  An empty Keycloak with a full schema is exactly what the failed run produced,
+  and it looks like success until someone tries to log in;
 - `curl -sf https://api.confinia.io/healthz` returns the expected version;
-- **sign in on the account page**: this is the real test that the Keycloak
-  database survived, and it is the step that must never be skipped;
+- **sign in on the account page**: the real test that the Keycloak database
+  survived, and the step that must never be skipped;
 - a paid account still shows its plan (ops database intact);
 - `tests/smoke_prod.py` against production;
 - the Grafana environments dashboard shows the colours and probes;
-- reboot the VM once, and confirm everything comes back (this is what proves
-  `enable-linger` was done).
+- **do NOT reboot the VM to test linger**: it is shared with other products and
+  another session works on it. Check `loginctl show-user confinia | grep Linger`
+  instead.
 
 ### 4. Afterwards
 
