@@ -51,3 +51,26 @@ def test_pdf_still_renders_with_neighbours(base):
     r = requests.get(f"{base}/v1/communes/99901/report.pdf")
     assert r.status_code == 200
     assert r.content.startswith(b"%PDF") and len(r.content) > 2000
+
+
+# --- The same context on the commune page (issue #96) ------------------------
+
+def test_history_exposes_neighbours_only_on_demand(base):
+    plain = requests.get(f"{base}/v1/communes/99901/history",
+                         params={"geometry": "true"}).json()
+    assert not any("neighbours" in f["properties"] for f in plain["versions"]), \
+        "neighbours must cost nothing unless asked for"
+    asked = requests.get(f"{base}/v1/communes/99901/history",
+                         params={"geometry": "true", "neighbours": "true"}).json()
+    per_version = [len(f["properties"].get("neighbours", [])) for f in asked["versions"]]
+    # dated again: a neighbour before the 2019 merger, none after it
+    assert per_version[0] > 0 and per_version[-1] == 0
+
+
+def test_commune_page_draws_the_neighbourhood():
+    import os
+    html = open(os.path.join(os.path.dirname(__file__), "..", "deploy", "site",
+                             "commune.html"), encoding="utf-8").read()
+    assert "neighbours=true" in html          # the page asks for them
+    assert "clipPath" in html                 # and clips them to the card
+    assert "#161d2b" in html                  # subdued fill, behind the target

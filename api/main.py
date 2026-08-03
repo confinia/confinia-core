@@ -1027,6 +1027,18 @@ REPORT_LABELS = {
 REPORT_MAX_NEIGHBOURS = int(os.environ.get("REPORT_MAX_NEIGHBOURS", "40"))
 
 
+def _feature_rings(feature: dict) -> list:
+    """Rings of a GeoJSON feature, Polygon or MultiPolygon, or [] without geometry."""
+    g = feature.get("geometry")
+    if not g:
+        return []
+    if g["type"] == "MultiPolygon":
+        return [ring for poly in g["coordinates"] for ring in poly]
+    if g["type"] == "Polygon":
+        return list(g["coordinates"])
+    return []
+
+
 def _neighbour_rings(cur, code: str, country: str, at, bbox) -> list:
     """Rings of the units touching `code` AT THAT PERIOD's date, clipped to the
     frame. Taking today's neighbours for a 1950 outline would be a silent
@@ -1996,7 +2008,10 @@ def commune_history(code: str, geometry: bool = Query(False),
                     lang: str | None = Query(None,
                         description="Chronology language (fr/en); default French for these FR units"),
                     population: bool = Query(False,
-                        description="Add the harmonised INSEE census series (issue #88)")):
+                        description="Add the harmonised INSEE census series (issue #88)"),
+                    neighbours: bool = Query(False,
+                        description="Add, per version, the units bordering it AT THAT "
+                                    "period's date, to situate the outline (issue #96)")):
     """Toutes les versions d'un code INSEE, avec liens parents/enfants."""
     with cursor() as cur:
         cur.execute(
@@ -2011,6 +2026,18 @@ def commune_history(code: str, geometry: bool = Query(False),
     out = {"code": code, "versions": versions, "events": derive_events(versions, L)}
     if population:
         out["population"] = population_series(code, "FR", L)
+    if neighbours and geometry:
+        # Same dated rule as the report: the neighbours of THAT period, never
+        # today's around an old outline (issue #96).
+        xs = [x for f in versions for ring in _feature_rings(f) for x, _ in ring]
+        ys = [y for f in versions for ring in _feature_rings(f) for _, y in ring]
+        bbox = (min(xs), min(ys), max(xs), max(ys)) if xs else None
+        with cursor() as cur:
+            for f in versions:
+                vf = f["properties"]["valid_from"]
+                f["properties"]["neighbours"] = (
+                    _neighbour_rings(cur, code, "FR", vf, bbox)
+                    if bbox and _feature_rings(f) else [])
     return out
 
 
