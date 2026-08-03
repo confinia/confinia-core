@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 786" width="1120" height="786"
+     font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+     role="img" aria-labelledby="t d">
+  <title id="t">Confinia stack: GitHub to edge to environments</title>
+  <desc id="d">A commit flows from GitHub through a self-hosted runner into the VM. One shared
+  platform edge terminates TLS on 443 and routes hostnames to the Confinia project edge on
+  port 8085, which fans out to sandbox, staging and production. All three environments share
+  one operational database, one Keycloak and one Grafana.</desc>
+
+  <rect width="1120" height="786" fill="#f6f8fa"/>
+
+  <!-- ============ GitHub ============ -->
+  <rect x="30" y="26" width="1060" height="92" rx="10" fill="#efeafa" stroke="#8d7cc4"/>
+  <text x="50" y="52" font-size="13" font-weight="700" fill="#4a3d78">GITHUB</text>
+  <text x="50" y="72" font-size="11" fill="#5f5488">confinia-core · public</text>
+
+  <g font-size="12" fill="#2c2340">
+    <rect x="212" y="42" width="110" height="34" rx="6" fill="#fff" stroke="#a99ed4"/>
+    <text x="267" y="63" text-anchor="middle">issue #N</text>
+    <rect x="346" y="42" width="140" height="34" rx="6" fill="#fff" stroke="#a99ed4"/>
+    <text x="416" y="63" text-anchor="middle">branch + PR</text>
+    <rect x="518" y="42" width="188" height="34" rx="6" fill="#fff" stroke="#a99ed4"/>
+    <text x="612" y="63" text-anchor="middle">CI on hosted runner</text>
+    <rect x="738" y="42" width="164" height="34" rx="6" fill="#fff" stroke="#a99ed4"/>
+    <text x="820" y="63" text-anchor="middle">merge to main</text>
+    <rect x="934" y="42" width="136" height="34" rx="6" fill="#fff" stroke="#a99ed4"/>
+    <text x="1002" y="57" text-anchor="middle" font-size="11.5">promote</text>
+    <text x="1002" y="70" text-anchor="middle" font-size="10" fill="#6b5f96">reviewer required</text>
+  </g>
+  <g stroke="#8d7cc4" stroke-width="1.4" fill="none" marker-end="url(#ar)">
+    <path d="M326 59 H342"/><path d="M490 59 H514"/><path d="M710 59 H734"/><path d="M906 59 H930"/>
+  </g>
+
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8d7cc4"/>
+    </marker>
+    <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6b7c"/>
+    </marker>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#b4463c"/>
+    </marker>
+  </defs>
+
+  <!-- runner arrow into the VM -->
+  <path d="M560 118 V150" stroke="#5b6b7c" stroke-width="1.6" fill="none" marker-end="url(#ag)"/>
+  <rect x="404" y="124" width="312" height="22" rx="5" fill="#fbe3e0" stroke="#b4463c"/>
+  <text x="560" y="139" text-anchor="middle" font-size="10.5" fill="#8f2f27">
+    self-hosted runner — runs as debian, which has passwordless root
+  </text>
+
+  <!-- ============ VM ============ -->
+  <rect x="30" y="156" width="1060" height="574" rx="12" fill="#fff" stroke="#c3ccd6"/>
+  <text x="50" y="180" font-size="13" font-weight="700" fill="#33414f">OVH VM — shared by every product</text>
+  <text x="50" y="197" font-size="11" fill="#6a7887">rootless podman · one Unix user per product (Confinia still runs as debian)</text>
+
+  <!-- Tier 1 -->
+  <rect x="54" y="212" width="1012" height="60" rx="8" fill="#eef2f6" stroke="#93a3b3"/>
+  <text x="74" y="236" font-size="12.5" font-weight="700" fill="#33414f">TIER 1 · platform edge caddy — :443 TLS</text>
+  <text x="74" y="255" font-size="11" fill="#5b6b7c">user debian · repo confinia/platform · founder-only · hostname → 127.0.0.1:port</text>
+  <text x="1046" y="245" font-size="11" fill="#5b6b7c" text-anchor="end">shared by all tenants</text>
+
+  <path d="M560 272 V296" stroke="#5b6b7c" stroke-width="1.6" fill="none" marker-end="url(#ag)"/>
+
+  <!-- Tier 2 -->
+  <rect x="54" y="300" width="1012" height="62" rx="8" fill="#e8eef5" stroke="#7b90a6"/>
+  <text x="74" y="324" font-size="12.5" font-weight="700" fill="#2b3a49">TIER 2 · Confinia project edge caddy — 127.0.0.1:8085</text>
+  <text x="74" y="343" font-size="11" fill="#54677a">deploy/caddy/Caddyfile · basic auth on staging + sandbox · block_scanners · colour state from ~/confinia-edge-state</text>
+
+  <g stroke="#5b6b7c" stroke-width="1.5" fill="none" marker-end="url(#ag)">
+    <path d="M200 362 V376 H200 V398"/>
+    <path d="M560 362 V398"/>
+    <path d="M900 362 V376 H900 V398"/>
+  </g>
+
+  <!-- Environments -->
+  <rect x="54" y="402" width="292" height="150" rx="8" fill="#fdf3e0" stroke="#c9922f"/>
+  <text x="74" y="426" font-size="12.5" font-weight="700" fill="#7d5a12">SANDBOX · :8089</text>
+  <text x="74" y="446" font-size="11" fill="#7a6538">PR branches · Polar test mode</text>
+  <text x="74" y="463" font-size="11" fill="#7a6538">realm confinia-sbx · db confinia_sbx</text>
+  <text x="74" y="487" font-size="10.5" fill="#8f2f27">⚠ shares production's working directory</text>
+  <text x="74" y="503" font-size="10.5" fill="#8f2f27">→ cannot deploy a branch yet (#111)</text>
+  <text x="74" y="530" font-size="10.5" fill="#9a8a5e">sandbox.confinia.io</text>
+
+  <rect x="368" y="402" width="292" height="150" rx="8" fill="#eaf1f9" stroke="#4a7db5"/>
+  <text x="388" y="426" font-size="12.5" font-weight="700" fill="#2a5384">STAGING</text>
+  <text x="388" y="446" font-size="11" fill="#3f5a7d">= the PASSIVE colour, not its own stack</text>
+  <text x="388" y="463" font-size="11" fill="#3f5a7d">:8093 slot, falls back to the passive api</text>
+  <text x="388" y="487" font-size="10.5" fill="#8f2f27">⚠ writes into production's ops data</text>
+  <text x="388" y="503" font-size="10.5" fill="#8f2f27">→ own stack + own DB needed (#113)</text>
+  <text x="388" y="530" font-size="10.5" fill="#6a86a6">staging.confinia.io · staging.api.confinia.io</text>
+
+  <rect x="682" y="402" width="384" height="150" rx="8" fill="#e6f3ec" stroke="#3d8a64"/>
+  <text x="702" y="426" font-size="12.5" font-weight="700" fill="#206043">PRODUCTION · blue / green</text>
+  <g font-size="11">
+    <rect x="702" y="438" width="164" height="52" rx="6" fill="#fff" stroke="#4a7db5"/>
+    <text x="784" y="457" text-anchor="middle" fill="#2a5384" font-weight="700">blue · api :8091</text>
+    <text x="784" y="475" text-anchor="middle" fill="#54677a">geo db :5441</text>
+    <rect x="882" y="438" width="164" height="52" rx="6" fill="#fff" stroke="#3d8a64"/>
+    <text x="964" y="457" text-anchor="middle" fill="#206043" font-weight="700">green · api :8092</text>
+    <text x="964" y="475" text-anchor="middle" fill="#54677a">geo db :5442</text>
+  </g>
+  <text x="702" y="510" font-size="10.5" fill="#3d6b53">ACTIVE = green · promotion is a router flip, the old colour stays warm</text>
+  <text x="702" y="530" font-size="10.5" fill="#3d6b53">www.confinia.io · api.confinia.io · rollback in seconds</text>
+
+  <!-- Shared services -->
+  <rect x="54" y="586" width="1012" height="118" rx="8" fill="#f2f4f7" stroke="#93a3b3"/>
+  <text x="74" y="610" font-size="12.5" font-weight="700" fill="#33414f">SHARED SERVICES — one instance, every environment</text>
+  <g font-size="11">
+    <rect x="74" y="624" width="222" height="58" rx="6" fill="#fff" stroke="#b4463c"/>
+    <text x="185" y="646" text-anchor="middle" font-weight="700" fill="#8f2f27">ops-db · :5440</text>
+    <text x="185" y="664" text-anchor="middle" fill="#8f2f27">api_key, api_usage, premium_seen</text>
+    <text x="1046" y="610" text-anchor="end" font-size="10.5" fill="#8f2f27">all three environments write to ops-db — a staging test bills a real customer</text>
+    <rect x="316" y="624" width="212" height="58" rx="6" fill="#fff" stroke="#93a3b3"/>
+    <text x="422" y="646" text-anchor="middle" font-weight="700" fill="#33414f">Keycloak · :8095</text>
+    <text x="422" y="664" text-anchor="middle" fill="#5b6b7c">realms confinia / confinia-sbx</text>
+    <rect x="548" y="624" width="212" height="58" rx="6" fill="#fff" stroke="#93a3b3"/>
+    <text x="654" y="646" text-anchor="middle" font-weight="700" fill="#33414f">Grafana · :8086</text>
+    <text x="654" y="664" text-anchor="middle" fill="#5b6b7c">Prometheus · OTLP :8088</text>
+    <rect x="780" y="624" width="286" height="58" rx="6" fill="#fff" stroke="#93a3b3"/>
+    <text x="923" y="646" text-anchor="middle" font-weight="700" fill="#33414f">static files — no staging</text>
+    <text x="923" y="664" text-anchor="middle" fill="#5b6b7c">./demo and ./deploy/site serve www AND staging</text>
+  </g>
+
+  <!-- the shared-ops-db problem -->
+  <g stroke="#b4463c" stroke-width="1.4" fill="none" stroke-dasharray="5 4" marker-end="url(#arr)">
+    <path d="M200 552 V580"/>
+    <path d="M514 552 V580"/>
+    <path d="M874 552 V580"/>
+  </g>
+
+  <text x="1066" y="742" font-size="10" fill="#8a97a5" text-anchor="end">state on 2026-08-03 — the gaps are tracked, not hidden</text>
+</svg>

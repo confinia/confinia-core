@@ -5,6 +5,9 @@ indoorequal, maplibre…), each with its own app caddy behind the platform
 upstream caddy. To avoid grabbing generic ports that another product may want,
 **Confinia only binds host ports inside its reserved ranges.**
 
+> Where these ports sit in the overall architecture — the two caddy tiers, the
+> colour stacks and the shared services — is [STACK_confinia.md](STACK_confinia.md).
+
 ## Reserved ranges (Confinia)
 
 | Range | Purpose |
