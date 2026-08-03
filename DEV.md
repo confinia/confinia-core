@@ -1,5 +1,9 @@
 # DEV.md — development environments & rules
 
+> **Whole-architecture map**: [STACK_confinia.md](STACK_confinia.md) — caddy tiers, compose stacks, environments, and an honest maturity
+> checklist. Deployment flow: [DEPLOY.md](DEPLOY.md). Both are the fastest way
+> into this stack from cold.
+
 *(internal — re-read before any switch of the repo to public)*
 
 ## Rule #1 — the dev environment is the VM
