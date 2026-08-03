@@ -95,6 +95,9 @@ jobs:
       - name: Deployment pipeline invariants (issue #109)
         if: always()
         run: pytest -v tests/test_pipeline_static.py
+      - name: Demo publish cannot delete what it does not own (issue #118)
+        if: always()
+        run: pytest -v tests/test_demo_publish_static.py
       - name: Credits we owe to people (issue #92)
         if: always()
         run: pytest -v tests/test_credits_static.py
