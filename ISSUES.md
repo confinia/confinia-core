@@ -15,6 +15,7 @@ Active colour: **green** (production) · passive: **blue** (staging).
 | # | Issue | Stage | Where can I try it |
 |---|---|---|---|
 | [#123](https://github.com/confinia/confinia-core/issues/123) | Blue colour's port publisher dies; podman reports a mapping that does not exist | issue created, **not started** — seen 3× on 2026-08-03 | nowhere. **This is why staging returned 503 and "unknown unit"**: caddy marked the upstream down. Workaround: `SKIP_BUILD=1 ./deploy/deploy-api.sh stage` |
+| [#127](https://github.com/confinia/confinia-core/issues/127) | Report: colour what a boundary gained and lost — refuse to draw when the data cannot support it | issue created, **not started**; blocked by missing historical geometry, not by rendering | nowhere |
 | [#121](https://github.com/confinia/confinia-core/issues/121) | Commune report: make it a document an expert office would sign | issue created, **not started** | nowhere |
 | [#115](https://github.com/confinia/confinia-core/issues/115) | Adopt STACK_template.md: close the documented gaps | issue created, tracking others | nowhere (umbrella) |
 | [#114](https://github.com/confinia/confinia-core/issues/114) | **SECURITY** — CI runner runs as `debian`, passwordless root | issue created, **blocked on #99** | nowhere |
