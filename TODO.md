@@ -192,3 +192,28 @@ est un ARTEFACT DE BUILD, reconstruite par DOUBLE INGESTION, jamais copiée**
    object storage hors VM à prévoir au durcissement pré-beta (la VM reste un
    point unique de défaillance).
 6. Migration avec témoin 300 ms armé, hors sessions VM parallèles du fondateur.
+
+## Chantier CI/CD — plus aucun déploiement à la main (issue #109, ouvert 2026-08-03)
+
+Règle du fondateur : « plus de rsync vers prod, tout doit passer par github
+action pour staging et prod ». Runner **auto-hébergé** sur la VM : il *tire* les
+jobs, donc aucun identifiant n'est stocké chez GitHub.
+
+- [x] Runner `confinia-vm` enregistré (service systemd sous `debian`, labels
+      `self-hosted,Linux,X64,confinia-vm`)
+- [x] Politique fork = `all_external_contributors` — **indispensable** : dépôt
+      public + runner auto-hébergé. Ne jamais assouplir.
+- [x] Environments GitHub : `staging` (sans règle), `production` (**relecteur
+      requis**) — un merge sur main ne promeut plus jamais tout seul
+- [x] `deploy-staging.yml` + `promote-production.yml` + `DEPLOY.md` + test
+      statique des invariants (PR #112)
+- [ ] **Conversion unique du miroir en dépôt git** — bloquée : à faire APRÈS le
+      merge de #104/#106, sinon le `reset --hard main` fait retomber la démo sur
+      le MapLibre du CDN
+- [ ] Premier déploiement staging piloté par CI, puis promotion validée par le
+      fondateur
+- [ ] Sandbox par PR → issue #111 : la sandbox partage aujourd'hui le répertoire
+      de la production, y déployer une branche écraserait les fichiers servis à
+      www (l'accident de #107)
+- [ ] Supprimer le `.venv` mort dans le miroir (vestige d'un rsync depuis le Mac :
+      symlinks vers `/opt/homebrew`, inutilisable sur la VM)
