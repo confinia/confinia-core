@@ -72,6 +72,20 @@
    `#94` : un numéro nu coûte une recherche manuelle, un lien coûte un clic.
    Dans les messages de commit et les corps de PR, GitHub crée le lien tout
    seul, le numéro nu y reste donc suffisant. (issue #97)
+12. **À chaque avancée d'une PR, dire où l'essayer.** Pas seulement quand elle
+   est terminée : à chaque point d'étape, répondre explicitement à la question
+   « où puis-je jouer avec ? » parmi quatre réponses possibles :
+   - **nulle part** — rien d'observable (doc, process), ou code mergé mais non
+     déployé ; dans ce cas, préciser ce qui le déploierait ;
+   - **sandbox** — https://sandbox.confinia.io (basic auth, Polar en mode test,
+     aucun impact comptable) ;
+   - **staging** — https://staging.confinia.io / https://staging.api.confinia.io
+     (basic auth, couleur passive) ;
+   - **production** — l'URL publique.
+
+   L'URL donnée doit être celle qui **montre le changement**, pas la racine du
+   site. « Mergé » n'est pas « déployé » : la PR #95 avait été annoncée livrée
+   alors que l'API servait encore l'ancienne réponse. (issue #101)
 
 Autres règles opérationnelles (détaillées dans `DEV.md`) : rendu mobile
 vérifié par captures avant toute publication front ; adresse admin caddy
