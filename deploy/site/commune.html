@@ -134,8 +134,8 @@ function pathFor(rings, bbox, w, h) {
 (async () => {
   try {
     const url = country === "FR"
-      ? `${API}/v1/communes/${code}/history?geometry=true&population=true&lang=${lang}`
-      : `${API}/v1/units/${encodeURIComponent(code)}/history?country=${country}&geometry=true&population=true&lang=${lang}`;
+      ? `${API}/v1/communes/${code}/history?geometry=true&population=true&neighbours=true&lang=${lang}`
+      : `${API}/v1/units/${encodeURIComponent(code)}/history?country=${country}&geometry=true&population=true&neighbours=true&lang=${lang}`;
     const r = await fetch(url);
     if (!r.ok) throw new Error(`unknown unit ${country}/${code}`);
     const d = await r.json();
@@ -253,9 +253,18 @@ function pathFor(rings, bbox, w, h) {
         const p = f.properties, rings = ringsOf(f.geometry);
         const vg = p.geometry_vintage
           ? `${UI.vintage(p.geometry_vintage)}${p.geometry_approx ? UI.approx : ""}` : "";
+        // Neighbours of THAT period, drawn subdued and behind, so the outline
+        // can be situated (issue #96). Clipped: a neighbour leaves the frame by
+        // design, and the frame stays centred on the target so the cards remain
+        // comparable at one scale.
+        const nb = p.neighbours || [];
+        const cid = `clip${p.valid_from}`.replace(/[^a-z0-9]/gi, "");
         return `<div class="card">
           <svg viewBox="0 0 300 200">${rings.length
-            ? `<path d="${pathFor(rings, bbox, 300, 200)}" fill="#1d2c44" stroke="#7ab8ff"
+            ? `<clipPath id="${cid}"><rect x="0" y="0" width="300" height="200"/></clipPath>
+               ${nb.length ? `<g clip-path="url(#${cid})"><path d="${pathFor(nb, bbox, 300, 200)}"
+                    fill="#161d2b" stroke="#2c3a52" stroke-width="0.8" fill-rule="evenodd"/></g>` : ""}
+               <path d="${pathFor(rings, bbox, 300, 200)}" fill="#1d2c44" stroke="#7ab8ff"
                  stroke-width="1.1" fill-rule="evenodd"/>`
             : `<text x="150" y="100" fill="#5b6b85" font-size="13" text-anchor="middle">${UI.noGeom}</text>`}</svg>
           <div class="nm">${p.nom}</div>
