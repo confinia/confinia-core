@@ -217,3 +217,29 @@ jobs, donc aucun identifiant n'est stocké chez GitHub.
       www (l'accident de #107)
 - [ ] Supprimer le `.venv` mort dans le miroir (vestige d'un rsync depuis le Mac :
       symlinks vers `/opt/homebrew`, inutilisable sur la VM)
+
+## Chantier STACK_confinia — documenter, puis converger vers le template (issue #115)
+
+`STACK_template.md` = cible canonique partagée par tous les produits de la VM.
+`STACK_confinia.md` = ce que Confinia fait **réellement** au 2026-08-03, mêmes
+en-têtes de section, donc les deux se comparent ligne à ligne.
+
+- [x] `STACK_confinia.md` + schéma SVG (`docs/stack-confinia.svg`), §15 remplie
+      honnêtement (`✅`/`🚧`/`⬜`)
+- [ ] **#114 — le runner GitHub tourne en `debian`, qui a `NOPASSWD: ALL`.**
+      Priorité absolue : un job de workflow = root sans mot de passe sur toute la
+      VM partagée, tous locataires confondus. Dépend de #99 (le runner doit
+      piloter des stacks qui appartiennent aujourd'hui à `debian`)
+- [ ] **2FA GitHub** (fondateur) — avant le runner, un dépôt compromis ne
+      déployait rien ; ce n'est plus vrai
+- [ ] #113 — staging = stack dédiée + DB propre (aujourd'hui il écrit dans
+      `api_usage` / `premium_seen` de la production)
+- [ ] #111 — sandbox = répertoire de travail propre (aujourd'hui partagé avec la
+      production, donc aucune branche ne peut y être déployée)
+- [ ] Fichiers statiques : `./demo` et `./deploy/site` servent www ET staging →
+      cause racine commune de #111 et #113
+- [ ] #115 — le reste de la checklist de maturité : image par digest, migrations
+      versionnées, RLS Postgres, secrets chiffrés, sauvegardes hors VM
+- [ ] Remonter dans `STACK_template.md` les 3 leçons Confinia : état de couleur
+      hors miroir, `podman exec -i` qui tronque stdin, garde-fous automatiques
+      contre la perte silencieuse de contenu

@@ -1,5 +1,9 @@
 # ENVIRONMENTS — sandbox, staging, production
 
+> How these three are wired on the VM — ports, caddy tiers, which stack each
+> one actually is — is [STACK_confinia.md](STACK_confinia.md). Note that
+> staging is the passive **colour**, not its own stack: issue #113.
+
 Three environments, three clear jobs. Work flows left to right; only
 production faces end users and only production touches real money.
 
