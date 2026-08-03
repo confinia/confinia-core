@@ -136,9 +136,9 @@ services:
     profiles: ["tools"]
 
 volumes:
-  # pgdata: volume of the FORMER single geo database, kept out of caution
-  # after the move to color stacks (2026-07-20); delete when safe.
-  pgdata:
+  # `pgdata` (the FORMER single geo database, superseded by the colour stacks on
+  # 2026-07-20) was kept out of caution and deleted on 2026-08-03, 2.8 GB, after
+  # confirming no container referenced it. Do not re-declare it.
   opsdata:
   caddy_data:
   caddy_config:

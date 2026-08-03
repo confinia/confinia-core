@@ -1021,6 +1021,72 @@ REPORT_LABELS = {
 }
 
 
+# Neighbours drawn behind each boundary card (issue #96): a boundary means
+# nothing against an empty background. Capped, because a dense urban commune can
+# touch dozens of others and a card crowded with outlines helps nobody.
+REPORT_MAX_NEIGHBOURS = int(os.environ.get("REPORT_MAX_NEIGHBOURS", "40"))
+
+
+def _feature_rings(feature: dict) -> list:
+    """Rings of a GeoJSON feature, Polygon or MultiPolygon, or [] without geometry."""
+    g = feature.get("geometry")
+    if not g:
+        return []
+    if g["type"] == "MultiPolygon":
+        return [ring for poly in g["coordinates"] for ring in poly]
+    if g["type"] == "Polygon":
+        return list(g["coordinates"])
+    return []
+
+
+def _neighbour_rings(cur, code: str, country: str, at, bbox) -> list:
+    """Rings of the units touching `code` AT THAT PERIOD's date, clipped to the
+    frame. Taking today's neighbours for a 1950 outline would be a silent
+    anachronism, so the validity window is the version's own, not now."""
+    if not bbox:
+        return []
+    w, s_, e, n = bbox
+    mx, my = (e - w) * 0.08 or 0.01, (n - s_) * 0.08 or 0.01
+    cur.execute(
+        "WITH target AS ("
+        "  SELECT geom_simple g FROM commune_version "
+        "  WHERE unit_type = ANY(%s) AND country = %s AND code = %s "
+        "    AND valid_from <= %s AND valid_to > %s AND geom_simple IS NOT NULL "
+        "  LIMIT 1) "
+        "SELECT ST_AsGeoJSON(ST_Intersection(cv.geom_simple, "
+        "         ST_MakeEnvelope(%s,%s,%s,%s,4326)), 5) "
+        "FROM commune_version cv, target t "
+        "WHERE cv.unit_type = ANY(%s) AND cv.country = %s AND cv.code <> %s "
+        "  AND cv.valid_from <= %s AND cv.valid_to > %s "
+        "  AND cv.geom_simple IS NOT NULL "
+        "  AND cv.geom_simple && ST_MakeEnvelope(%s,%s,%s,%s,4326) "
+        "  AND ST_Intersects(cv.geom_simple, t.g) "
+        "LIMIT %s",
+        (list(MUNICIPAL_TYPES), country, code, at, at,
+         w - mx, s_ - my, e + mx, n + my,
+         list(MUNICIPAL_TYPES), country, code, at, at,
+         w - mx, s_ - my, e + mx, n + my, REPORT_MAX_NEIGHBOURS))
+    rings = []
+    for (g,) in cur.fetchall():
+        if not g:
+            continue
+        gj = json.loads(g)
+        t = gj.get("type")
+        if t == "MultiPolygon":
+            for poly in gj["coordinates"]:
+                rings.extend(poly)
+        elif t == "Polygon":
+            rings.extend(gj["coordinates"])
+        elif t == "GeometryCollection":
+            for sub in gj.get("geometries", []):
+                if sub["type"] == "Polygon":
+                    rings.extend(sub["coordinates"])
+                elif sub["type"] == "MultiPolygon":
+                    for poly in sub["coordinates"]:
+                        rings.extend(poly)
+    return rings
+
+
 def _report_data(code: str, country: str, lang: str = "en") -> dict:
     with cursor() as cur:
         cur.execute(
@@ -1055,6 +1121,14 @@ def _report_data(code: str, country: str, lang: str = "en") -> dict:
         "parents": v["parents"], "children": v["children"]}} for v in versions]
     xs = [x for v in versions for ring in v["rings"] for x, _ in ring]
     ys = [y for v in versions for ring in v["rings"] for _, y in ring]
+    bbox = (min(xs), min(ys), max(xs), max(ys)) if xs else None
+    # One extra spatial query per period: reports are premium and metered per
+    # town, so this stays bounded by REPORT_MAX_VERSIONS.
+    with cursor() as cur:
+        for v in versions:
+            v["neighbours"] = (_neighbour_rings(cur, code, country,
+                                                v["valid_from"], bbox)
+                               if v["rings"] else [])
     attributions = sorted({src_info[v["source"]] for v in versions
                            if v["source"] in src_info})
     pop = population_series(code, country, lang)
@@ -1063,7 +1137,7 @@ def _report_data(code: str, country: str, lang: str = "en") -> dict:
         attributions = sorted(set(attributions) | {src_info[pop["source"]]})
     return {"code": code, "country": country, "lang": lang, "versions": versions,
             "events": derive_events(feats, lang),
-            "bbox": (min(xs), min(ys), max(xs), max(ys)) if xs else None,
+            "bbox": bbox,
             "population": pop,
             "attributions": attributions}
 
@@ -1182,12 +1256,22 @@ def _report_svg(d: dict) -> str:
         parts.append(f'<rect x="{ox + 6}" y="{row_y + 6}" width="{CELL_W - 12}" height="{CELL_H - 12}" '
                      'fill="none" stroke="#d5dbe6" rx="8"/>')
         if v["rings"] and d["bbox"]:
-            path = " ".join(
-                "M " + " L ".join(f"{px:.1f} {py:.1f}" for px, py in
-                                  _ring_points(ring, d["bbox"], ox + 20, row_y + 18,
-                                               CELL_W - 40, DRAW_H - 24)) + " Z"
-                for ring in v["rings"])
-            parts.append(f'<path d="{path}" fill="#dbe7fb" stroke="#3a5f95" '
+            box = (ox + 20, row_y + 18, CELL_W - 40, DRAW_H - 24)
+            def draw(rings):
+                return " ".join(
+                    "M " + " L ".join(f"{px:.1f} {py:.1f}" for px, py in
+                                      _ring_points(ring, d["bbox"], *box)) + " Z"
+                    for ring in rings)
+            # Neighbours first, subdued, so the target reads as the subject.
+            # Clipped to the cell: a neighbour extends past the frame by design.
+            if v.get("neighbours"):
+                cid = f"cell{i}"
+                parts.append(f'<clipPath id="{cid}"><rect x="{box[0]}" y="{box[1]}" '
+                             f'width="{box[2]}" height="{box[3]}"/></clipPath>')
+                parts.append(f'<g clip-path="url(#{cid})"><path d="{draw(v["neighbours"])}" '
+                             'fill="#eef1f6" stroke="#c9d2e0" stroke-width="0.6" '
+                             'fill-rule="evenodd"/></g>')
+            parts.append(f'<path d="{draw(v["rings"])}" fill="#dbe7fb" stroke="#3a5f95" '
                          'stroke-width="1.2" fill-rule="evenodd"/>')
         else:
             text(ox + CELL_W / 2, row_y + DRAW_H / 2, lab["no_geometry"], 12, fill="#8a94a6", anchor="middle")
@@ -1301,9 +1385,9 @@ def _report_pdf(d: dict) -> bytes:
         c.setFont("Helvetica", 8.5); c.setFillColorRGB(.45, .5, .58)
         c.drawString(PAD, top - 13, vin)
         if v["rings"] and d["bbox"]:
-            c.setFillColorRGB(.86, .91, .98); c.setStrokeColorRGB(.23, .37, .58)
             draw_w, draw_h, top_draw = W - 2 * PAD, slot_h - 70, top - 30
-            for ring in v["rings"]:
+
+            def ring_path(ring):
                 # _ring_points renvoie du y-vers-le-bas (convention SVG) dans
                 # [0..w]x[0..h] ; PDF est y-vers-le-haut : Y = haut - py.
                 pts = _ring_points(ring, d["bbox"], 0, 0, draw_w, draw_h)
@@ -1312,7 +1396,25 @@ def _report_pdf(d: dict) -> bytes:
                 for px, py in pts[1:]:
                     p.lineTo(PAD + px, top_draw - py)
                 p.close()
-                c.drawPath(p, stroke=1, fill=1)
+                return p
+
+            # Neighbours first, subdued, clipped to the slot so a neighbour
+            # extending past the frame does not bleed into the next card
+            # (issue #96). The target is drawn last, so it stays the subject.
+            if v.get("neighbours"):
+                c.saveState()
+                clip = c.beginPath()
+                clip.rect(PAD, top_draw - draw_h, draw_w, draw_h)
+                c.clipPath(clip, stroke=0, fill=0)
+                c.setFillColorRGB(.93, .95, .97); c.setStrokeColorRGB(.79, .82, .88)
+                c.setLineWidth(.4)
+                for ring in v["neighbours"]:
+                    c.drawPath(ring_path(ring), stroke=1, fill=1)
+                c.restoreState()
+            c.setFillColorRGB(.86, .91, .98); c.setStrokeColorRGB(.23, .37, .58)
+            c.setLineWidth(1)
+            for ring in v["rings"]:
+                c.drawPath(ring_path(ring), stroke=1, fill=1)
         else:
             c.setFont("Helvetica", 10); c.setFillColorRGB(.54, .58, .65)
             c.drawCentredString(W / 2, top - slot_h / 2, lab["no_geometry_period"])
@@ -1906,7 +2008,10 @@ def commune_history(code: str, geometry: bool = Query(False),
                     lang: str | None = Query(None,
                         description="Chronology language (fr/en); default French for these FR units"),
                     population: bool = Query(False,
-                        description="Add the harmonised INSEE census series (issue #88)")):
+                        description="Add the harmonised INSEE census series (issue #88)"),
+                    neighbours: bool = Query(False,
+                        description="Add, per version, the units bordering it AT THAT "
+                                    "period's date, to situate the outline (issue #96)")):
     """Toutes les versions d'un code INSEE, avec liens parents/enfants."""
     with cursor() as cur:
         cur.execute(
@@ -1921,6 +2026,18 @@ def commune_history(code: str, geometry: bool = Query(False),
     out = {"code": code, "versions": versions, "events": derive_events(versions, L)}
     if population:
         out["population"] = population_series(code, "FR", L)
+    if neighbours and geometry:
+        # Same dated rule as the report: the neighbours of THAT period, never
+        # today's around an old outline (issue #96).
+        xs = [x for f in versions for ring in _feature_rings(f) for x, _ in ring]
+        ys = [y for f in versions for ring in _feature_rings(f) for _, y in ring]
+        bbox = (min(xs), min(ys), max(xs), max(ys)) if xs else None
+        with cursor() as cur:
+            for f in versions:
+                vf = f["properties"]["valid_from"]
+                f["properties"]["neighbours"] = (
+                    _neighbour_rings(cur, code, "FR", vf, bbox)
+                    if bbox and _feature_rings(f) else [])
     return out
 
 
