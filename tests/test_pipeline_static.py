@@ -42,7 +42,7 @@ def test_the_smoke_is_run_by_pytest():
     # these workflows was written.
     for f in ("deploy-staging.yml", "promote-production.yml"):
         s = _wf(f)
-        assert re.search(r"pytest\W+-q\s+tests/smoke_prod\.py", s), \
+        assert re.search(r"pytest\W+-q\b[^\n]*\btests/smoke_prod\.py", s), \
             f"{f} must invoke the smoke through pytest, not as a script"
         assert not re.search(r"python3?\s+\S*smoke_prod\.py", s), \
             f"{f} runs smoke_prod.py as a script: that executes zero tests"
