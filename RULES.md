@@ -66,6 +66,13 @@
    explicite, et `tests/test_credits_static.py` verrouille les engagements pris
    envers des personnes.
 
+11. **Toujours exposer un lien cliquable en citant une issue ou une PR.**
+   Dans tout ce que lit le fondateur (comptes rendus, résumés), écrire
+   `[#94](https://github.com/confinia/confinia-core/issues/94)` plutôt que
+   `#94` : un numéro nu coûte une recherche manuelle, un lien coûte un clic.
+   Dans les messages de commit et les corps de PR, GitHub crée le lien tout
+   seul, le numéro nu y reste donc suffisant. (issue #97)
+
 Autres règles opérationnelles (détaillées dans `DEV.md`) : rendu mobile
 vérifié par captures avant toute publication front ; adresse admin caddy
 unique par instance en réseau hôte ; `--no-deps` sur toute commande
