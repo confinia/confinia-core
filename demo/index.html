@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>Confinia — communes through time</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css" rel="stylesheet">
+<link href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
 <style>
   :root { color-scheme: dark; }
   html, body { margin: 0; height: 100%; background: #10151d; color: #e8eaed;
@@ -303,7 +303,10 @@
   else applyStatic();
 })();
 </script>
-<script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
+<!-- MapLibre pinned to 5.24.0 on purpose: v6 is ESM-only and has a known
+     headless 3D rendering bug, and a floating @5 would ship an unattended
+     upgrade on the most public page we have (issue #103). -->
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
 <script>
 "use strict";
 // Sur staging.confinia.io, l'API candidate (instance verte) est servie en même
