@@ -1,0 +1,72 @@
+name: deploy-staging
+# Staging deployment (issue #109). Runs on the VM's self-hosted runner, so no
+# credential ever lives in GitHub: the runner pulls jobs, nothing comes in.
+#
+# Deploys main to the PASSIVE colour and runs the smoke suite against it.
+# Production keeps serving the active colour and is untouched (RULES 13).
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false      # never interrupt a deployment mid-flight
+
+env:
+  DEPLOY_DIR: /home/debian/projects/confinia
+  SMOKE_VENV: /home/debian/.venvs/smoke
+
+jobs:
+  stage:
+    runs-on: [self-hosted, confinia-vm]
+    environment: staging
+    steps:
+      - name: Sync the deployment mirror to this commit
+        run: |
+          set -eu
+          cd "$DEPLOY_DIR"
+          git fetch --quiet origin "$GITHUB_SHA"
+          # Untracked files survive: secrets.env, sandbox.env and data/ are
+          # gitignored and must never be touched by a deployment.
+          git reset --hard --quiet "$GITHUB_SHA"
+          echo "mirror at $(git log --oneline -1)"
+
+      - name: Build and stage the passive colour
+        run: |
+          set -eu
+          cd "$DEPLOY_DIR"
+          ./deploy/deploy-api.sh stage
+
+      - name: Smoke the staged colour
+        run: |
+          set -eu
+          cd "$DEPLOY_DIR"
+          # Hit the passive container directly on the VM rather than through
+          # staging.api.confinia.io: that vhost is behind basic auth and only
+          # the bcrypt HASH lives on the VM, never the password. Going local
+          # also proves the staged build itself answers, not a cached edge.
+          active=$(cat ~/confinia-edge-state/ACTIVE_COLOR 2>/dev/null || echo green)
+          if [ "$active" = blue ]; then passive=green; port=8092; else passive=blue; port=8091; fi
+          echo "smoking the $passive colour on 127.0.0.1:$port"
+          # Self-healing venv: a smoke run must never fail for want of pytest.
+          [ -x "$SMOKE_VENV/bin/pytest" ] || {
+            python3 -m venv "$SMOKE_VENV"
+            "$SMOKE_VENV/bin/pip" install -q --upgrade pip pytest requests
+          }
+          TEST_API_BASE="http://127.0.0.1:$port" "$SMOKE_VENV/bin/pytest" -q tests/smoke_prod.py
+
+      - name: Say where to try it
+        run: |
+          {
+            echo "### Staging is up"
+            echo
+            echo "- https://staging.confinia.io"
+            echo "- https://staging.api.confinia.io"
+            echo
+            echo "Basic auth: user \`confinia\`, password held by the founder."
+            echo "Validate, then run **promote-production** to go live."
+          } >> "$GITHUB_STEP_SUMMARY"
