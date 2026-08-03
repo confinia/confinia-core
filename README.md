@@ -81,15 +81,29 @@ Raw data expected under `data/raw/` (gitignored): `insee/commune_YYYY.csv` + `in
 
 ## Deploying
 
-The public stack runs on the project VM as three compose services: `db` (PostGIS, localhost-only), `api` (FastAPI/uvicorn, localhost-only), `caddy` (ports 80/443, automatic Let's Encrypt HTTPS). DNS: wildcard `A` record `*.confinia.io` → VM.
+Nothing is deployed by hand. A merge to `main` deploys **staging**; production is
+a separate, manually approved promotion. Both run through GitHub Actions on a
+runner that lives on the VM — see **[DEPLOY.md](DEPLOY.md)**.
+
+The stack is blue/green: two identical API colours, one serving `www`, the other
+serving staging and standing by as an instant rollback. Promotion flips the
+router; nothing is copied, so rolling back takes seconds. Each colour has its own
+geo database, rebuilt by ingestion rather than copied, so a corrupt database is
+one colour's problem.
+
+The whole picture — the two caddy tiers, the compose stacks, which environment is
+really which, and an honest maturity checklist — is
+**[STACK_confinia.md](STACK_confinia.md)**.
 
 ```bash
-git pull            # or rsync from the workstation
-make stack-up       # db + api + caddy
+./deploy/deploy-api.sh stage      # build + health-gate the passive colour
+./deploy/deploy-api.sh promote    # flip the router: passive becomes live
+./deploy/deploy-api.sh rollback   # flip back
 curl -s https://api.confinia.io/healthz
 ```
 
-Reload data without downtime: run `make load-fr` (the table is rebuilt in one transaction — queries see the old data until commit).
+Those commands are what the workflows run; from a workstation they are
+break-glass only.
 
 ## Data sources & attribution
 
