@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS data_source (
 );
 
 INSERT INTO data_source (source, license, attribution, commercial_use, source_url, notes) VALUES
+ ('istat-soppressi',    'CC BY 4.0',           'ISTAT, Elenco dei comuni soppressi',                                       true, 'https://www.istat.it/it/archivio/6789', 'Modèle temporel IT : suppressions datées et successeurs, 1865-2024'),
  ('insee-cog',         'Licence Ouverte 2.0', 'INSEE, Code officiel géographique',                                        true, 'https://www.insee.fr/fr/information/2560452', 'Modèle temporel FR : événements datés depuis 1943'),
  ('ign-admin-express', 'Licence Ouverte 2.0', 'IGN, Admin Express COG',                                                   true, 'https://geoservices.ign.fr/adminexpress',     'Géométries des versions FR (éditions 2017 à 2026)'),
  ('eurostat-nuts',     '© EuroGeographics',   '© EuroGeographics pour les frontières administratives (NUTS)',             true, 'https://ec.europa.eu/eurostat/web/gisco',     '7 versions NUTS 2003 à 2024'),
