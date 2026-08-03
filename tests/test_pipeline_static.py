@@ -77,3 +77,12 @@ def test_the_smoke_runs_in_a_container():
             f"{f} must run the smoke in a container"
         assert "python3 -m venv" not in s, \
             f"{f} must not build a venv on the runner"
+
+
+def test_promotion_checks_the_promoted_colour_directly():
+    # The public smoke cannot see a dead promoted colour: caddy falls back to
+    # the other one and every public check passes against the OLD build. That
+    # is what happened on 2026-08-03 (issue #123).
+    s = _wf("promote-production.yml")
+    assert "ACTIVE_COLOR" in s and "127.0.0.1:$port" in s, \
+        "promotion must check the promoted colour on its own port, not only the public URL"
