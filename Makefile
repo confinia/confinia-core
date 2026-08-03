@@ -25,12 +25,19 @@ db-shell:         ## psql dans la base
 demo:             ## sert la démo web MapLibre sur :8080 (aperçu ; prod = GitHub Pages)
 	$(COMPOSE) up -d demo
 
+PAGES_DIR := $(HOME)/.cache/confinia-pages
+
 demo-publish:     ## déploie demo/ vers le repo public confinia.github.io (GitHub Pages)
-	rm -rf /tmp/confinia-pages && git clone -q https://github.com/confinia/confinia.github.io /tmp/confinia-pages
-	# rsync the WHOLE demo dir: index.html alone would leave the vendored
-	# MapLibre behind and break the map on Pages, silently (issue #105).
-	rsync -a --delete --exclude .git demo/ /tmp/confinia-pages/
-	cd /tmp/confinia-pages && git add -A && git -c user.name=Confinia -c user.email=contact@confinia.io \
+	# NOT /tmp: it is a RAM-backed tmpfs on the VM.
+	rm -rf $(PAGES_DIR) && git clone -q https://github.com/confinia/confinia.github.io $(PAGES_DIR)
+	# The Pages repo is NOT ours alone. It also holds valserhone.gif (linked in
+	# outreach we asked people to open), its own README, and overwatch/ — another
+	# product's demo. A plain `rsync --delete demo/ -> root` erases all three.
+	# So: --delete ONLY inside lib/, which we own entirely and where stale
+	# versions must go; index.html copied on its own, touching no sibling.
+	rsync -a --delete demo/lib/ $(PAGES_DIR)/lib/
+	rsync -a demo/index.html $(PAGES_DIR)/
+	cd $(PAGES_DIR) && git add -A && git -c user.name=Confinia -c user.email=contact@confinia.io \
 	  commit -m "Deploy demo from confinia-core" && git push -q
 
 demo-data:        ## ingestion en mode démo (aucune donnée requise)
