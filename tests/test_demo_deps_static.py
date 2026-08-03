@@ -6,8 +6,22 @@ The demo loads MapLibre from a CDN. Two rules, both learned the hard way:
    most public page we have (time-slider.confinia.io, linked from the OSM and
    OHM posts and the OpenCage backlink).
 2. **Stay on v5 for now.** v6 is ESM-only (`dist/maplibre-gl.js` returns 404,
-   which alone would take the demo down) and has a known headless 3D rendering
-   bug, which matters because we capture screenshots and GIFs headlessly.
+   which alone would take the demo down) and hangs when rendered headlessly on
+   software WebGL, which is exactly how we capture screenshots and GIFs.
+
+Reproduced independently on our own VM (Playwright + CARTO style, not the
+reporter's Puppeteer + demotiles), 2026-08-03:
+
+    maplibre 5.24.0   styledata=1 load=1 idle=1 error=null
+    maplibre 6.1.0    styledata=1 load=0 idle=0 error=null
+
+Upstream: maplibre/maplibre-gl-js#8074 (open, "need more info").
+
+**How to check this before ever attempting v6 again**: instrument `load` and
+`idle`, not pixels. The failure emits **no error at all**, so counting console
+errors sees nothing wrong, and a screenshot still shows the basemap while every
+`map.on("load", ...)` callback silently never runs — which is where this demo
+adds all of its sources and layers.
 """
 import os
 import re
