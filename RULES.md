@@ -86,6 +86,17 @@
    L'URL donnée doit être celle qui **montre le changement**, pas la racine du
    site. « Mergé » n'est pas « déployé » : la PR #95 avait été annoncée livrée
    alors que l'API servait encore l'ancienne réponse. (issue #101)
+13. **Passer par staging avant la production, et savoir quand staging
+   n'existe pas.** Rien ne part en production sans avoir été exercé sur
+   **staging.confinia.io**, puis validé par le fondateur : sa relecture fait
+   partie du flux, pas de la politesse.
+   ⚠️ **Les fichiers statiques n'ont pas de staging** : `./demo` et
+   `./deploy/site` sont montés dans le même caddy pour www et pour staging, donc
+   un simple rsync vers le miroir **modifie la production immédiatement**. Pour
+   eux, la vérification se fait AVANT le rsync (servis localement, contrôlés par
+   leur comportement), et le compte rendu dit franchement que c'est déjà en
+   ligne. (issue #107 ; le 2026-08-03 un rsync « pour tester » a mis la carte
+   de www hors service, sous un chemin bloqué par notre propre filtre)
 
 Autres règles opérationnelles (détaillées dans `DEV.md`) : rendu mobile
 vérifié par captures avant toute publication front ; adresse admin caddy
