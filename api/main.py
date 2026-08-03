@@ -1021,6 +1021,60 @@ REPORT_LABELS = {
 }
 
 
+# Neighbours drawn behind each boundary card (issue #96): a boundary means
+# nothing against an empty background. Capped, because a dense urban commune can
+# touch dozens of others and a card crowded with outlines helps nobody.
+REPORT_MAX_NEIGHBOURS = int(os.environ.get("REPORT_MAX_NEIGHBOURS", "40"))
+
+
+def _neighbour_rings(cur, code: str, country: str, at, bbox) -> list:
+    """Rings of the units touching `code` AT THAT PERIOD's date, clipped to the
+    frame. Taking today's neighbours for a 1950 outline would be a silent
+    anachronism, so the validity window is the version's own, not now."""
+    if not bbox:
+        return []
+    w, s_, e, n = bbox
+    mx, my = (e - w) * 0.08 or 0.01, (n - s_) * 0.08 or 0.01
+    cur.execute(
+        "WITH target AS ("
+        "  SELECT geom_simple g FROM commune_version "
+        "  WHERE unit_type = ANY(%s) AND country = %s AND code = %s "
+        "    AND valid_from <= %s AND valid_to > %s AND geom_simple IS NOT NULL "
+        "  LIMIT 1) "
+        "SELECT ST_AsGeoJSON(ST_Intersection(cv.geom_simple, "
+        "         ST_MakeEnvelope(%s,%s,%s,%s,4326)), 5) "
+        "FROM commune_version cv, target t "
+        "WHERE cv.unit_type = ANY(%s) AND cv.country = %s AND cv.code <> %s "
+        "  AND cv.valid_from <= %s AND cv.valid_to > %s "
+        "  AND cv.geom_simple IS NOT NULL "
+        "  AND cv.geom_simple && ST_MakeEnvelope(%s,%s,%s,%s,4326) "
+        "  AND ST_Intersects(cv.geom_simple, t.g) "
+        "LIMIT %s",
+        (list(MUNICIPAL_TYPES), country, code, at, at,
+         w - mx, s_ - my, e + mx, n + my,
+         list(MUNICIPAL_TYPES), country, code, at, at,
+         w - mx, s_ - my, e + mx, n + my, REPORT_MAX_NEIGHBOURS))
+    rings = []
+    for (g,) in cur.fetchall():
+        if not g:
+            continue
+        gj = json.loads(g)
+        t = gj.get("type")
+        if t == "MultiPolygon":
+            for poly in gj["coordinates"]:
+                rings.extend(poly)
+        elif t == "Polygon":
+            rings.extend(gj["coordinates"])
+        elif t == "GeometryCollection":
+            for sub in gj.get("geometries", []):
+                if sub["type"] == "Polygon":
+                    rings.extend(sub["coordinates"])
+                elif sub["type"] == "MultiPolygon":
+                    for poly in sub["coordinates"]:
+                        rings.extend(poly)
+    return rings
+
+
 def _report_data(code: str, country: str, lang: str = "en") -> dict:
     with cursor() as cur:
         cur.execute(
@@ -1055,6 +1109,14 @@ def _report_data(code: str, country: str, lang: str = "en") -> dict:
         "parents": v["parents"], "children": v["children"]}} for v in versions]
     xs = [x for v in versions for ring in v["rings"] for x, _ in ring]
     ys = [y for v in versions for ring in v["rings"] for _, y in ring]
+    bbox = (min(xs), min(ys), max(xs), max(ys)) if xs else None
+    # One extra spatial query per period: reports are premium and metered per
+    # town, so this stays bounded by REPORT_MAX_VERSIONS.
+    with cursor() as cur:
+        for v in versions:
+            v["neighbours"] = (_neighbour_rings(cur, code, country,
+                                                v["valid_from"], bbox)
+                               if v["rings"] else [])
     attributions = sorted({src_info[v["source"]] for v in versions
                            if v["source"] in src_info})
     pop = population_series(code, country, lang)
@@ -1063,7 +1125,7 @@ def _report_data(code: str, country: str, lang: str = "en") -> dict:
         attributions = sorted(set(attributions) | {src_info[pop["source"]]})
     return {"code": code, "country": country, "lang": lang, "versions": versions,
             "events": derive_events(feats, lang),
-            "bbox": (min(xs), min(ys), max(xs), max(ys)) if xs else None,
+            "bbox": bbox,
             "population": pop,
             "attributions": attributions}
 
