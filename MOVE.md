@@ -1,6 +1,7 @@
 # MOVE.md — moving the Confinia stack to its own Unix user
 
-**Status: ATTEMPTED ON 2026-08-01 AND ROLLED BACK. Do not re-run as written.**
+**Status: ATTEMPTED ON 2026-08-01 AND ROLLED BACK.**
+**The restore method has since been REHEARSED AND PROVEN (2026-08-03).**
 
 The cutover was attempted and failed on the database restore. Production was
 down for about **15 hours** (17:42 UTC to 08:59 UTC) before rollback, against a
@@ -69,6 +70,55 @@ That is where the attempt should have stopped.
 - **Never restore through `podman exec -i < file`.** Use `podman cp` then
   `psql -f`, and verify the row counts afterwards regardless.
 - Announce the maintenance window beforehand: the service is public.
+
+## Rehearsal of the restore — done 2026-08-03, passed
+
+The step that failed is now proven, with production untouched and no downtime.
+
+Method, exactly as the rules require:
+
+```sh
+# on debian, with umask 077 so the dump is never world-readable
+podman exec confinia_ops-db_1 pg_dumpall -U confinia --clean --if-exists > dump.sql
+grep -c "PostgreSQL database cluster dump complete" dump.sql   # 1 = the dump is whole
+
+# hand it over already owned by the target user, never via a readable path
+sudo install -o confinia -g confinia -m 600 dump.sql /home/confinia/rehearsal.sql
+shred -u dump.sql
+
+# as confinia: throwaway database, podman cp, psql -f  (NEVER podman exec -i < file)
+podman run -d --name rehearsal-db -e POSTGRES_PASSWORD=... postgres:16
+podman cp /home/confinia/rehearsal.sql rehearsal-db:/tmp/restore.sql
+podman exec rehearsal-db stat -c %s /tmp/restore.sql    # compare with the host size
+podman exec rehearsal-db psql -U confinia -d postgres -q -f /tmp/restore.sql
+```
+
+Result — counts, not the absence of messages:
+
+| Criterion | Expected | Got |
+|---|---|---|
+| Keycloak users | 10 | **10** |
+| Keycloak users **with credentials** | 10 | **10** |
+| Keycloak tables | 87 | **87** |
+| Keycloak realms | 3 | **3** (`confinia`, `master`, `confinia-sbx`) |
+| API keys | 12 | **12** |
+| Subscriptions | 1 | **1** |
+| `premium_seen` | 16 | **16** |
+| Errors during restore | 0 | **0** |
+
+**87 tables *and* 10 users with credentials is the point.** On 2026-08-01 the
+restore produced 87 tables and **zero** users, exited cleanly, and printed no
+error. Counting tables alone would have declared that success. The two numbers
+together are what distinguishes a real restore from an empty schema.
+
+Dump, container and volume were shredded and removed immediately afterwards: the
+file carries customer e-mails, API keys and Keycloak credentials.
+
+**What this does and does not clear.** The database restore — the step that cost
+15 hours — is no longer a gamble. Everything else in the cutover (volume
+export/import, edge-state paths, image rebuilds, caddy) is unrehearsed. The hard
+30-minute limit still applies, and the maintenance window must still be
+announced.
 
 ## The one fact that shapes the whole procedure
 
