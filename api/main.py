@@ -1244,12 +1244,22 @@ def _report_svg(d: dict) -> str:
         parts.append(f'<rect x="{ox + 6}" y="{row_y + 6}" width="{CELL_W - 12}" height="{CELL_H - 12}" '
                      'fill="none" stroke="#d5dbe6" rx="8"/>')
         if v["rings"] and d["bbox"]:
-            path = " ".join(
-                "M " + " L ".join(f"{px:.1f} {py:.1f}" for px, py in
-                                  _ring_points(ring, d["bbox"], ox + 20, row_y + 18,
-                                               CELL_W - 40, DRAW_H - 24)) + " Z"
-                for ring in v["rings"])
-            parts.append(f'<path d="{path}" fill="#dbe7fb" stroke="#3a5f95" '
+            box = (ox + 20, row_y + 18, CELL_W - 40, DRAW_H - 24)
+            def draw(rings):
+                return " ".join(
+                    "M " + " L ".join(f"{px:.1f} {py:.1f}" for px, py in
+                                      _ring_points(ring, d["bbox"], *box)) + " Z"
+                    for ring in rings)
+            # Neighbours first, subdued, so the target reads as the subject.
+            # Clipped to the cell: a neighbour extends past the frame by design.
+            if v.get("neighbours"):
+                cid = f"cell{i}"
+                parts.append(f'<clipPath id="{cid}"><rect x="{box[0]}" y="{box[1]}" '
+                             f'width="{box[2]}" height="{box[3]}"/></clipPath>')
+                parts.append(f'<g clip-path="url(#{cid})"><path d="{draw(v["neighbours"])}" '
+                             'fill="#eef1f6" stroke="#c9d2e0" stroke-width="0.6" '
+                             'fill-rule="evenodd"/></g>')
+            parts.append(f'<path d="{draw(v["rings"])}" fill="#dbe7fb" stroke="#3a5f95" '
                          'stroke-width="1.2" fill-rule="evenodd"/>')
         else:
             text(ox + CELL_W / 2, row_y + DRAW_H / 2, lab["no_geometry"], 12, fill="#8a94a6", anchor="middle")
@@ -1363,9 +1373,9 @@ def _report_pdf(d: dict) -> bytes:
         c.setFont("Helvetica", 8.5); c.setFillColorRGB(.45, .5, .58)
         c.drawString(PAD, top - 13, vin)
         if v["rings"] and d["bbox"]:
-            c.setFillColorRGB(.86, .91, .98); c.setStrokeColorRGB(.23, .37, .58)
             draw_w, draw_h, top_draw = W - 2 * PAD, slot_h - 70, top - 30
-            for ring in v["rings"]:
+
+            def ring_path(ring):
                 # _ring_points renvoie du y-vers-le-bas (convention SVG) dans
                 # [0..w]x[0..h] ; PDF est y-vers-le-haut : Y = haut - py.
                 pts = _ring_points(ring, d["bbox"], 0, 0, draw_w, draw_h)
@@ -1374,7 +1384,25 @@ def _report_pdf(d: dict) -> bytes:
                 for px, py in pts[1:]:
                     p.lineTo(PAD + px, top_draw - py)
                 p.close()
-                c.drawPath(p, stroke=1, fill=1)
+                return p
+
+            # Neighbours first, subdued, clipped to the slot so a neighbour
+            # extending past the frame does not bleed into the next card
+            # (issue #96). The target is drawn last, so it stays the subject.
+            if v.get("neighbours"):
+                c.saveState()
+                clip = c.beginPath()
+                clip.rect(PAD, top_draw - draw_h, draw_w, draw_h)
+                c.clipPath(clip, stroke=0, fill=0)
+                c.setFillColorRGB(.93, .95, .97); c.setStrokeColorRGB(.79, .82, .88)
+                c.setLineWidth(.4)
+                for ring in v["neighbours"]:
+                    c.drawPath(ring_path(ring), stroke=1, fill=1)
+                c.restoreState()
+            c.setFillColorRGB(.86, .91, .98); c.setStrokeColorRGB(.23, .37, .58)
+            c.setLineWidth(1)
+            for ring in v["rings"]:
+                c.drawPath(ring_path(ring), stroke=1, fill=1)
         else:
             c.setFont("Helvetica", 10); c.setFillColorRGB(.54, .58, .65)
             c.drawCentredString(W / 2, top - slot_h / 2, lab["no_geometry_period"])
