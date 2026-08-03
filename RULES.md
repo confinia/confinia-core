@@ -102,3 +102,12 @@ Autres règles opérationnelles (détaillées dans `DEV.md`) : rendu mobile
 vérifié par captures avant toute publication front ; adresse admin caddy
 unique par instance en réseau hôte ; `--no-deps` sur toute commande
 podman-compose ciblée ; jamais de source de données contenant U+FFFD.
+
+14. **Tenir `ISSUES.md` à jour à chaque fois qu'on touche à une issue ou à une
+   PR.** GitHub dit si une issue est ouverte ; il ne dit pas si le travail est
+   *déployé*. Le tracker donne, pour chaque issue ouverte, son stade réel
+   (issue créée / PR ouverte / PR mergée / bloquée) et l'endroit où l'essayer
+   selon les quatre réponses de la règle 12. « Mergé » n'est pas « livré » :
+   la PR #95 avait été annoncée livrée alors que l'API servait encore
+   l'ancienne réponse, et #99 s'est refermée toute seule alors que la migration
+   avait été annulée. (issue #124)
