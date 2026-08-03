@@ -1,27 +1,36 @@
 """Front-end dependency pinning for the demo (issue #103).
 
-The demo loads MapLibre from a CDN. Two rules, both learned the hard way:
+The demo loads MapLibre from a CDN. Two rules:
 
 1. **Pin an exact version.** A floating `@5` ships an unattended upgrade on the
    most public page we have (time-slider.confinia.io, linked from the OSM and
    OHM posts and the OpenCage backlink).
-2. **Stay on v5 for now.** v6 is ESM-only (`dist/maplibre-gl.js` returns 404,
-   which alone would take the demo down) and hangs when rendered headlessly on
-   software WebGL, which is exactly how we capture screenshots and GIFs.
 
-Reproduced independently on our own VM (Playwright + CARTO style, not the
-reporter's Puppeteer + demotiles), 2026-08-03:
+2. **Stay on v5 while we load from a CDN.** v6 is ESM-only and splits into
+   three chunks (`maplibre-gl.mjs`, `maplibre-gl-shared.mjs`,
+   `maplibre-gl-worker.mjs`). Loaded cross-origin from a CDN, the worker chunk
+   never starts and the map silently never finishes loading. Self-hosted, v6
+   works: see issue #105.
 
-    maplibre 5.24.0   styledata=1 load=1 idle=1 error=null
-    maplibre 6.1.0    styledata=1 load=0 idle=0 error=null
+Measured on our VM, 2026-08-03 (Playwright, Chromium 131, SwiftShader):
 
-Upstream: maplibre/maplibre-gl-js#8074 (open, "need more info").
+    6.1.0 from unpkg (CDN)          styledata=1 load=0 idle=0 error=null
+    6.1.0 self-hosted, all chunks   styledata=1 load=1 idle=1 error=null
 
-**How to check this before ever attempting v6 again**: instrument `load` and
-`idle`, not pixels. The failure emits **no error at all**, so counting console
-errors sees nothing wrong, and a screenshot still shows the basemap while every
-`map.on("load", ...)` callback silently never runs — which is where this demo
-adds all of its sources and layers.
+**The signature is what matters, and it is why this took three wrong turns to
+diagnose**: whenever the worker fails, `load` and `idle` never fire and **no
+error is emitted at all**. Counting console errors sees a healthy page. A
+screenshot still shows the basemap, because only the `map.on("load", ...)`
+callbacks are skipped, and that is exactly where this demo adds every source and
+layer. So the map looks plausible and carries no data.
+
+**Verify by instrumenting `load` and `idle`, never by pixels or error counts.**
+
+Two self-inflicted repeats of the same silent failure, worth knowing: serving
+`.mjs` as `application/octet-stream` (browsers reject it for modules), and
+self-hosting only two of the three chunks. Same symptom, no error, both times.
+
+Upstream on the silence: maplibre/maplibre-gl-js#8074.
 """
 import os
 import re
@@ -41,9 +50,13 @@ def test_maplibre_version_is_pinned_exactly():
             f"floating MapLibre version {v!r}: pin an exact x.y.z"
 
 
-def test_demo_stays_on_maplibre_v5():
-    urls = re.findall(r"unpkg\.com/maplibre-gl@([^/]+)/", _html())
-    assert all(v.startswith("5.") for v in urls), \
-        "moving to v6 needs the ESM migration AND the headless 3D bug resolved"
-    # the UMD bundle only exists in v5; v6 would 404 here
-    assert "maplibre-gl.js" in _html()
+def test_demo_stays_on_v5_while_loading_from_a_cdn():
+    html = _html()
+    from_cdn = "unpkg.com/maplibre-gl@" in html
+    urls = re.findall(r"unpkg\.com/maplibre-gl@([^/]+)/", html)
+    if from_cdn:
+        assert all(v.startswith("5.") for v in urls), (
+            "v6 loaded cross-origin from a CDN never starts its worker chunk and "
+            "hangs silently; self-host all three chunks first (issue #105)")
+        # the UMD bundle only exists in v5; v6 would 404 on this path
+        assert "maplibre-gl.js" in html
