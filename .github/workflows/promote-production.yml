@@ -1,0 +1,65 @@
+name: promote-production
+# Promotion to production (issue #109). Deliberately MANUAL and gated by the
+# `production` environment, which carries a required reviewer: a merge to main
+# never promotes by itself. The passive colour, already validated on staging,
+# becomes active; the previous one stays intact as a one-command rollback.
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "promote" to confirm you validated staging'
+        required: true
+        default: ''
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  DEPLOY_DIR: /home/debian/projects/confinia
+  SMOKE_VENV: /home/debian/.venvs/smoke
+
+jobs:
+  promote:
+    runs-on: [self-hosted, confinia-vm]
+    environment: production
+    steps:
+      - name: Refuse an unconfirmed run
+        env:
+          CONFIRM: ${{ inputs.confirm }}     # via env, never interpolated into the script
+        run: |
+          set -eu
+          [ "$CONFIRM" = "promote" ] || {
+            echo "::error::validate staging first, then type 'promote'"; exit 1; }
+
+      - name: Promote the passive colour
+        run: |
+          set -eu
+          cd "$DEPLOY_DIR"
+          ./deploy/deploy-api.sh promote
+
+      - name: Smoke production, and roll back if it fails
+        run: |
+          set -eu
+          cd "$DEPLOY_DIR"
+          [ -x "$SMOKE_VENV/bin/pytest" ] || {
+            python3 -m venv "$SMOKE_VENV"
+            "$SMOKE_VENV/bin/pip" install -q --upgrade pip pytest requests
+          }
+          if ! TEST_API_BASE=https://api.confinia.io \
+               "$SMOKE_VENV/bin/pytest" -q tests/smoke_prod.py; then
+            echo "::error::smoke failed on production, rolling back"
+            ./deploy/deploy-api.sh rollback
+            exit 1
+          fi
+
+      - name: Report
+        run: |
+          {
+            echo "### Live on production"
+            echo "- https://www.confinia.io"
+            echo "- https://api.confinia.io/healthz"
+          } >> "$GITHUB_STEP_SUMMARY"

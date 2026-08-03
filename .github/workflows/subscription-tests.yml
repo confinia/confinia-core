@@ -91,6 +91,10 @@ jobs:
       - name: Report neighbours (issue #96)
         if: always()
         run: pytest -v tests/test_report_neighbours.py
+
+      - name: Deployment pipeline invariants (issue #109)
+        if: always()
+        run: pytest -v tests/test_pipeline_static.py
       - name: Credits we owe to people (issue #92)
         if: always()
         run: pytest -v tests/test_credits_static.py
