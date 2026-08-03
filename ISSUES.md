@@ -7,14 +7,14 @@ the work is deployed, and "merged" has been mistaken for "live" here before.
 **Where can I try it** uses the four answers of RULES 12: **nowhere** ·
 **sandbox** · **staging** · **production**.
 
-Last updated: **2026-08-03**, `main` at `9594cbe`.
+Last updated: **2026-08-03**, `main` at `54389ab`.
 Active colour: **green** (production) · passive: **blue** (staging).
 
 ## Open
 
 | # | Issue | Stage | Where can I try it |
 |---|---|---|---|
-| [#123](https://github.com/confinia/confinia-core/issues/123) | Blue colour's port publisher dies; podman reports a mapping that does not exist | issue created, **not started** | nowhere — but it is why staging intermittently returns nothing |
+| [#123](https://github.com/confinia/confinia-core/issues/123) | Blue colour's port publisher dies; podman reports a mapping that does not exist | issue created, **not started** — seen 3× on 2026-08-03 | nowhere. **This is why staging returned 503 and "unknown unit"**: caddy marked the upstream down. Workaround: `SKIP_BUILD=1 ./deploy/deploy-api.sh stage` |
 | [#121](https://github.com/confinia/confinia-core/issues/121) | Commune report: make it a document an expert office would sign | issue created, **not started** | nowhere |
 | [#115](https://github.com/confinia/confinia-core/issues/115) | Adopt STACK_template.md: close the documented gaps | issue created, tracking others | nowhere (umbrella) |
 | [#114](https://github.com/confinia/confinia-core/issues/114) | **SECURITY** — CI runner runs as `debian`, passwordless root | issue created, **blocked on #99** | nowhere |
@@ -30,8 +30,8 @@ Merged into `main` and deployed to the passive colour by CI, **not yet promoted*
 
 | # | What | Try it on staging |
 |---|---|---|
-| [#96](https://github.com/confinia/confinia-core/issues/96) | Neighbouring communes drawn on the report and page | `staging.confinia.io/commune/01187` |
-| [#91](https://github.com/confinia/confinia-core/issues/91) | Italian comune lineage | `staging.api.confinia.io/v1/units/024044/history?country=IT` |
+| [#96](https://github.com/confinia/confinia-core/issues/96) | Neighbouring communes drawn on the report and page | `staging.confinia.io/commune/01187` — **verified on the staged colour: 16 neighbours returned** |
+| [#91](https://github.com/confinia/confinia-core/issues/91) | Italian comune lineage | `staging.api.confinia.io/v1/units/024044/history?country=IT` — **verified: ends 2024-01-22, children `[024128]`** |
 | [#109](https://github.com/confinia/confinia-core/issues/109) | CI/CD: staging deploys itself on every merge | the `deploy-staging` run, green since `9594cbe` |
 
 ## Live in production since 2026-08-03
