@@ -18,7 +18,6 @@ concurrency:
 
 env:
   DEPLOY_DIR: /home/debian/projects/confinia
-  SMOKE_VENV: /home/debian/.venvs/smoke
 
 jobs:
   stage:
@@ -52,12 +51,16 @@ jobs:
           active=$(cat ~/confinia-edge-state/ACTIVE_COLOR 2>/dev/null || echo green)
           if [ "$active" = blue ]; then passive=green; port=8092; else passive=blue; port=8091; fi
           echo "smoking the $passive colour on 127.0.0.1:$port"
-          # Self-healing venv: a smoke run must never fail for want of pytest.
-          [ -x "$SMOKE_VENV/bin/pytest" ] || {
-            python3 -m venv "$SMOKE_VENV"
-            "$SMOKE_VENV/bin/pip" install -q --upgrade pip pytest requests
-          }
-          TEST_API_BASE="http://127.0.0.1:$port" "$SMOKE_VENV/bin/pytest" -q tests/smoke_prod.py
+          # DEV.md rule: everything runs in a container, never host python. The
+          # first version built a venv on the host and failed — python3-venv is
+          # not installed, and installing it would need sudo, which is exactly
+          # the privilege issue #114 is about.
+          mkdir -p "$HOME/.cache/pip"
+          podman run --rm --network host \
+            -v "$PWD/tests:/tests:ro" -v "$HOME/.cache/pip:/root/.cache/pip" -w / \
+            -e TEST_API_BASE="http://127.0.0.1:$port" \
+            docker.io/library/python:3.12-slim \
+            sh -c "pip install -q pytest requests && pytest -q -p no:cacheprovider tests/smoke_prod.py"
 
       - name: Say where to try it
         run: |

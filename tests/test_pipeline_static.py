@@ -42,7 +42,7 @@ def test_the_smoke_is_run_by_pytest():
     # these workflows was written.
     for f in ("deploy-staging.yml", "promote-production.yml"):
         s = _wf(f)
-        assert re.search(r"pytest\W+-q\s+tests/smoke_prod\.py", s), \
+        assert re.search(r"pytest\W+-q\b[^\n]*\btests/smoke_prod\.py", s), \
             f"{f} must invoke the smoke through pytest, not as a script"
         assert not re.search(r"python3?\s+\S*smoke_prod\.py", s), \
             f"{f} runs smoke_prod.py as a script: that executes zero tests"
@@ -65,3 +65,15 @@ def test_the_mirror_is_reset_not_rsynced():
     s = _wf("deploy-staging.yml")
     assert "git reset --hard" in s
     assert "rsync" not in s, "hand-driven rsync to the VM is what this replaces"
+
+
+def test_the_smoke_runs_in_a_container():
+    # DEV.md: everything runs in a container, never host python. The first
+    # version built a venv on the runner and failed -- python3-venv is absent,
+    # and installing it would need sudo, the privilege issue #114 is about.
+    for f in ("deploy-staging.yml", "promote-production.yml"):
+        s = _wf(f)
+        assert "podman run" in s and "python:3.12-slim" in s, \
+            f"{f} must run the smoke in a container"
+        assert "python3 -m venv" not in s, \
+            f"{f} must not build a venv on the runner"

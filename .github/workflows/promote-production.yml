@@ -20,7 +20,6 @@ concurrency:
 
 env:
   DEPLOY_DIR: /home/debian/projects/confinia
-  SMOKE_VENV: /home/debian/.venvs/smoke
 
 jobs:
   promote:
@@ -45,12 +44,12 @@ jobs:
         run: |
           set -eu
           cd "$DEPLOY_DIR"
-          [ -x "$SMOKE_VENV/bin/pytest" ] || {
-            python3 -m venv "$SMOKE_VENV"
-            "$SMOKE_VENV/bin/pip" install -q --upgrade pip pytest requests
-          }
-          if ! TEST_API_BASE=https://api.confinia.io \
-               "$SMOKE_VENV/bin/pytest" -q tests/smoke_prod.py; then
+          mkdir -p "$HOME/.cache/pip"
+          if ! podman run --rm --network host \
+                 -v "$PWD/tests:/tests:ro" -v "$HOME/.cache/pip:/root/.cache/pip" -w / \
+                 -e TEST_API_BASE=https://api.confinia.io \
+                 docker.io/library/python:3.12-slim \
+                 sh -c "pip install -q pytest requests && pytest -q -p no:cacheprovider tests/smoke_prod.py"; then
             echo "::error::smoke failed on production, rolling back"
             ./deploy/deploy-api.sh rollback
             exit 1
