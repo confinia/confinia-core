@@ -120,6 +120,54 @@ export/import, edge-state paths, image rebuilds, caddy) is unrehearsed. The hard
 30-minute limit still applies, and the maintenance window must still be
 announced.
 
+## Phase 1 done, and the second mechanism rehearsed — 2026-08-04
+
+**No downtime taken. Production untouched.** Everything below is staged and
+verified; only the cutover remains.
+
+**Artefacts prepared and handed over**, checksums compared on both sides rather
+than sizes — an early `ls` showed `prom.tar` at 137 MB while it was still being
+written, which is the same shape as the truncation that caused the outage:
+
+| Artefact | Size | sha256 matches |
+|---|---|:--:|
+| `opsdata.sql` (cluster dump, completion marker present) | 49 MB | ✅ |
+| `geo-green.dump` (passive colour, so production carried no load) | 675 MB | ✅ |
+| `grafana.tar` | 48 MB | ✅ |
+| `prom.tar` | 315 MB | ✅ |
+
+All `-rw-------`, owned by `confinia`, in `/home/confinia/move` (mode 700).
+
+**Second risky mechanism rehearsed: cross-user `podman volume import`.**
+The concern was ownership across user namespaces (`debian` maps 100000-165535,
+`confinia` maps 165536-231071). Imported `grafana.tar` into a throwaway volume as
+`confinia` and read it back from a container: **543 files, `grafana.db`
+1 667 072 bytes**. Content verified, not the exit code. Throwaway volume removed.
+
+**Target user prerequisites, checked so nothing is discovered during the window:**
+
+| | |
+|---|---|
+| podman / podman-compose | 5.4.2 / 1.3.0 ✅ |
+| git · curl · rsync · python3 | ✅ |
+| `psql` on the host | absent — not needed, everything goes through `podman exec` |
+| subuid/subgid | `confinia:165536:65536` ✅ |
+| repo clone | `~/projects/confinia` at `main` ✅ |
+| `deploy/secrets.env`, `deploy/sandbox.env` | present, `600`, byte-identical ✅ |
+| `~/confinia-edge-state` | copied and owned ✅ |
+
+Two traps met and worth knowing before the window:
+
+- **The clone already existed** from the 2026-08-01 attempt, three days stale on
+  branch `move-to-own-user-99`. A `[ -d .git ] || git clone` guard skips
+  silently. Reset to `main` explicitly.
+- **podman-compose and relative paths** — the trap `deploy/stacks.sh` already
+  documents. Use absolute `-f` paths in every cutover command.
+
+**What is still unrehearsed:** the image rebuilds under the new user, the caddy
+start on `:8085` (which is where the downtime actually begins, since both
+caddies cannot bind it at once), and the edge-state paths in practice.
+
 ## The one fact that shapes the whole procedure
 
 **Rootless podman is per-user.** Volumes live under
