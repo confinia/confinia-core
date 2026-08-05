@@ -65,11 +65,29 @@ That is where the attempt should have stopped.
   database and verify it there. Production is touched only once the restore is
   *proven*, not hoped for.
 - **Success criteria are counts, not the absence of messages** (see step 3).
-- **Hard time limit: 30 minutes.** Past that, roll back and investigate with the
-  service up. The incident above is what ignoring this costs.
+- **A declared decision point, not a stopwatch** (revised by the founder,
+  2026-08-05: *"take the time needed to do it properly"*). The original rule was
+  a hard 30-minute limit. Rushing a cutover is its own way of breaking things, so
+  the window may be as long as the work honestly needs — but the failure mode the
+  limit protected against is **persisting without deciding**, and that one is
+  real: the 2026-08-01 attempt ran for hours because no one ever stopped to ask
+  whether to continue.
+
+  So, before starting, write down **one checkpoint** — a step and a wall-clock
+  time — at which you stop and answer, out loud, a single question: *do I know
+  what is wrong, or am I guessing?* Guessing means roll back and investigate with
+  the service up. Knowing means continue and set the next checkpoint. Rollback is
+  two commands and costs nothing; an unbounded night costs fifteen hours.
+
+  The maintenance page (`./deploy/maintenance.sh up`) is what makes a longer
+  window acceptable: visitors get an explanation and a `Retry-After` instead of a
+  bare 502, and automated clients recover on their own.
 - **Never restore through `podman exec -i < file`.** Use `podman cp` then
   `psql -f`, and verify the row counts afterwards regardless.
 - Announce the maintenance window beforehand: the service is public.
+- **Put the maintenance page up before stopping anything**, and take it down
+  only once the new stack answers. See `deploy/maintenance.sh`; it refuses to
+  start while the real caddy still holds `:8085`, so the two cannot fight.
 
 ## Rehearsal of the restore — done 2026-08-03, passed
 

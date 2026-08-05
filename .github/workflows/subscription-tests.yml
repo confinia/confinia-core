@@ -101,6 +101,9 @@ jobs:
       - name: Italian lineage parsing (issue #91)
         if: always()
         run: pytest -v tests/test_istat.py
+      - name: Maintenance page tells the truth (issue #99)
+        if: always()
+        run: pytest -v tests/test_maintenance_static.py
       - name: Credits we owe to people (issue #92)
         if: always()
         run: pytest -v tests/test_credits_static.py
