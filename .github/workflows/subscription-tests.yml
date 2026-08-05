@@ -120,6 +120,9 @@ jobs:
       - name: Realm bootstrap survives set -u (issue #132)
         if: always()
         run: pytest -v tests/test_setup_realm_static.py
+      - name: Maintenance page tells the truth (issue #99)
+        if: always()
+        run: pytest -v tests/test_maintenance_static.py
       - name: Credits we owe to people (issue #92)
         if: always()
         run: pytest -v tests/test_credits_static.py
