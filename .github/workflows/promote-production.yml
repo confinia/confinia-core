@@ -40,6 +40,29 @@ jobs:
           cd "$DEPLOY_DIR"
           ./deploy/deploy-api.sh promote
 
+      - name: Prove the PROMOTED colour is the one answering
+        run: |
+          set -eu
+          cd "$DEPLOY_DIR"
+          # The public smoke alone cannot see this. api_upstreams lists the
+          # active colour first and the other as fallback, so if the colour we
+          # just promoted is dead, caddy quietly serves the previous one and
+          # every public check passes -- against the OLD build. That happened on
+          # 2026-08-03: the promotion reported success while production served
+          # the previous version for ten minutes (issue #123).
+          active=$(cat ~/confinia-edge-state/ACTIVE_COLOR)
+          if [ "$active" = blue ]; then port=8091; else port=8092; fi
+          echo "active colour is $active, checking 127.0.0.1:$port directly"
+          for i in $(seq 1 20); do
+            curl -sf --max-time 3 "http://127.0.0.1:$port/healthz" >/dev/null && ok=1 && break
+            sleep 3
+          done
+          if [ "${ok:-0}" != 1 ]; then
+            echo "::error::the promoted colour ($active) does not answer on $port; rolling back"
+            ./deploy/deploy-api.sh rollback
+            exit 1
+          fi
+
       - name: Smoke production, and roll back if it fails
         run: |
           set -eu
