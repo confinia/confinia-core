@@ -1,0 +1,30 @@
+# Maintenance holding server (issue #99).
+#
+# Stands in on 127.0.0.1:8085 while the project caddy is stopped, so the
+# platform edge keeps getting an answer instead of a connection refused (which
+# the visitor sees as a bare 502 from someone else's server).
+#
+# 503, NOT 404. A 404 tells search engines the resource is permanently gone and
+# they deindex it; 503 + Retry-After says "temporarily unavailable, come back",
+# which is what a maintenance window actually is. Automated API clients that
+# honour Retry-After recover on their own.
+{
+	admin off
+	auto_https off
+}
+
+:8085 {
+	root * /srv
+	header Retry-After "1800"
+	header Cache-Control "no-store"
+	# `file_server` alone answers 200, which would defeat the whole point.
+	# Raise the error, then serve the page from handle_errors, which keeps the
+	# 503 status on the response.
+	handle {
+		error 503
+	}
+	handle_errors {
+		rewrite * /index.html
+		file_server
+	}
+}

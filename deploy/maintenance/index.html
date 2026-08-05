@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Confinia — maintenance en cours</title>
+<style>
+  /* Self-contained on purpose: during the window the stack that serves fonts,
+     stylesheets and images is exactly what is down. */
+  :root { --bg:#0b0f16; --panel:#10151d; --ink:#e8eaed; --muted:#9fb3d1; --accent:#7ab8ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; background:var(--bg); color:var(--ink);
+         font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+         display:flex; align-items:center; justify-content:center; padding:1.5rem; line-height:1.55; }
+  main { max-width:34rem; width:100%; background:var(--panel); border:1px solid #1e2735;
+         border-radius:14px; padding:2.25rem 2rem; }
+  .brand { color:var(--accent); font-size:.9rem; letter-spacing:.08em; text-transform:uppercase; margin-bottom:1.4rem; }
+  h1 { font-size:1.55rem; margin:0 0 .7rem; text-wrap:balance; }
+  p { margin:.7rem 0; color:var(--muted); }
+  .en { margin-top:1.6rem; padding-top:1.3rem; border-top:1px solid #1e2735; }
+  .en h2 { font-size:1.05rem; margin:0 0 .5rem; color:var(--ink); font-weight:600; }
+  a { color:var(--accent); }
+  footer { margin-top:1.6rem; font-size:.82rem; color:var(--muted); opacity:.75; }
+  @media (max-width:420px) { main { padding:1.6rem 1.2rem; } h1 { font-size:1.3rem; } }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">Confinia</div>
+
+  <h1>Maintenance en cours</h1>
+  <p>L'API et le site sont temporairement indisponibles, le temps d'une opération
+     d'infrastructure planifiée. Aucune donnée n'est perdue&nbsp;: vos clés d'API,
+     vos comptes et votre historique d'usage sont intacts.</p>
+  <p>Les requêtes reprendront d'elles-mêmes dès la fin de l'opération. Si vous
+     appelez l'API automatiquement, ce service renvoie un code
+     <strong>503</strong> avec un en-tête <code>Retry-After</code>&nbsp;: une
+     nouvelle tentative plus tard aboutira.</p>
+
+  <div class="en">
+    <h2>Maintenance in progress</h2>
+    <p>The API and the site are temporarily unavailable for planned
+       infrastructure work. No data is lost — API keys, accounts and usage
+       history are intact.</p>
+    <p>Calls will succeed again on their own once the work is done. This service
+       returns <strong>503</strong> with a <code>Retry-After</code> header, so a
+       later retry will go through.</p>
+  </div>
+
+  <footer>
+    <a href="https://github.com/confinia/confinia-core">github.com/confinia/confinia-core</a>
+  </footer>
+</main>
+</body>
+</html>
