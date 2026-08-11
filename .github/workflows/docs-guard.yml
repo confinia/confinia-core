@@ -18,6 +18,7 @@ on:
 jobs:
   no-silent-deletion:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       # Files whose content is a promise to someone, or the shared contract of
       # the project. Extend when something else gets lost.

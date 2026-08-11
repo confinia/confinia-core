@@ -24,6 +24,7 @@ env:
 jobs:
   promote:
     runs-on: [self-hosted, confinia-vm]
+    timeout-minutes: 30
     environment: production
     steps:
       - name: Refuse an unconfirmed run
