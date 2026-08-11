@@ -302,6 +302,15 @@ sudo chmod 600 /home/confinia/projects/confinia/deploy/*.env
 
 ### 2. Cutover (downtime starts)
 
+⚠️ **Re-dump inside the window. Never restore artefacts staged days earlier.**
+The phase-1 artefacts prove the *method*; they are not the data to ship. Between
+2026-08-05 and 2026-08-11 the ops database gained **a Keycloak account, an API
+key and eight `premium_seen` rows**. Restoring the staged dump would have
+deleted a real customer — silently, with every count still looking plausible.
+
+Re-read the success criteria immediately before starting; they are whatever the
+live database says at that moment, not what is written in this file.
+
 **Session `debian`** — stop everything, delete nothing:
 
 ```bash
@@ -317,13 +326,18 @@ cd ~/projects/confinia
 podman build -t localhost/confinia-api:latest ./api
 podman build -t localhost/confinia-ingest:latest ./ingestion
 podman-compose up -d ops-db
-# wait for readiness, then:
-podman exec -i confinia_ops-db_1 psql -U confinia -d postgres < ~/move/opsdata.sql
+# wait for readiness, then restore — podman cp + psql -f, NEVER `exec -i < file`,
+# which is what silently truncated stdin and cost 15 hours (see the rules above).
+# This procedure block used to contradict its own rule; it no longer does.
+podman cp ~/move/opsdata.sql confinia_ops-db_1:/tmp/opsdata.sql
+podman exec confinia_ops-db_1 stat -c %s /tmp/opsdata.sql   # compare with the host size
+podman exec confinia_ops-db_1 psql -U confinia -d postgres -f /tmp/opsdata.sql
 podman volume import confinia_grafana_data ~/move/grafana.tar
 podman volume import confinia_prom_data    ~/move/prom.tar
 podman-compose up -d
 ./deploy/stacks.sh up-db blue
-podman exec -i confinia-blue_db_1 pg_restore -U confinia -d confinia < ~/move/geo-blue.dump
+podman cp ~/move/geo-blue.dump confinia-blue_db_1:/tmp/geo.dump
+podman exec confinia-blue_db_1 pg_restore -U confinia -d confinia /tmp/geo.dump
 podman-compose -p confinia-blue -f deploy/stack/docker-compose-blue.yml --profile serve up -d api
 ./deploy/stacks.sh promote blue
 ```
