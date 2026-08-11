@@ -15,7 +15,7 @@ receivers:
     collection_interval: 30s
     targets:
       - endpoint: http://127.0.0.1:8091/healthz   # blue API (direct)
-      - endpoint: http://127.0.0.1:8092/healthz   # green API (direct)
+      - endpoint: http://127.0.0.1:8402/healthz   # green API (direct, band 84xx)
       - endpoint: http://127.0.0.1:8089/healthz   # sandbox API (direct)
       - endpoint: http://127.0.0.1:8095/auth/realms/confinia   # Keycloak
       - endpoint: https://api.confinia.io/healthz # public edge -> ACTIVE color
