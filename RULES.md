@@ -117,3 +117,16 @@ podman-compose ciblée ; jamais de source de données contenant U+FFFD.
    la PR #95 avait été annoncée livrée alors que l'API servait encore
    l'ancienne réponse, et #99 s'est refermée toute seule alors que la migration
    avait été annulée. (issue #124)
+
+15. **À la fin de chaque action, proposer la prochaine issue ou PR à traiter.**
+   Une seule recommandation, pas un menu : une liste classée est une façon de
+   ne pas trancher. Dire **pourquoi maintenant** (« bloquée par X, et X vient
+   d'être livré » est la bonne forme), de quoi elle dépend, et si cette
+   dépendance est une action du fondateur. Quand une autre priorité se défend,
+   la donner en une ligne avec son arbitrage, pour que le fondateur puisse
+   décider autrement en connaissance de cause.
+   **Pourquoi :** le backlog mélange une exposition de sécurité, un manque de
+   doc, une fonctionnalité data et une migration bloquée. Sans consigne, on
+   reprend ce qu'on vient de toucher — et une issue de sécurité reste ouverte
+   une semaine pendant qu'on en ferme trois cosmétiques. L'état sur lequel
+   s'appuyer est `ISSUES.md` (règle 14). (issue #140)
