@@ -7,14 +7,14 @@ the work is deployed, and "merged" has been mistaken for "live" here before.
 **Where can I try it** uses the four answers of RULES 12: **nowhere** ·
 **sandbox** · **staging** · **production**.
 
-Last updated: **2026-08-05**, `main` at `d2c6f96`.
-Active colour: **blue** (production, promoted 2026-08-03) · passive: **green** (staging).
+Last updated: **2026-08-11**, `main` at `eec88bd`.
+Active colour: **blue** on `:8091` (production) · passive: **green** on `:8402` (staging, band 84xx since 2026-08-11).
 
 ## Open
 
 | # | Issue | Stage | Where can I try it |
 |---|---|---|---|
-| [#123](https://github.com/confinia/confinia-core/issues/123) | Blue colour's port publisher dies; podman reports a mapping that does not exist | **root cause not found** — seen 4× on 2026-08-03, including **immediately after the production promotion** | nowhere. It degraded production for ~10 min: caddy fell back to the old colour and every public check passed. Guard added (PR below); workaround `podman-compose … --profile serve up -d --no-deps api` |
+| [#123](https://github.com/confinia/confinia-core/issues/123) | Colour port publisher problems | **half solved.** Cause 1 — another tenant squatted 8092/8093 — **fixed**: green moved to band 84xx, burned ports recorded, and `deploy-api.sh` now refuses to destroy a container for a port it cannot get back. Cause 2 — the publisher stops some minutes after start, on an uncontested port — **open**; correlates with other tenants' throwaway containers on the shared `debian` podman, which points at #99 | staging works again; `deploy-staging` green on `6a88b86` |
 | [#132](https://github.com/confinia/confinia-core/issues/132) | Transactional email: confirm registrations and deliver ops alerts from `alert@confinia.io` | issue created, **not started**. Today there is **no SMTP anywhere** — registration collects an address it never verifies, and we cannot email our own 10 users. Grafana side, SMTP included, must be **as code**; a test will assert nothing was clicked in | nowhere |
 | [#127](https://github.com/confinia/confinia-core/issues/127) | Report: colour what a boundary gained and lost — refuse to draw when the data cannot support it | issue created, **not started**; blocked by missing historical geometry, not by rendering | nowhere |
 | [#121](https://github.com/confinia/confinia-core/issues/121) | Commune report: make it a document an expert office would sign | issue created, **not started** | nowhere |
