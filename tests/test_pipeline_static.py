@@ -86,3 +86,20 @@ def test_promotion_checks_the_promoted_colour_directly():
     s = _wf("promote-production.yml")
     assert "ACTIVE_COLOR" in s and "127.0.0.1:$port" in s, \
         "promotion must check the promoted colour on its own port, not only the public URL"
+
+
+def test_every_job_has_a_timeout():
+    # On 2026-08-11 two jobs hung on GitHub-hosted runners: keycloak for 20 min
+    # (normally 1m20s) and e2e for 30+ min (normally 50s). With no timeout a hung
+    # job blocks the PR indefinitely, burns runner minutes, and cannot even be
+    # re-run -- GitHub refuses to retry a run it considers still in flight.
+    # A timeout turns "hangs forever" into "fails in N minutes", which is the
+    # difference between a blocked afternoon and a retry.
+    import glob
+    for path in sorted(glob.glob(os.path.join(WF, "*.yml"))):
+        s = open(path, encoding="utf-8").read()
+        jobs = re.findall(r"^  ([a-z][a-z0-9_-]*):\n(?:    .*\n)*?    runs-on:", s, re.M)
+        for job in jobs:
+            block = re.search(rf"^  {re.escape(job)}:\n((?:    .*\n|\n)*?)(?=^  \S|\Z)", s, re.M)
+            assert block and "timeout-minutes:" in block.group(1), \
+                f"{os.path.basename(path)}: job '{job}' has no timeout-minutes"
