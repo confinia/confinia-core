@@ -7,7 +7,7 @@ the work is deployed, and "merged" has been mistaken for "live" here before.
 **Where can I try it** uses the four answers of RULES 12: **nowhere** ·
 **sandbox** · **staging** · **production**.
 
-Last updated: **2026-08-03**, `main` at `17b1304`.
+Last updated: **2026-08-05**, `main` at `d2c6f96`.
 Active colour: **blue** (production, promoted 2026-08-03) · passive: **green** (staging).
 
 ## Open
@@ -15,6 +15,7 @@ Active colour: **blue** (production, promoted 2026-08-03) · passive: **green** 
 | # | Issue | Stage | Where can I try it |
 |---|---|---|---|
 | [#123](https://github.com/confinia/confinia-core/issues/123) | Blue colour's port publisher dies; podman reports a mapping that does not exist | **root cause not found** — seen 4× on 2026-08-03, including **immediately after the production promotion** | nowhere. It degraded production for ~10 min: caddy fell back to the old colour and every public check passed. Guard added (PR below); workaround `podman-compose … --profile serve up -d --no-deps api` |
+| [#132](https://github.com/confinia/confinia-core/issues/132) | Transactional email: confirm registrations and deliver ops alerts from `alert@confinia.io` | issue created, **not started**. Today there is **no SMTP anywhere** — registration collects an address it never verifies, and we cannot email our own 10 users | nowhere |
 | [#127](https://github.com/confinia/confinia-core/issues/127) | Report: colour what a boundary gained and lost — refuse to draw when the data cannot support it | issue created, **not started**; blocked by missing historical geometry, not by rendering | nowhere |
 | [#121](https://github.com/confinia/confinia-core/issues/121) | Commune report: make it a document an expert office would sign | issue created, **not started** | nowhere |
 | [#115](https://github.com/confinia/confinia-core/issues/115) | Adopt STACK_template.md: close the documented gaps | issue created, tracking others | nowhere (umbrella) |
