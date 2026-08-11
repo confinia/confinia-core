@@ -6,7 +6,7 @@ services:
   # Confinia APPLICATION caddy: plain HTTP on 127.0.0.1:8085, behind the
   # platform's UPSTREAM caddy (~/projects/platform), which owns 80/443 and
   # the certificates. Host network: it sees the upstream's X-Forwarded-*
-  # and reaches the backends via their localhost ports (api 8091/8092/8093,
+  # and reaches the backends via their localhost ports (api 8091 blue / 8402 green,
   # application grafana 8086). Config mounted as a DIRECTORY: graceful
   # `caddy reload` via deploy/deploy-edge.sh = update with ZERO downtime.
   caddy:

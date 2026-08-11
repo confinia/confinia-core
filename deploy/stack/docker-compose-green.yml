@@ -31,7 +31,11 @@ services:
     volumes:
       - ../../data/geoip:/geoip:ro
     ports:
-      - "127.0.0.1:8092:8000"
+      # 84xx is GREEN's dedicated band (platform decision 2026-08-11). 8092 is
+      # BURNED: squatted by the maplibre tenant, which is why green could not
+      # start at all -- "rootlessport listen tcp 127.0.0.1:8092: address already
+      # in use". Never bind 8092/8093/8096/8098 again.
+      - "127.0.0.1:8402:8000"
     depends_on:
       db:
         condition: service_healthy

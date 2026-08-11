@@ -103,3 +103,27 @@ def test_every_job_has_a_timeout():
             block = re.search(rf"^  {re.escape(job)}:\n((?:    .*\n|\n)*?)(?=^  \S|\Z)", s, re.M)
             assert block and "timeout-minutes:" in block.group(1), \
                 f"{os.path.basename(path)}: job '{job}' has no timeout-minutes"
+
+
+def test_stage_checks_the_port_before_destroying_a_container():
+    # On 2026-08-11 `stage` removed a healthy green API and then could not
+    # recreate it: another tenant held the port. The check must come BEFORE the
+    # rm, or the guard is worthless.
+    sh = open(os.path.join(ROOT, "deploy", "deploy-api.sh"), encoding="utf-8").read()
+    assert "port_is_ours" in sh, "deploy-api.sh must verify the port before recreating"
+    guard = sh.index("port_is_ours \"$(port_of")
+    rm = sh.index('podman rm -f "confinia-${P}_api_1"')
+    assert guard < rm, "the port check must run BEFORE the container is destroyed"
+
+
+def test_the_burned_ports_are_not_bound_anywhere():
+    # 8092/8093 are squatted by other tenants (PORTS.md, BURNED table). Binding
+    # them again reproduces the outage.
+    targets = ["deploy/stack/docker-compose-green.yml", "deploy/stacks.sh",
+               "deploy/deploy-api.sh", "docker-compose.yml"]
+    for rel in targets:
+        for line in open(os.path.join(ROOT, rel), encoding="utf-8").read().splitlines():
+            if line.strip().startswith("#"):
+                continue
+            for burned in ("8092", "8093", "8096", "8098"):
+                assert burned not in line, f"{rel}: binds burned port {burned}: {line.strip()}"
