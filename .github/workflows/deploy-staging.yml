@@ -22,6 +22,7 @@ env:
 jobs:
   stage:
     runs-on: [self-hosted, confinia-vm]
+    timeout-minutes: 30
     environment: staging
     steps:
       - name: Sync the deployment mirror to this commit
