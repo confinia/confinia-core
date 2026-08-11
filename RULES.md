@@ -22,8 +22,14 @@
 3. **Tout changement passe par une issue GitHub et une pull request** :
    ouvrir l'issue (motivation, source, périmètre : anonymiser toute personne
    extérieure), développer sur une branche, ouvrir la PR avec `Closes #N`,
-   la merger (squash) seulement après validation en staging. Les commits
-   directs sur `main` sont réservés aux documents de process (RULES, TODO).
+   la merger **en rebase** seulement après validation en staging (décision du
+   fondateur, 2026-08-11 ; squash et merge commit sont désormais désactivés sur
+   le dépôt, le choix n'est donc plus possible). Les commits directs sur `main`
+   sont réservés aux documents de process (RULES, TODO).
+   ⚠️ Conséquence directe : en rebase, **chaque commit de la branche atterrit
+   tel quel sur `main`**. L'hygiène de branche cesse d'être cosmétique — plus de
+   « fix typo » ni de « wip » : on nettoie avant de merger. En contrepartie
+   l'historique reste linéaire et chaque commit est bissectable.
 
 4. **Anglais partout dans le public** : commentaires de code et docs markdown
    du repo en ANGLAIS (exceptions : RULES.md et TODO.md, docs de process).
