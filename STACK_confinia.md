@@ -25,7 +25,7 @@
 | Apex hostname | `www.confinia.io` (`confinia.io` 301-redirects to it) |
 | Project edge router port | `127.0.0.1:8085` |
 | Sandbox entry port | `127.0.0.1:8089` |
-| Staging stack port | `127.0.0.1:8093` — **a slot, not a stack**: nothing listens on it, so the router falls back to the passive colour |
+| Staging stack port | none — staging *is* the passive colour. The old `8093` slot was removed on 2026-08-11: that port is BURNED (see §4) |
 | Isolation unit | one rootless podman user — **shared with every other product**, because that user is `debian` |
 
 **Public hostnames → local port** (registered in the platform edge, §4):
@@ -106,7 +106,8 @@ because the failure is the more useful half.
 tenants. Its band comment is the single home of the port map:
 
 ```
-80xx  8085  confinia app caddy    8086 grafana, 8088 otlp, 8089 sbx, 8091/8092 api, 8095 kc
+80xx  8085  confinia app caddy    8086 grafana, 8088 otlp, 8089 sbx, 8091 api-blue, 8095 kc
+84xx        confinia GREEN         8401 web (reserved), 8402 api
 ```
 
 ⚠️ **Never edited by a session** — founder-only, by PR to `confinia/platform`
@@ -116,7 +117,7 @@ tenants. Its band comment is the single home of the port map:
 host network, `:8085`). Everything environment-shaped happens here:
 
 - `www.confinia.io` → `(api_upstreams)` = **active** colour, passive as fallback
-- `staging.confinia.io` → `(staging_upstreams)` = `:8093`, **passive colour** as fallback
+- `staging.confinia.io` → `(staging_upstreams)` = the **passive colour**, directly
 - `sandbox.confinia.io` → `:8089`
 - `/auth/*` → Keycloak `:8095` · `/grafana*` → Grafana `:8086`
 - `(staging_auth)` — basic auth on staging **and** sandbox
@@ -137,15 +138,22 @@ reason, and a test locks it (issue #105).
 | Port | Service |
 |---|---|
 | `8085` | project edge router (all hostnames enter here) |
-| `8091` / `8092` | blue / green API |
-| `8093` | staging slot — **nothing listens**, falls back to the passive colour |
+| `8091` | blue API |
+| `8402` | green API — band **84xx**, moved off 8092 on 2026-08-11 |
+| ~~`8092` `8093`~~ | **BURNED** — held by the `maplibre` tenant. Never bind again |
 | `8089` | sandbox API |
 | `8095` | Keycloak |
 | `8086` | Grafana · `8088` OTLP · `8097` demo preview (profile `tools`) |
 | `5440` | **ops-db** (shared) · `5441` / `5442` blue / green geo DB |
 
-The reserved ranges and the rule about not grabbing generic ports live in
-[PORTS.md](PORTS.md); this table is the current allocation inside them.
+The reserved ranges live in [PORTS.md](PORTS.md), including the **BURNED**
+table — ports squatted by other tenants that Confinia must never bind again.
+
+⚠️ **A band is a convention, not an enforcement.** Five of Confinia's fifteen
+"reserved" 80xx ports are held by other products. On 2026-08-11 that stopped the
+green colour from starting at all, and the deploy script had already destroyed a
+healthy container before finding out. `deploy-api.sh` now checks `ss -ltnp` and
+names the holder **before** removing anything (issue #123).
 
 ---
 

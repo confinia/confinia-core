@@ -30,12 +30,16 @@ build)
 	echo "build $c started in the background: tail -f ~/logs/build-geo-$c.log"
 	;;
 # Writes the caddy upstreams state file: active color first for the
-# public, passive (+8093 data slot) for staging. Then graceful reload.
+# public, passive for staging. Then graceful reload.
+# The old 8093 "data slot" is GONE: that port is BURNED (held by the maplibre
+# tenant). Keeping it first in the staging upstreams meant caddy probed another
+# product's service on every staging request, and would have proxied our traffic
+# there had it ever answered 2xx on /healthz.
 write-upstreams|promote)
 	c="${2:?active color (blue|green)}"
 	case "$c" in
-		blue)  ACT=8091; PAS=8092 ;;
-		green) ACT=8092; PAS=8091 ;;
+		blue)  ACT=8091; PAS=8402 ;;
+		green) ACT=8402; PAS=8091 ;;
 		*) echo "unknown color: $c" >&2; exit 2 ;;
 	esac
 	mkdir -p ~/confinia-edge-state
@@ -60,7 +64,7 @@ write-upstreams|promote)
 	}
 }
 (staging_upstreams) {
-	reverse_proxy 127.0.0.1:8093 127.0.0.1:$PAS {
+	reverse_proxy 127.0.0.1:$PAS {
 		lb_policy first
 		lb_try_duration 5s
 		lb_try_interval 250ms
@@ -79,7 +83,7 @@ CADDY
 	touch ~/confinia-edge-state/"active-$c"
 	podman run --rm --env-file deploy/secrets.env 		-v "$PWD/deploy/caddy:/etc/caddy:ro" 		-v "$HOME/confinia-edge-state:/etc/caddy/active:ro" 		docker.io/library/caddy:2 caddy validate --config /etc/caddy/Caddyfile >/dev/null
 	podman exec confinia_caddy_1 caddy reload --config /etc/caddy/Caddyfile
-	echo "OK: active color = $c (public on $ACT, staging on 8093 then $PAS)"
+	echo "OK: active color = $c (public on $ACT, staging on $PAS)"
 	;;
 status)
 	echo "active color: $(cat ~/confinia-edge-state/ACTIVE_COLOR 2>/dev/null || echo 'not set (legacy)')"
