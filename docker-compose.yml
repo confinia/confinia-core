@@ -46,12 +46,33 @@ services:
     image: docker.io/library/postgres:16
     env_file:
       - ./deploy/secrets.env
-    ports:
-      # All interfaces: the API containers reach it via
-      # host.containers.internal; ufw blocks 5440 from the outside.
-      - "5440:5432"
+    # NO published port (platform audit, 2026-08-12). This database holds the
+    # customer accounts, the API keys and the billing state, and it used to be
+    # bound on 0.0.0.0:5440 -- private only because ufw denies incoming. One
+    # firewall rule, edited by any of the six products on this VM, was all that
+    # stood between it and the internet.
+    #
+    # Rebinding to 127.0.0.1 was NOT the fix: measured from inside a running API
+    # container, 127.0.0.1:5440 is REFUSED (that is the container's own
+    # loopback) while host.containers.internal:5440 is OPEN. A loopback bind
+    # makes it unreachable from every environment at once.
+    #
+    # Instead the container joins each colour's network and is reached BY NAME:
+    #   OPS_DSN=postgresql://...@confinia_ops-db_1:5432/confinia
+    # Nothing is exposed on the host at all.
     volumes:
       - opsdata:/var/lib/postgresql/data
+    networks:
+      # DECLARATIVE, not `podman network connect` after the fact. On 2026-08-12
+      # I connected the running container by hand, then recreated it -- the new
+      # container had only confinia_default, and every quota check, API-key
+      # lookup and billing read failed on all three environments at once.
+      # /healthz stayed green throughout, because it only reads the geo
+      # database. The APIs must be able to resolve `confinia_ops-db_1` on their
+      # own colour network, and that has to survive a recreate.
+      - default
+      - blue
+      - green
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U confinia -d confinia"]
       interval: 5s
@@ -82,7 +103,10 @@ services:
       - ./deploy/secrets.env   # KC_BOOTSTRAP_ADMIN_*, KC_DB_USERNAME/PASSWORD
     environment:
       KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://host.containers.internal:5440/keycloak
+      # By container name, not through a host port: the ops database no longer
+      # publishes one. Keycloak holds the user accounts, so this line going
+      # stale would take identity down while everything else looked fine.
+      KC_DB_URL: jdbc:postgresql://confinia_ops-db_1:5432/keycloak
       KC_HTTP_MANAGEMENT_PORT: "9001"   # health/metrics off the public path
     ports:
       - "127.0.0.1:8095:8180"
@@ -155,3 +179,14 @@ volumes:
   caddy_config:
   prom_data:
   grafana_data:
+
+networks:
+  # The colour networks are created by the per-colour compose projects; the ops
+  # database joins them so it is reachable by name with no published port.
+  default:
+  blue:
+    external: true
+    name: confinia-blue_default
+  green:
+    external: true
+    name: confinia-green_default

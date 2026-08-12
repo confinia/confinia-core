@@ -67,3 +67,39 @@ def test_staging_does_not_bind_a_burned_or_colour_port():
     # Burned ports, the colours' own ports, and 85xx which belongs to panoramax.
     for taken in ("8091", "8402", "8092", "8093", "8096", "8098", "8501", "8502"):
         assert f":{taken}:" not in sh, f"staging must not bind {taken}"
+
+
+def test_the_operational_database_is_not_published_on_the_host():
+    """It holds customer accounts, API keys and billing state.
+
+    It was bound on 0.0.0.0:5440 until 2026-08-12, private only because ufw
+    denies incoming — one firewall rule away from the internet, on a VM shared
+    with five other products. Rebinding to 127.0.0.1 would have broken every
+    environment: containers reach it through host.containers.internal, which is
+    not the host's loopback. So it is reached by container name instead, with
+    nothing published.
+    """
+    compose = _read("docker-compose.yml")
+    directives = [l for l in compose.splitlines() if not l.strip().startswith("#")]
+    for line in directives:
+        assert "5440" not in line, \
+            f"the operational database must not be published on the host: {line.strip()}"
+
+
+def test_the_ops_database_joins_the_colour_networks_declaratively():
+    """`podman network connect` does not survive a container recreate.
+
+    On 2026-08-12 I connected the running ops database by hand, then recreated
+    it to drop its published port. The new container had only the default
+    network, and every quota check, API-key lookup and billing read failed on
+    production, staging and sandbox at once — while /healthz stayed green,
+    because it reads only the geo database. A health check that cannot see the
+    outage is the recurring shape of every incident in this repo.
+    """
+    compose = _read("docker-compose.yml")
+    ops = compose.split("ops-db:")[1].split("\n  keycloak:")[0]
+    assert "networks:" in ops, \
+        "the ops database must declare its networks, not rely on a manual connect"
+    for colour in ("blue", "green"):
+        assert f"confinia-{colour}_default" in compose, \
+            f"the {colour} colour network must be declared so the ops db joins it"
