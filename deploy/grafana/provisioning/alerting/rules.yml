@@ -1,0 +1,80 @@
+# Alert rules, AS CODE (issue #132).
+#
+# SCOPE: only what GitHub cannot see. A failed CI run, a failed deployment or a
+# rollback already arrive by e-mail from GitHub, per repository, with a link to
+# the job. Duplicating that channel is how an ops mailbox becomes unread.
+#
+# What GitHub structurally cannot observe is the VM BETWEEN deployments. The
+# canonical case is #123: a colour's port publisher stopped four times in one
+# day and no e-mail ever arrived, because nothing was watching. One of those
+# left production serving the previous build for ten minutes after a promotion
+# GitHub had reported as successful.
+#
+# Every expression below uses a metric verified to exist and to be truthful:
+# httpcheck_status was checked against curl at the same instant and agreed.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: confinia-vm
+    folder: alerts
+    interval: 1m
+    rules:
+      - uid: confinia-colour-down
+        title: A colour stopped answering on its own port
+        condition: BREACH
+        # Fires when either colour's local health probe is not 2xx. The ACTIVE
+        # colour going dark is a production incident; the PASSIVE colour going
+        # dark means staging is down and there is no rollback target -- which
+        # nobody notices until a promotion needs one.
+        data:
+          - refId: PROBE
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              expr: 'min_over_time(httpcheck_status{http_url=~"http://127.0.0.1:(8091|8402)/healthz", http_status_class="2xx"}[5m])'
+              instant: true
+              refId: PROBE
+          - refId: BREACH
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: PROBE
+              conditions:
+                - evaluator: {type: lt, params: [1]}
+              refId: BREACH
+        for: 5m
+        labels: {severity: critical, scope: vm}
+        annotations:
+          summary: '{{ $labels.http_url }} has not answered 2xx for 5 minutes'
+          description: >-
+            Check `ss -ltn | grep -E "8091|8402"` on the VM. If podman reports a
+            port mapping but nothing listens, this is issue #123 and the colour
+            must be recreated with ./deploy/deploy-api.sh stage.
+
+      - uid: confinia-api-5xx
+        title: The public API is returning server errors
+        condition: BREACH
+        data:
+          - refId: RATE
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              expr: 'sum(rate(http_server_duration_milliseconds_count{http_status_code=~"5.."}[10m]))'
+              instant: true
+              refId: RATE
+          - refId: BREACH
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: RATE
+              conditions:
+                - evaluator: {type: gt, params: [0.05]}
+              refId: BREACH
+        for: 10m
+        labels: {severity: warning, scope: api}
+        annotations:
+          summary: 'The API is serving 5xx responses'
+          description: >-
+            Sustained server errors on api.confinia.io. Check the active
+            colour's logs; a promotion may have shipped a broken build.

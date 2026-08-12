@@ -111,6 +111,10 @@ services:
     image: docker.io/grafana/grafana-oss:latest
     env_file:
       - ./deploy/secrets.env          # GF_SECURITY_ADMIN_PASSWORD — never committed
+      # SMTP as ENVIRONMENT, never as grafana.ini edited in the container:
+      # a rebuild discards the container, and a setting that only exists there
+      # disappears with it (issue #132).
+      - ./deploy/mail.env             # GF_SMTP_*, ALERT_TO — never committed
     environment:
       GF_USERS_ALLOW_SIGN_UP: "false"
       # APPLICATION Grafana served behind www.confinia.io/grafana (the

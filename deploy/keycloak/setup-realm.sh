@@ -31,6 +31,42 @@ else
 	echo "  realm already present"
 fi
 
+echo "== SMTP (issue #132)"
+# Keycloak sends the registration confirmation itself; no application code is
+# involved. Credentials come from deploy/mail.env, which is gitignored -- never
+# from this script, which is committed.
+MAIL_ENV="${MAIL_ENV:-mail.env}"
+if [ -f "$MAIL_ENV" ]; then
+	get() { grep "^$1=" "$MAIL_ENV" | cut -d= -f2- | tr -d '"'"'"'"'; }
+	SMTP_JSON=$(python3 -c '
+import json, sys
+host, port, user, pw, frm, name = sys.argv[1:7]
+print(json.dumps({"smtpServer": {
+    "host": host, "port": port, "from": frm, "fromDisplayName": name,
+    "auth": "true", "user": user, "password": pw,
+    "starttls": "true", "ssl": "false",
+}}))' "$(get SMTP_HOST)" "$(get SMTP_PORT)" "$(get SMTP_USER)" \
+     "$(get SMTP_PASSWORD)" "$(get SMTP_FROM)" "$(get SMTP_FROM_NAME)")
+	curl -sf -X PUT "$KC/admin/realms/${REALM:-confinia}" -H "$AUTH" \
+	  -H "Content-Type: application/json" -d "$SMTP_JSON" >/dev/null \
+	  && echo "  SMTP configured from $MAIL_ENV" \
+	  || { echo "  [!] SMTP update REJECTED by Keycloak" >&2; exit 1; }
+else
+	echo "  [!] $MAIL_ENV absent -> SMTP left untouched (registration mails will not be sent)"
+fi
+
+echo "== e-mail verification"
+# DELIBERATELY NOT automatic. With verifyEmail true and SMTP broken, Keycloak
+# fails the registration flow at the send step: nobody can sign up. So: configure
+# SMTP, send a test, confirm it ARRIVES, and only then run with VERIFY_EMAIL=1.
+if [ "${VERIFY_EMAIL:-0}" = 1 ]; then
+	curl -sf -X PUT "$KC/admin/realms/${REALM:-confinia}" -H "$AUTH" \
+	  -H "Content-Type: application/json" -d '{"verifyEmail": true}' >/dev/null \
+	  && echo "  verifyEmail ON"
+else
+	echo "  verifyEmail left as-is (set VERIFY_EMAIL=1 once a test mail has ARRIVED)"
+fi
+
 echo "== organization attribute (required at signup)"
 curl -sf -H "$AUTH" "$KC/admin/realms/confinia/users/profile" \
   | python3 -c '
