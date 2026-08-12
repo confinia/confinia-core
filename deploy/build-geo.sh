@@ -49,6 +49,17 @@ RUN /app/ingest_ons.py --data-dir /data/raw/uk/chd
 RUN /app/ingest_nz.py --download --data-dir /data/raw/nz
 echo "==== [$COLOR] UK reconciliation"
 { echo "SET search_path TO public;"; cat ingestion/reconcile_uk.sql; } | PSQL
+# National temporal/statistical sources. These were missing until 2026-08-12,
+# so a rebuilt colour silently lacked 1.28 M population rows and the whole
+# Italian lineage -- the two colours were NOT interchangeable, which is the one
+# thing blue/green depends on. tests/test_build_geo_complete.py now fails if a
+# loader taking --dsn is absent from this file.
+# These two read PG_DSN from the env-file (unlike the others, whose --dsn is a
+# bare flag). Passing --dsn without a value here is an argparse error, not a
+# no-op -- it fails the whole build, which is now the correct behaviour.
+RUN /app/ingest_pop.py   --xlsx /data/raw/pop/base-pop-historiques.xlsx
+RUN /app/ingest_istat.py --zip  /data/raw/istat/soppressi.zip
+
 echo "==== [$COLOR] re-backfill sources (idempotent)"
 PSQL < ingestion/sources.sql
 
