@@ -14,7 +14,10 @@ podman exec confinia_ops-db_1 psql -U confinia -d confinia -tc \
 podman rm -f confinia-sbx_api 2>/dev/null || true
 podman run -d --name confinia-sbx_api --network host --restart unless-stopped \
   -e PG_DSN="postgresql://confinia:${PGPW}@127.0.0.1:${GEO_PORT}/confinia" \
-  -e OPS_DSN="postgresql://confinia:${PGPW}@127.0.0.1:5440/confinia_sbx" \
+  # By container name: the ops database publishes no host port since
+  # 2026-08-12 (platform audit). 127.0.0.1 inside a container is the
+  # container's own loopback, so this line was going to break silently.
+  -e OPS_DSN="postgresql://confinia:${PGPW}@confinia_ops-db_1:5432/confinia_sbx" \
   -e VISITOR_SALT_SECRET="sbx-salt" \
   -e POLAR_WEBHOOK_SECRET="$POLAR_WEBHOOK_SECRET" \
   -e POLAR_PRODUCT_PRO="$POLAR_PRODUCT_PRO" \
