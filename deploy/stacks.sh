@@ -30,7 +30,12 @@ build)
 	echo "build $c started in the background: tail -f ~/logs/build-geo-$c.log"
 	;;
 # Writes the caddy upstreams state file: active color first for the
-# public, passive for staging. Then graceful reload.
+# public, and the DEDICATED STAGING STACK (:8501) for staging, with the passive
+# colour as fallback so staging still answers if that stack is down.
+# Staging stopped BEING the passive colour on 2026-08-12 (issue #113): it was
+# both the thing you exercise and the thing production rolls back to, so a
+# staging test wrote into production's operational tables and could consume a
+# paying customer's quota.
 # The old 8093 "data slot" is GONE: that port is BURNED (held by the maplibre
 # tenant). Keeping it first in the staging upstreams meant caddy probed another
 # product's service on every staging request, and would have proxied our traffic
@@ -64,7 +69,7 @@ write-upstreams|promote)
 	}
 }
 (staging_upstreams) {
-	reverse_proxy 127.0.0.1:$PAS {
+	reverse_proxy 127.0.0.1:8501 127.0.0.1:$PAS {
 		lb_policy first
 		lb_try_duration 5s
 		lb_try_interval 250ms

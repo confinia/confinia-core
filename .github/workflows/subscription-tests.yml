@@ -108,6 +108,9 @@ jobs:
       - name: Mail and alerting as code (issue #132)
         if: always()
         run: pytest -v tests/test_mail_static.py
+      - name: Staging cannot write into production data (issue #113)
+        if: always()
+        run: pytest -v tests/test_staging_isolation.py
       - name: Credits we owe to people (issue #92)
         if: always()
         run: pytest -v tests/test_credits_static.py
