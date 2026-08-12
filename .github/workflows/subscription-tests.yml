@@ -102,6 +102,9 @@ jobs:
       - name: Italian lineage parsing (issue #91)
         if: always()
         run: pytest -v tests/test_istat.py
+      - name: Ingestion fails loudly (issue #99)
+        if: always()
+        run: pytest -v tests/test_ingestion_fails_loudly.py
       - name: Credits we owe to people (issue #92)
         if: always()
         run: pytest -v tests/test_credits_static.py
