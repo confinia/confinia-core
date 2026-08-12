@@ -36,6 +36,7 @@ table (founder-only, RULES 8) remains the authority.
 | sandbox API | **8089** (loopback) | |
 | API blue | **8091** (loopback) | container port stays 8000 |
 | API green | **8402** (loopback, band **84xx**) | moved off 8092 on 2026-08-11, see BURNED below |
+| **STAGING API** | **8501** (loopback, band **85xx**) | dedicated staging stack (issue #113); 85xx verified free 2026-08-12 and deliberately outside the contested 80xx |
 | ~~staging data slot~~ | ~~8093~~ | **removed 2026-08-11**: the port is BURNED, and probing it sent a request to another tenant's service on every staging call |
 | OTel collector — prometheus exporter | **8094** (all ifaces, ufw-blocked) | host-network since issue #85 |
 | Keycloak | **8095** (loopback) | container port stays 8180; caddy /auth -> 8095 (8087 squatted by mapmax) |
