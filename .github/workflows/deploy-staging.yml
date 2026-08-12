@@ -48,6 +48,16 @@ jobs:
           git reset --hard --quiet "$GITHUB_SHA"
           echo "mirror at $(git log --oneline -1)"
 
+      - name: Point the staging checkout at this commit
+        run: |
+          set -eu
+          cd "$DEPLOY_DIR"
+          # Staging serves its STATIC files from its own checkout (issue #111).
+          # Without this the API would be staged while the pages stayed on
+          # whatever the checkout last held -- and a static change would still
+          # be validated only after it was already live on www.
+          ./deploy/checkout-env.sh staging "$GITHUB_SHA"
+
       - name: Build and stage the passive colour
         run: |
           set -eu

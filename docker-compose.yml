@@ -24,8 +24,15 @@ services:
       - ./deploy/sites:/etc/caddy/sites:ro
       # Public confinia.io page (pitch, quickstart, attributions)
       - ./deploy/site:/srv/site:ro
-      # Demo (rsync mirror): served on staging.confinia.io for validation
       - ./demo:/srv/demo:ro
+      # STAGING and SANDBOX serve their OWN checkouts (issue #111). Until
+      # 2026-08-12 all three hostnames served /srv/site, so editing a static
+      # file WAS a production change and there was no way to validate one
+      # first -- the ⚠️ in RULES 13. Separate checkouts, separate roots.
+      - ${HOME}/staging/confinia/deploy/site:/srv/staging-site:ro
+      - ${HOME}/staging/confinia/demo:/srv/staging-demo:ro
+      - ${HOME}/sandbox/confinia/deploy/site:/srv/sbx-site:ro
+      - ${HOME}/sandbox/confinia/demo:/srv/sbx-demo:ro
       - caddy_data:/data
       - caddy_config:/config
     # no depends_on: caddy (host network) reaches the api via 127.0.0.1:8091 and
