@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: false      # never interrupt a deployment mid-flight
 
 env:
-  DEPLOY_DIR: /home/debian/projects/confinia
+  DEPLOY_DIR: /home/confinia/projects/confinia
 
 jobs:
   stage:
@@ -25,6 +25,19 @@ jobs:
     timeout-minutes: 30
     environment: staging
     steps:
+      - name: The runner must not be able to become root
+        run: |
+          set -eu
+          # The whole point of issue #114. Until 2026-08-12 this runner executed
+          # as `debian`, which has (ALL) NOPASSWD: ALL on a VM shared with five
+          # other products -- so any workflow step was unconstrained root over
+          # every tenant. If this ever passes again, the isolation is gone.
+          if sudo -n true 2>/dev/null; then
+            echo "::error::the runner can sudo without a password; see issue #114"
+            exit 1
+          fi
+          echo "runner is unprivileged, as $(id -un)"
+
       - name: Sync the deployment mirror to this commit
         run: |
           set -eu

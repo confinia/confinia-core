@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DEPLOY_DIR: /home/debian/projects/confinia
+  DEPLOY_DIR: /home/confinia/projects/confinia
 
 jobs:
   promote:
