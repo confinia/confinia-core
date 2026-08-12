@@ -13,6 +13,11 @@ contactPoints:
       - uid: confinia-founder-email
         type: email
         settings:
-          addresses: ${ALERT_TO}
+          # Literal, not ${ALERT_TO}: Grafana does NOT expand shell-style
+          # variables in provisioning files, and an unresolved one leaves
+          # `addresses` empty -- which fails provisioning and takes the whole
+          # Grafana process down, not just alerting. It is not a secret; the
+          # password is what lives in mail.env.
+          addresses: contact@confinia.io
           singleEmail: true
           subject: '[Confinia {{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
