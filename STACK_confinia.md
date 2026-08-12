@@ -133,6 +133,13 @@ colour is live.
 took the map down with a 502 on 2026-08-03; the directory is `demo/lib/` for that
 reason, and a test locks it (issue #105).
 
+**Observability of the colours.** `deploy/portwatch.sh` runs as a `confinia`
+user unit (`confinia-portwatch`) and logs every appearance or disappearance of
+`:8091` / `:8402` to `~/logs/portwatch.log`, together with the podman events
+around that instant. It exists because issue #123 recurred for a week with no
+record of *when* — see [deploy/containers/README.md](deploy/containers/README.md)
+for why the event log was blind until the migration.
+
 **Port map**
 
 | Port | Service |
