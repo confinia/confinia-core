@@ -22,7 +22,7 @@ Active colour: **blue** on `:8091` (production) · passive: **green** on `:8402`
 | [#114](https://github.com/confinia/confinia-core/issues/114) | **SECURITY** — CI runner runs as `debian`, passwordless root | issue created, **blocked on #99** | nowhere |
 | [#113](https://github.com/confinia/confinia-core/issues/113) | Staging needs its own stack and DB; today it writes into production data | issue created, **not started** | nowhere |
 | [#111](https://github.com/confinia/confinia-core/issues/111) | Sandbox needs its own working directory before PR branches can deploy | issue created, **not started** | nowhere |
-| [#99](https://github.com/confinia/confinia-core/issues/99) | Move the stack to its own Unix user | **DONE 2026-08-11**, ~23 min downtime, every count matched first time. Green still needs rebuilding by double ingestion | **production** — the whole stack now runs as `confinia` |
+| [#99](https://github.com/confinia/confinia-core/issues/99) | Move the stack to its own Unix user | **DONE 2026-08-11/12.** ~23 min downtime, every count matched first time; green rebuilt by double ingestion and both colours now agree exactly (205 370 / 2 128 / 1 285 119). Old volumes kept until #114 lands | **production** — the whole stack runs as `confinia`, rollback target restored |
 | [#91](https://github.com/confinia/confinia-core/issues/91) | Italy: temporal model, then historical demography | **half delivered** — lineage merged (PR #120); demography not started | **staging** — 2 128 dead comuni now route to a successor, 1865-2024 |
 | [#90](https://github.com/confinia/confinia-core/issues/90) | PDF/SVG report: traceability annex | issue created, **not started**; folded into #121's structure | nowhere |
 
