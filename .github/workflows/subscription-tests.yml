@@ -105,6 +105,9 @@ jobs:
       - name: Ingestion fails loudly (issue #99)
         if: always()
         run: pytest -v tests/test_ingestion_fails_loudly.py
+      - name: Mail and alerting as code (issue #132)
+        if: always()
+        run: pytest -v tests/test_mail_static.py
       - name: Credits we owe to people (issue #92)
         if: always()
         run: pytest -v tests/test_credits_static.py

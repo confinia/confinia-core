@@ -1,0 +1,14 @@
+# Where alerts go, AS CODE (issue #132).
+#
+# One route, one destination. Grouping is deliberate: an ops mailbox that gets a
+# message per firing instance stops being read, and an unread alert channel is
+# indistinguishable from no alert channel.
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: founder-email
+    group_by: ['alertname']
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 12h
