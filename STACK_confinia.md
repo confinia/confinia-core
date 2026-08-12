@@ -265,14 +265,17 @@ Full flow, including what the smoke actually hits and why: [DEPLOY.md](DEPLOY.md
 |---|---|
 | Name / labels | `confinia-vm` · `self-hosted, Linux, X64, confinia-vm` |
 | Repo | `confinia/confinia-core` |
-| Runs as | **`debian`** ⚠️ — system-level systemd unit `actions.runner.confinia-confinia-core.confinia-vm.service` |
+| Runs as | **`confinia`**, no sudo — user-level unit `confinia-runner.service`, kept alive by `loginctl enable-linger` (2026-08-12, issue #114) |
 | Fork policy | `all_external_contributors` — no external workflow runs without explicit approval |
 
-**The deviation that matters.** The template says: *"The admin `debian` user runs
-no product runner — a product runner as `debian` would have root reach over every
-tenant."* Confinia's runner is exactly that. `debian` has `(ALL) NOPASSWD: ALL`,
-so any job on this runner is unconstrained root on a VM shared with five other
-products.
+**Fixed on 2026-08-12.** Until then the runner ran as `debian`, which has
+`(ALL) NOPASSWD: ALL`, so any workflow job was unconstrained root on a VM shared
+with five other products. It now runs as `confinia`, which cannot sudo, and
+`deploy-staging` **asserts that on every run** — a comment cannot enforce a
+privilege boundary.
+
+`svc.sh install` needs sudo, so the runner uses a user-level systemd unit
+instead, kept alive by the linger the migration already enabled.
 
 The fork-approval policy is the only thing standing between a public repository
 and that root. It is a real control, but it is one setting, and it protects
