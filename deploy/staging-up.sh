@@ -27,8 +27,8 @@
 # The ops database is reached BY CONTAINER NAME, not through a published host
 # port. Proven on 2026-08-12: confinia_ops-db_1 resolves on the colour network
 # and answers on 5432, so nothing needs to be exposed on the host at all. The
-# colour APIs still use host.containers.internal:5440 -- see the note in
-# PORTS.md; moving them is a small, sequenced change.
+# colour APIs and Keycloak were moved the same way on 2026-08-12, and the
+# database no longer publishes a host port at all.
 #
 # Uses `podman run` rather than compose, following deploy/sandbox-up.sh: the
 # container must join the PASSIVE colour's network to reach its database, and

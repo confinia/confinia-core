@@ -107,9 +107,23 @@ confinia_ops-db_1 -> 10.89.2.17:5432 OPEN
 
 Staging now runs that way end to end, with `OPS_DSN=...@confinia_ops-db_1:5432/...`.
 
-**Remaining, deliberately sequenced** because it touches production's database
-connectivity: connect the ops db to the blue and sandbox networks, switch each
-colour's `OPS_DSN` (passive colour first, then promote, then the other — which is
-what blue/green is for), and only then recreate `confinia_ops-db_1` without the
-`ports:` entry. After that `ufw` stops being the only thing protecting the
-customer database.
+**DONE 2026-08-12.** Both colours, staging, sandbox and Keycloak reach the
+database by container name; `confinia_ops-db_1` publishes nothing. `ufw` is no
+longer the only thing between the customer accounts and the internet.
+
+Each colour was switched separately, relying on caddy's fallback to the other —
+production answered 200 throughout.
+
+Three things learned doing it, worth knowing before touching this again:
+
+- **Keycloak used the same host port**, and it holds the 11 customer accounts.
+  Removing the port would have taken identity down while everything else looked
+  healthy. A test caught it *before* the change was applied.
+- **`podman network connect` does not survive a recreate.** Connecting the
+  running container by hand and then recreating it left the new one on
+  `confinia_default` only: every quota check, API-key lookup and billing read
+  failed on all three environments **while `/healthz` stayed green**, because it
+  reads only the geo database. The membership is now declared in
+  `docker-compose.yml` and proven with `--force-recreate`.
+- **Recreating the database requires restarting the API containers.** Their
+  connection pools hold dead sockets and return 500s until they do.
