@@ -32,6 +32,9 @@ data/
 deploy/secrets.env
 # Polar sandbox credentials (test environment) — never in the repo
 deploy/sandbox.env
+# SMTP for alert@confinia.io — never in the repo (issue #132).
+# deploy/mail.env.example is the committed template.
+deploy/mail.env
 
 # Captured HTTP archives may contain session cookies — never commit
 *.har

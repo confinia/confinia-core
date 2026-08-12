@@ -1,0 +1,18 @@
+# Contact points, AS CODE (issue #132). Never created in the UI: a UI object
+# disappears on the next container rebuild, silently, and an alerting setup that
+# has quietly stopped existing is worse than none.
+#
+# No secret here. The SMTP password lives in deploy/mail.env, which is
+# gitignored; this file is committed and only names the recipient.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: founder-email
+    receivers:
+      - uid: confinia-founder-email
+        type: email
+        settings:
+          addresses: ${ALERT_TO}
+          singleEmail: true
+          subject: '[Confinia {{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
