@@ -127,3 +127,21 @@ def test_the_burned_ports_are_not_bound_anywhere():
                 continue
             for burned in ("8092", "8093", "8096", "8098"):
                 assert burned not in line, f"{rel}: binds burned port {burned}: {line.strip()}"
+
+
+def test_the_deploy_dir_is_the_confinia_home():
+    # The stack moved to the confinia user on 2026-08-11 (#99). A workflow still
+    # pointing at /home/debian operates on a home that no longer owns anything,
+    # and its guard then refuses because the ports belong to another user --
+    # which is exactly how deploy-staging broke on 6869992.
+    for f in ("deploy-staging.yml", "promote-production.yml"):
+        s = _wf(f)
+        assert "/home/confinia/projects/confinia" in s, f"{f}: wrong DEPLOY_DIR"
+        assert "/home/debian/projects" not in s, f"{f}: still points at the old home"
+
+
+def test_the_runner_privilege_is_asserted_at_deploy_time():
+    # A comment cannot enforce this; the job must check it every run.
+    s = _wf("deploy-staging.yml")
+    assert "sudo -n true" in s, \
+        "deploy-staging must assert the runner cannot become root (issue #114)"
