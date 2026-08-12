@@ -130,3 +130,15 @@ podman-compose ciblée ; jamais de source de données contenant U+FFFD.
    reprend ce qu'on vient de toucher — et une issue de sécurité reste ouverte
    une semaine pendant qu'on en ferme trois cosmétiques. L'état sur lequel
    s'appuyer est `ISSUES.md` (règle 14). (issue #140)
+
+16. **Ne pas demander pour une question fermée.** Par défaut : **oui**, y compris
+   pour autoriser l'exécution d'un script. Ne solliciter le fondateur que
+   lorsque la réponse n'est pas un simple oui/non — c'est-à-dire quand il faut
+   arbitrer entre plusieurs options qui engagent différemment.
+   **Pourquoi :** une question fermée n'apporte aucune information — si la
+   réponse est prévisible, la poser ne fait que déplacer le travail vers le
+   fondateur et casser le rythme. Ce qui mérite une question, c'est un choix
+   dont l'agent ne peut pas porter seul les conséquences. (issue #143)
+   ⚠️ Ça ne lève pas les règles 8 (Caddyfile plateforme) ni 13 (validation sur
+   staging avant la production) : celles-là ne sont pas des questions fermées,
+   ce sont des décisions du fondateur.
