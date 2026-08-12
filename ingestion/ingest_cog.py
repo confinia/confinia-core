@@ -514,10 +514,15 @@ def main():
 
     sanity_checks(versions)
 
-    wrote_db = False
     if args.dsn:
-        wrote_db = to_postgis(versions, args.dsn)
-    if not wrote_db:
+        # Asking for a DSN means "write to the database". Falling back to a
+        # geojson and exiting 0 makes a failed load indistinguishable from a
+        # successful one: on 2026-08-12 the green rebuild printed "PostGIS
+        # connection failed" and then "Done.", and the pipeline carried on for
+        # an hour populating nothing.
+        if not to_postgis(versions, args.dsn):
+            sys.exit("FAILED: --dsn was given but nothing was written to PostGIS")
+    else:
         to_geojson(versions, args.geojson)
 
     print("\nDone.")

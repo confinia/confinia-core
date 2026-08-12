@@ -21,7 +21,13 @@ RUN() {
 PSQL() { podman exec -i "$DB" psql -U confinia -d confinia -v ON_ERROR_STOP=1 -q; }
 
 echo "==== [$COLOR] waiting for the database"
-until podman exec "$DB" pg_isready -U confinia -d confinia >/dev/null 2>&1; do sleep 2; done
+# NOT pg_isready: a freshly created postgres container answers it from its
+# INITDB server, which then shuts down and restarts. An ingestion started in
+# that gap gets "connection refused" against a database that looks ready.
+# The compose healthcheck only passes once the real server is serving.
+until podman ps --format '{{.Names}} {{.Status}}' | grep -q "^$DB Up.*healthy"; do sleep 3; done
+# and one real query, because "healthy" is still someone else's assertion
+until podman exec "$DB" psql -U confinia -d confinia -tAc 'select 1' >/dev/null 2>&1; do sleep 2; done
 
 RUN /app/ingest_cog.py --millesimes 2025 --data-dir /data/raw/insee
 RUN /app/join_geometry.py --millesimes 2025 --data-dir /data/raw/insee \
