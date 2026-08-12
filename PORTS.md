@@ -36,7 +36,7 @@ table (founder-only, RULES 8) remains the authority.
 | sandbox API | **8089** (loopback) | |
 | API blue | **8091** (loopback) | container port stays 8000 |
 | API green | **8402** (loopback, band **84xx**) | moved off 8092 on 2026-08-11, see BURNED below |
-| **STAGING API** | **8501** (loopback, band **85xx**) | dedicated staging stack (issue #113); 85xx verified free 2026-08-12 and deliberately outside the contested 80xx |
+| **STAGING API** | **8403** (loopback, band **84xx**) | dedicated staging stack (issue #113). Was 8501 for a few hours on 2026-08-12 — **85xx belongs to panoramax**, and I had only checked the port was free, not that it was ours |
 | ~~staging data slot~~ | ~~8093~~ | **removed 2026-08-11**: the port is BURNED, and probing it sent a request to another tenant's service on every staging call |
 | OTel collector — prometheus exporter | **8094** (all ifaces, ufw-blocked) | host-network since issue #85 |
 | Keycloak | **8095** (loopback) | container port stays 8180; caddy /auth -> 8095 (8087 squatted by mapmax) |
@@ -74,3 +74,42 @@ precedent as overwatch's green move to 90xx.
 The lesson worth carrying: a reserved band is a *convention*, not an
 enforcement. `ss -ltnp` is the only source of truth about who holds a port, and
 a deploy script must consult it before assuming a port is its own.
+
+## `confinia_ops-db_1` publishes `0.0.0.0:5440` — measured, not yet changed
+
+Raised by the platform audit on 2026-08-12: the operational database — customer
+accounts, API keys, billing state — is bound on **all interfaces**, and is
+private only because `ufw` denies incoming by default. One firewall rule between
+that table and the internet.
+
+**Rebinding it to `127.0.0.1:5440` would break production.** Measured from inside
+a running API container:
+
+```
+127.0.0.1                -> 127.0.0.1     5440 REFUSED   (the container's own loopback)
+host.containers.internal -> 169.254.1.2   5440 OPEN
+```
+
+Every API container reaches the ops database through `host.containers.internal`,
+which is **not** the host's loopback. A loopback bind makes it unreachable from
+production, staging and sandbox at once. And 169.254.1.2 cannot be bound
+directly either: it is an alias inside the container network namespace, not an
+address on the host (`ip addr` shows only `127.0.0.1` and the public IP).
+
+**The right fix removes the host port entirely.** Proven on 2026-08-12: connect
+the ops database to a colour network and it is reachable by container name, with
+nothing published:
+
+```
+podman network connect confinia-green_default confinia_ops-db_1
+confinia_ops-db_1 -> 10.89.2.17:5432 OPEN
+```
+
+Staging now runs that way end to end, with `OPS_DSN=...@confinia_ops-db_1:5432/...`.
+
+**Remaining, deliberately sequenced** because it touches production's database
+connectivity: connect the ops db to the blue and sandbox networks, switch each
+colour's `OPS_DSN` (passive colour first, then promote, then the other — which is
+what blue/green is for), and only then recreate `confinia_ops-db_1` without the
+`ports:` entry. After that `ufw` stops being the only thing protecting the
+customer database.
