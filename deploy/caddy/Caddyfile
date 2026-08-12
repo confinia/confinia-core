@@ -143,21 +143,21 @@ http://staging.confinia.io {
 	}
 	# Validation of the pricing page before www exposure.
 	handle /pricing {
-		root * /srv/site
+		root * /srv/staging-site
 		rewrite * /pricing.html
 		file_server
 	}
 	handle /commune/* {
-		root * /srv/site
+		root * /srv/staging-site
 		rewrite * /commune.html
 		file_server
 	}
 	handle /account.html {
-		root * /srv/site
+		root * /srv/staging-site
 		file_server
 	}
 	handle /polar-embed.js {
-		root * /srv/site
+		root * /srv/staging-site
 		file_server
 	}
 	# Keycloak (confinia realm) so the account page's sign-in / registration
@@ -166,7 +166,7 @@ http://staging.confinia.io {
 		reverse_proxy 127.0.0.1:8095
 	}
 	handle {
-		root * /srv/demo
+		root * /srv/staging-demo
 		file_server
 	}
 }
@@ -208,25 +208,25 @@ http://sandbox.confinia.io {
 			}
 		}
 		handle /account.html {
-			root * /srv/site/sbx
+			root * /srv/sbx-site/sbx
 			file_server
 		}
 		handle /commune/* {
-			root * /srv/site
+			root * /srv/sbx-site
 			rewrite * /commune.html
 			file_server
 		}
 		handle /pricing {
-			root * /srv/site/sbx
+			root * /srv/sbx-site/sbx
 			rewrite * /pricing.html
 			file_server
 		}
 		handle /polar-embed.js {
-			root * /srv/site/sbx
+			root * /srv/sbx-site/sbx
 			file_server
 		}
 		handle {
-			root * /srv/demo
+			root * /srv/sbx-demo
 			file_server
 		}
 	}

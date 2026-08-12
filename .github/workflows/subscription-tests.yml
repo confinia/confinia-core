@@ -111,6 +111,9 @@ jobs:
       - name: Staging cannot write into production data (issue #113)
         if: always()
         run: pytest -v tests/test_staging_isolation.py
+      - name: Each environment serves its own static files (issue #111)
+        if: always()
+        run: pytest -v tests/test_static_per_environment.py
       - name: Credits we owe to people (issue #92)
         if: always()
         run: pytest -v tests/test_credits_static.py

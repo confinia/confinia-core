@@ -96,10 +96,15 @@
    n'existe pas.** Rien ne part en production sans avoir été exercé sur
    **staging.confinia.io**, puis validé par le fondateur : sa relecture fait
    partie du flux, pas de la politesse.
-   ⚠️ **Les fichiers statiques n'ont pas de staging** : `./demo` et
-   `./deploy/site` sont montés dans le même caddy pour www et pour staging, donc
-   un simple rsync vers le miroir **modifie la production immédiatement**. Pour
-   eux, la vérification se fait AVANT le rsync (servis localement, contrôlés par
+   ~~⚠️ **Les fichiers statiques n'ont pas de staging**~~ — **corrigé le
+   2026-08-12 (issue #111)** : staging et sandbox servent désormais leurs
+   PROPRES checkouts (`~/staging/confinia`, `~/sandbox/confinia`), montés
+   séparément dans caddy. Un changement statique se valide donc sur
+   staging.confinia.io avant d'atteindre www, comme le reste. Ce qui suit est
+   conservé comme trace de ce que ça coûtait : `./demo` et
+   `./deploy/site` étaient montés dans le même caddy pour www et pour staging, donc
+   un simple rsync vers le miroir **modifiait la production immédiatement**. Pour
+   eux, la vérification se faisait AVANT le rsync (servis localement, contrôlés par
    leur comportement), et le compte rendu dit franchement que c'est déjà en
    ligne. (issue #107 ; le 2026-08-03 un rsync « pour tester » a mis la carte
    de www hors service, sous un chemin bloqué par notre propre filtre)
