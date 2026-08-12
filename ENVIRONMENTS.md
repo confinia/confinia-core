@@ -12,8 +12,8 @@ production faces end users and only production touches real money.
 | **Job** | act with **no accounting impact**; validate in a **short loop** | validate the prod-bound build **before opening the gates** to end users | **deliver** the work to end users; close issue + PR |
 | **Host** | sandbox.confinia.io | staging.confinia.io · staging.api.confinia.io | www.confinia.io · api.confinia.io |
 | **Access** | basic auth | basic auth | public |
-| **Payments (Polar)** | **sandbox mode** — Stripe test cards, no real charge | prod config, but **payments are tested in sandbox, not here** | **production** — real cards, real money |
-| **Data / API** | fully **isolated**: own API (:8089), throwaway ops db `confinia_sbx`, realm `confinia-sbx` | the **passive color** (candidate), shared ops db, realm `confinia` | the **active color**, shared ops db, realm `confinia` |
+| **Payments (Polar)** | **sandbox mode** — Stripe test cards, no real charge | **sandbox mode** since 2026-08-12 — a staging click cannot produce a real charge | **production** — real cards, real money |
+| **Data / API** | fully **isolated**: own API (:8089), throwaway ops db `confinia_sbx`, realm `confinia-sbx` | **its own stack** (:8501) since 2026-08-12: own ops db `confinia_staging`, realm `confinia-sbx`, Polar test; reads the passive colour's geo db read-only | the **active color**, ops db `confinia`, realm `confinia` |
 | **Identity** | realm `confinia-sbx`, auth on sandbox host | realm `confinia` | realm `confinia` |
 | **Banner** | SANDBOX | STAGING | none |
 | **Deploy** | direct (rsync + relaunch), fast iteration | `deploy-api.sh stage` → serves the passive color | `deploy-api.sh promote` → passive becomes active |
