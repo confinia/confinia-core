@@ -19,14 +19,14 @@
 | Field | This product |
 |---|---|
 | Product | `confinia` |
-| Unix user | **`debian`** ⚠️ — not a dedicated user; the move is written up in [MOVE.md](MOVE.md), attempted 2026-08-02 and rolled back (issue #99) |
+| Unix user | **`confinia`**, no sudo — migrated 2026-08-11, ~23 min downtime ([MOVE.md](MOVE.md), issue #99) |
 | Repo | `confinia/confinia-core` (**public**) |
 | Port band | `80xx` |
 | Apex hostname | `www.confinia.io` (`confinia.io` 301-redirects to it) |
 | Project edge router port | `127.0.0.1:8085` |
 | Sandbox entry port | `127.0.0.1:8089` |
 | Staging stack port | none — staging *is* the passive colour. The old `8093` slot was removed on 2026-08-11: that port is BURNED (see §4) |
-| Isolation unit | one rootless podman user — **shared with every other product**, because that user is `debian` |
+| Isolation unit | one rootless podman user, **its own** since 2026-08-11 |
 
 **Public hostnames → local port** (registered in the platform edge, §4):
 
