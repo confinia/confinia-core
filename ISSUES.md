@@ -7,7 +7,7 @@ the work is deployed, and "merged" has been mistaken for "live" here before.
 **Where can I try it** uses the four answers of RULES 12: **nowhere** ·
 **sandbox** · **staging** · **production**.
 
-Last updated: **2026-08-11**, `main` at `eec88bd`.
+Last updated: **2026-08-12**, `main` at `861a9f8`.
 Active colour: **blue** on `:8091` (production) · passive: **green** on `:8402` (staging, band 84xx since 2026-08-11).
 
 ## Open
@@ -21,7 +21,7 @@ Active colour: **blue** on `:8091` (production) · passive: **green** on `:8402`
 | [#115](https://github.com/confinia/confinia-core/issues/115) | Adopt STACK_template.md: close the documented gaps | issue created, tracking others | nowhere (umbrella) |
 | [#114](https://github.com/confinia/confinia-core/issues/114) | **SECURITY** — CI runner ran as `debian`, passwordless root | **DONE 2026-08-12**: runs as `confinia` via a user-level unit; `deploy-staging` asserts `sudo -n` fails on every run | **production** — the next `deploy-staging` run |
 | [#113](https://github.com/confinia/confinia-core/issues/113) | Staging needs its own stack and DB; today it writes into production data | issue created, **not started** | nowhere |
-| [#111](https://github.com/confinia/confinia-core/issues/111) | Sandbox needs its own working directory before PR branches can deploy | issue created, **not started** | nowhere |
+| [#111](https://github.com/confinia/confinia-core/issues/111) | Sandbox and staging need their own working directories | **static files DONE 2026-08-12**: `~/staging/confinia` and `~/sandbox/confinia`, mounted separately; proven a staging edit does not reach www. Deploying a PR branch to the sandbox API is the remaining half | **staging** |
 | [#99](https://github.com/confinia/confinia-core/issues/99) | Move the stack to its own Unix user | **DONE 2026-08-11/12.** ~23 min downtime, every count matched first time; green rebuilt by double ingestion and both colours now agree exactly (205 370 / 2 128 / 1 285 119). Old volumes kept until #114 lands | **production** — the whole stack runs as `confinia`, rollback target restored |
 | [#91](https://github.com/confinia/confinia-core/issues/91) | Italy: temporal model, then historical demography | **half delivered** — lineage merged (PR #120); demography not started | **staging** — 2 128 dead comuni now route to a successor, 1865-2024 |
 | [#90](https://github.com/confinia/confinia-core/issues/90) | PDF/SVG report: traceability annex | issue created, **not started**; folded into #121's structure | nowhere |
