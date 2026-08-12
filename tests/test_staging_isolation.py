@@ -59,10 +59,11 @@ def test_staging_is_routed_to_its_own_stack():
     stacks = _read("deploy", "stacks.sh")
     m = re.search(r"\(staging_upstreams\) \{\n\treverse_proxy ([^\n{]+)", stacks)
     assert m, "the staging upstream block changed shape"
-    assert "8501" in m.group(1), "staging must reach the dedicated stack first"
+    assert "8403" in m.group(1), "staging must reach the dedicated stack first"
 
 
 def test_staging_does_not_bind_a_burned_or_colour_port():
     sh = _read("deploy", "staging-up.sh")
-    for taken in ("8091", "8402", "8092", "8093", "8096", "8098"):
+    # Burned ports, the colours' own ports, and 85xx which belongs to panoramax.
+    for taken in ("8091", "8402", "8092", "8093", "8096", "8098", "8501", "8502"):
         assert f":{taken}:" not in sh, f"staging must not bind {taken}"

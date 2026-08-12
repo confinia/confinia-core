@@ -16,13 +16,27 @@
 #            build artefact and every write in api/main.py targets OPS_DSN.
 #            tests/test_staging_isolation.py asserts that premise still holds.
 #
+# PORT 8403 is inside confinia's own 84xx band (platform table: "confinia GREEN
+# + staging"). It was 8501 for a few hours on 2026-08-12 -- self-assigned from a
+# band I had only checked was FREE, not whether it was MINE. 85xx belongs to
+# panoramax. "Free" is not "available", which is exactly the reasoning that cost
+# us 8092: another tenant checked the same way.
+# If 84xx ever fills up, request an extension via confinia/platform. Never
+# self-assign.
+#
+# The ops database is reached BY CONTAINER NAME, not through a published host
+# port. Proven on 2026-08-12: confinia_ops-db_1 resolves on the colour network
+# and answers on 5432, so nothing needs to be exposed on the host at all. The
+# colour APIs still use host.containers.internal:5440 -- see the note in
+# PORTS.md; moving them is a small, sequenced change.
+#
 # Uses `podman run` rather than compose, following deploy/sandbox-up.sh: the
 # container must join the PASSIVE colour's network to reach its database, and
 # which colour that is changes at every promotion. RE-RUN THIS AFTER A PROMOTION.
 set -eu
 cd "$(dirname "$0")/.."
 
-PORT=8501
+PORT=8403
 NAME=confinia-staging_api_1
 OPS_DB=confinia_staging
 
@@ -54,7 +68,7 @@ podman run -d --name "$NAME" --network "$NET" \
 	-p "127.0.0.1:${PORT}:8000" \
 	--env-file deploy/secrets.env \
 	-e PG_DSN="postgresql://confinia:${PW}@db:5432/confinia" \
-	-e OPS_DSN="postgresql://confinia:${PW}@host.containers.internal:5440/${OPS_DB}" \
+	-e OPS_DSN="postgresql://confinia:${PW}@confinia_ops-db_1:5432/${OPS_DB}" \
 	-e KC_ISSUER="https://www.confinia.io/auth/realms/confinia-sbx" \
 	-e POLAR_MODE=sandbox \
 	-e CONFINIA_ENV=staging \
