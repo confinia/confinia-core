@@ -1,7 +1,10 @@
 # MOVE.md — moving the Confinia stack to its own Unix user
 
-**Status: ATTEMPTED ON 2026-08-01 AND ROLLED BACK.**
-**The restore method has since been REHEARSED AND PROVEN (2026-08-03).**
+**Status: DONE — the cutover completed on 2026-08-11.**
+Production runs as `confinia`. About **23 minutes of downtime**, behind the
+maintenance page. Every success criterion matched on the first attempt. See
+"What actually happened on the successful run" below; the 2026-08-01 failure is
+kept because its lessons are what made this one work.
 
 The cutover was attempted and failed on the database restore. Production was
 down for about **15 hours** (17:42 UTC to 08:59 UTC) before rollback, against a
@@ -167,6 +170,57 @@ Two traps met and worth knowing before the window:
 **What is still unrehearsed:** the image rebuilds under the new user, the caddy
 start on `:8085` (which is where the downtime actually begins, since both
 caddies cannot bind it at once), and the edge-state paths in practice.
+
+## What actually happened on the successful run (2026-08-11)
+
+**~23 minutes of downtime** (caddy stopped ~20:52 UTC, new caddy up 21:16), of
+which the first two minutes were a bare 502 before the maintenance page went up.
+Within the declared decision point of 25 minutes.
+
+Success criteria, all matched on the first attempt — and note they are **not**
+the numbers written in this file a week earlier:
+
+| Criterion | Expected | Got |
+|---|---|---|
+| Keycloak users | 11 | **11** |
+| …with credentials | 11 | **11** |
+| Keycloak tables | 87 | **87** |
+| Realms | 3 | **3** |
+| API keys | 13 | **13** |
+| Subscriptions | 1 | **1** |
+| `premium_seen` | 24 | **24** |
+| `visitor_daily` | 1306 | **1306** |
+| `commune_version` | 205 370 | **205 370** |
+| Production smoke | 11 passed | **11 passed** |
+
+### Five things that went wrong, and none of them cost the window
+
+- **The staged artefacts were six days stale.** Between them and the cutover the
+  ops database had gained *a Keycloak account, an API key and eight
+  `premium_seen` rows*. Restoring them would have deleted a real customer while
+  every count still looked plausible. Re-dumped inside the window.
+- **This document told me to do the thing it forbids**: the cutover block used
+  `podman exec -i … < file`, the exact pattern that caused the 15-hour outage.
+  Fixed before following it.
+- **`podman-compose down` did not stop the colour stacks** ("network is being
+  used"), so the old blue kept holding `:8091` and the new one could not bind.
+  Stop the containers explicitly, not just the project.
+- **Postgres restores race with `initdb`.** `pg_isready` answers during the
+  container's *initialisation* server, which then shuts down mid-restore. Wait
+  for the container to report **healthy**, not for `pg_isready`.
+- **The volume rehearsal tested reading, not writing.** Grafana came up and
+  failed with `attempt to write a readonly database`. Reading 543 files proved
+  nothing about the process that has to write them. A `chown -R 472:0` and a
+  restart fixed it — but the rehearsal should have written.
+
+### Still to do after the move
+
+- Rebuild **green** by double ingestion (`stacks.sh build green`). Until then
+  blue serves production **with no rollback target**.
+- Move the GitHub Actions runner to the `confinia` user (#114) — this migration
+  is what unblocked it.
+- Only then, as `debian`: delete the old volumes, `~/projects/confinia`, and the
+  legacy `confinia_pgdata`.
 
 ## The one fact that shapes the whole procedure
 
