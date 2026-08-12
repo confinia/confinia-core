@@ -77,3 +77,24 @@ def test_verify_email_is_not_flipped_automatically():
     assert "VERIFY_EMAIL" in sh, "flipping verifyEmail must be a deliberate act"
     m = re.search(r'if \[ "\$\{VERIFY_EMAIL:-0\}" = 1 \]', sh)
     assert m, "verifyEmail must default to OFF"
+
+
+def test_no_shell_style_interpolation_in_provisioning():
+    """Grafana does not expand ${VAR} in provisioning files.
+
+    An unresolved one leaves the setting EMPTY, provisioning fails, and the
+    whole Grafana process refuses to start -- not just alerting. That is what
+    ${ALERT_TO} did on 2026-08-12: /grafana returned 502 until it was replaced
+    by the literal address.
+
+    Grafana has $__env{VAR} for this, but only in some contexts. A literal is
+    safer for anything that is not a secret; secrets stay in mail.env.
+    """
+    import glob
+    for path in sorted(glob.glob(os.path.join(ALERTING, "*.yml"))):
+        for line in open(path, encoding="utf-8").read().splitlines():
+            if line.strip().startswith("#"):
+                continue
+            assert not re.search(r"\$\{[A-Za-z_]", line), (
+                f"{os.path.basename(path)}: Grafana will not expand this, and the "
+                f"empty value takes the whole process down: {line.strip()}")
