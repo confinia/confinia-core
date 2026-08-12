@@ -98,3 +98,17 @@ def test_no_shell_style_interpolation_in_provisioning():
             assert not re.search(r"\$\{[A-Za-z_]", line), (
                 f"{os.path.basename(path)}: Grafana will not expand this, and the "
                 f"empty value takes the whole process down: {line.strip()}")
+
+
+def test_the_password_is_asked_for_exactly_once():
+    """A secret requested twice gets filled in once.
+
+    The first mail.env.example asked for SMTP_PASSWORD and GF_SMTP_PASSWORD --
+    the same value under two names. Exactly one was set, so Grafana could send
+    and Keycloak could not, and nothing said so.
+    """
+    tpl = _read("deploy", "mail.env.example")
+    pw_lines = [l for l in tpl.splitlines()
+                if "PASSWORD" in l and not l.strip().startswith("#")]
+    assert len(pw_lines) == 1, \
+        f"the template asks for a password {len(pw_lines)} times: {pw_lines}"

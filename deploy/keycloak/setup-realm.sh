@@ -38,15 +38,19 @@ echo "== SMTP (issue #132)"
 MAIL_ENV="${MAIL_ENV:-mail.env}"
 if [ -f "$MAIL_ENV" ]; then
 	get() { grep "^$1=" "$MAIL_ENV" | cut -d= -f2- | tr -d '"'"'"'"'; }
+	# Reads the SAME variables Grafana uses. One secret, one name: the first
+	# version of mail.env asked for the password twice and got it once.
+	# GF_SMTP_HOST carries "host:port", which Keycloak wants split.
 	SMTP_JSON=$(python3 -c '
 import json, sys
-host, port, user, pw, frm, name = sys.argv[1:7]
+hostport, user, pw, frm, name = sys.argv[1:6]
+host, _, port = hostport.partition(":")
 print(json.dumps({"smtpServer": {
-    "host": host, "port": port, "from": frm, "fromDisplayName": name,
+    "host": host, "port": port or "587", "from": frm, "fromDisplayName": name,
     "auth": "true", "user": user, "password": pw,
     "starttls": "true", "ssl": "false",
-}}))' "$(get SMTP_HOST)" "$(get SMTP_PORT)" "$(get SMTP_USER)" \
-     "$(get SMTP_PASSWORD)" "$(get SMTP_FROM)" "$(get SMTP_FROM_NAME)")
+}}))' "$(get GF_SMTP_HOST)" "$(get GF_SMTP_USER)" \
+     "$(get GF_SMTP_PASSWORD)" "$(get GF_SMTP_FROM_ADDRESS)" "$(get GF_SMTP_FROM_NAME)")
 	curl -sf -X PUT "$KC/admin/realms/${REALM:-confinia}" -H "$AUTH" \
 	  -H "Content-Type: application/json" -d "$SMTP_JSON" >/dev/null \
 	  && echo "  SMTP configured from $MAIL_ENV" \
