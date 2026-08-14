@@ -12,6 +12,7 @@ services:
       - ../secrets.env
     ports:
       - "127.0.0.1:5442:5432"
+      - "127.0.0.1:11230:5432"   # 1PESI dual-publish — 11xxx migration, platform PR #8
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -36,6 +37,7 @@ services:
       # start at all -- "rootlessport listen tcp 127.0.0.1:8092: address already
       # in use". Never bind 8092/8093/8096/8098 again.
       - "127.0.0.1:8402:8000"
+      - "127.0.0.1:11220:8000"   # 1PESI dual-publish — 11xxx migration, platform PR #8
     depends_on:
       db:
         condition: service_healthy
