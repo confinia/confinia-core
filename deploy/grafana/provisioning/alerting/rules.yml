@@ -60,7 +60,12 @@ groups:
             relativeTimeRange: {from: 600, to: 0}
             datasourceUid: PBFA97CFB590B2093
             model:
-              expr: 'sum(rate(http_server_duration_milliseconds_count{http_status_code=~"5.."}[10m]))'
+              # `or vector(0)` matters: with no 5xx at all the series does not
+              # exist, Grafana reports NoData, and NoData fires by default -- so
+              # the alert went off BECAUSE nothing was wrong. It did exactly
+              # that on 2026-08-13, one day after being written, which is how
+              # an ops mailbox stops being read.
+              expr: 'sum(rate(http_server_duration_milliseconds_count{http_status_code=~"5.."}[10m])) or vector(0)'
               instant: true
               refId: RATE
           - refId: BREACH
@@ -72,6 +77,11 @@ groups:
                 - evaluator: {type: gt, params: [0.05]}
               refId: BREACH
         for: 10m
+        # Belt and braces: if the datasource itself is unreachable that is a
+        # monitoring problem, not an API problem, and it must not masquerade as
+        # one. The colour-down rule already covers the API actually being dead.
+        noDataState: OK
+        execErrState: OK
         labels: {severity: warning, scope: api}
         annotations:
           summary: 'The API is serving 5xx responses'

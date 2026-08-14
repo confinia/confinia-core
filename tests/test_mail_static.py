@@ -112,3 +112,22 @@ def test_the_password_is_asked_for_exactly_once():
                 if "PASSWORD" in l and not l.strip().startswith("#")]
     assert len(pw_lines) == 1, \
         f"the template asks for a password {len(pw_lines)} times: {pw_lines}"
+
+
+def test_no_rule_fires_because_nothing_is_wrong():
+    """A rate() over an absent series is NoData, and NoData fires by default.
+
+    The 5xx rule did exactly that on 2026-08-13, one day after being written: it
+    alerted because there were no server errors at all. An alert that fires when
+    everything is fine is the fastest way to make the channel unread — which the
+    rules file itself warns about, two lines above the rule that did it.
+    """
+    rules = _read("deploy", "grafana", "provisioning", "alerting", "rules.yml")
+    for line in rules.splitlines():
+        if "rate(" not in line or line.strip().startswith("#"):
+            continue
+        assert "or vector(0)" in line, (
+            "a rate() over a series that may be absent yields NoData, which "
+            f"fires: {line.strip()[:90]}")
+    assert "noDataState: OK" in rules, \
+        "an unreachable datasource is a monitoring problem, not an API outage"
