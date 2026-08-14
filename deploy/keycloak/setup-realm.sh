@@ -8,6 +8,11 @@ cd "$(dirname "$0")/.."
 # CI override: KC_SETUP_URL / KC_SETUP_ADMIN_USER / KC_SETUP_ADMIN_PASS let
 # the exact same script run against a throwaway Keycloak (no secrets.env).
 KC=${KC_SETUP_URL:-http://127.0.0.1:8095/auth}
+# Which realm to configure. `confinia` is production; `confinia-sbx` is the
+# sandbox, and it is where anything touching e-mail is proven first -- a broken
+# SMTP with verifyEmail on makes registration fail for everyone (issue #132).
+REALM="$REALM"
+
 ADMIN_USER=${KC_SETUP_ADMIN_USER:-$(grep '^KC_BOOTSTRAP_ADMIN_USERNAME=' secrets.env | cut -d= -f2-)}
 ADMIN_PASS=${KC_SETUP_ADMIN_PASS:-$(grep '^KC_BOOTSTRAP_ADMIN_PASSWORD=' secrets.env | cut -d= -f2-)}
 
@@ -18,10 +23,10 @@ TOKEN=$(curl -sf "$KC/realms/master/protocol/openid-connect/token" \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 AUTH="Authorization: Bearer $TOKEN"
 
-echo "== realm confinia"
-if ! curl -sf -H "$AUTH" "$KC/admin/realms/confinia" >/dev/null 2>&1; then
+echo "== realm $REALM"
+if ! curl -sf -H "$AUTH" "$KC/admin/realms/$REALM" >/dev/null 2>&1; then
 	curl -sf -X POST "$KC/admin/realms" -H "$AUTH" -H "Content-Type: application/json" -d '{
-	  "realm": "confinia", "enabled": true,
+	  "realm": "'"$REALM"'", "enabled": true,
 	  "registrationAllowed": true, "registrationEmailAsUsername": true,
 	  "resetPasswordAllowed": true, "rememberMe": true,
 	  "sslRequired": "external", "loginWithEmailAllowed": true
@@ -51,7 +56,7 @@ print(json.dumps({"smtpServer": {
     "starttls": "true", "ssl": "false",
 }}))' "$(get GF_SMTP_HOST)" "$(get GF_SMTP_USER)" \
      "$(get GF_SMTP_PASSWORD)" "$(get GF_SMTP_FROM_ADDRESS)" "$(get GF_SMTP_FROM_NAME)")
-	curl -sf -X PUT "$KC/admin/realms/${REALM:-confinia}" -H "$AUTH" \
+	curl -sf -X PUT "$KC/admin/realms/$REALM" -H "$AUTH" \
 	  -H "Content-Type: application/json" -d "$SMTP_JSON" >/dev/null \
 	  && echo "  SMTP configured from $MAIL_ENV" \
 	  || { echo "  [!] SMTP update REJECTED by Keycloak" >&2; exit 1; }
@@ -63,8 +68,21 @@ echo "== e-mail verification"
 # DELIBERATELY NOT automatic. With verifyEmail true and SMTP broken, Keycloak
 # fails the registration flow at the send step: nobody can sign up. So: configure
 # SMTP, send a test, confirm it ARRIVES, and only then run with VERIFY_EMAIL=1.
+#
+# ⚠️ Do NOT use the admin console's "Test connection" button to decide that.
+# It sends to the LOGGED-IN ADMIN's e-mail address, and the bootstrap admin has
+# none -- so it returns 500 "Failed to send email" with a null cause, whatever
+# the SMTP settings are. On 2026-08-14 that sent me hunting a configuration
+# problem that did not exist: a direct SMTP conversation with the same
+# credentials returned `235 Authentication successful` and the message was
+# accepted.
+#
+# The honest check is the real path:
+#   PUT /admin/realms/$REALM/users/<id>/execute-actions-email  -d '["VERIFY_EMAIL"]'
+# with NO redirect_uri (the client only allows www/staging, and an unlisted one
+# fails with "Invalid redirect uri"). 204 means Keycloak sent it.
 if [ "${VERIFY_EMAIL:-0}" = 1 ]; then
-	curl -sf -X PUT "$KC/admin/realms/${REALM:-confinia}" -H "$AUTH" \
+	curl -sf -X PUT "$KC/admin/realms/$REALM" -H "$AUTH" \
 	  -H "Content-Type: application/json" -d '{"verifyEmail": true}' >/dev/null \
 	  && echo "  verifyEmail ON"
 else
@@ -72,7 +90,7 @@ else
 fi
 
 echo "== organization attribute (required at signup)"
-curl -sf -H "$AUTH" "$KC/admin/realms/confinia/users/profile" \
+curl -sf -H "$AUTH" "$KC/admin/realms/$REALM/users/profile" \
   | python3 -c '
 import json, sys
 p = json.load(sys.stdin)
@@ -86,13 +104,13 @@ if not any(a["name"] == "organization" for a in p["attributes"]):
         "multivalued": False,
     })
 print(json.dumps(p))' > /tmp/kc-profile.json
-curl -sf -X PUT "$KC/admin/realms/confinia/users/profile" -H "$AUTH" \
+curl -sf -X PUT "$KC/admin/realms/$REALM/users/profile" -H "$AUTH" \
   -H "Content-Type: application/json" --data-binary @/tmp/kc-profile.json >/dev/null
 rm -f /tmp/kc-profile.json
 echo "  user profile in place"
 
 echo "== public PKCE client confinia-web"
-CID=$(curl -sf -H "$AUTH" "$KC/admin/realms/confinia/clients?clientId=confinia-web" \
+CID=$(curl -sf -H "$AUTH" "$KC/admin/realms/$REALM/clients?clientId=confinia-web" \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['id'] if d else '')")
 BODY='{
   "clientId": "confinia-web", "protocol": "openid-connect",
@@ -111,12 +129,12 @@ BODY='{
   }]
 }'
 if [ -z "$CID" ]; then
-	curl -sf -X POST "$KC/admin/realms/confinia/clients" -H "$AUTH" \
+	curl -sf -X POST "$KC/admin/realms/$REALM/clients" -H "$AUTH" \
 	  -H "Content-Type: application/json" -d "$BODY"
 	echo "  client created"
 else
-	curl -sf -X PUT "$KC/admin/realms/confinia/clients/$CID" -H "$AUTH" \
+	curl -sf -X PUT "$KC/admin/realms/$REALM/clients/$CID" -H "$AUTH" \
 	  -H "Content-Type: application/json" -d "$BODY" >/dev/null
 	echo "  client updated"
 fi
-echo "OK: realm confinia ready (registration open, organization required)"
+echo "OK: realm $REALM ready (registration open, organization required)"
