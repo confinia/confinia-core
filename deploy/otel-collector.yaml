@@ -9,6 +9,16 @@ receivers:
         endpoint: 0.0.0.0:8088
       grpc:
         endpoint: 0.0.0.0:4317
+  # 1PESI dual-listen (11xxx migration, platform PR #8). Must stay 0.0.0.0:
+  # the stack APIs push via host.containers.internal, which is NOT the host
+  # loopback (same lesson as ops-db, PORTS.md) — ufw shields it. Target for
+  # a true loopback story: network-join like ops-db, a separate change.
+  otlp/new:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:11060
+      grpc:
+        endpoint: 0.0.0.0:11062
 
   # Liveness of every environment, one probe each (issue #85).
   httpcheck:
@@ -16,7 +26,7 @@ receivers:
     targets:
       - endpoint: http://127.0.0.1:8091/healthz   # blue API (direct)
       - endpoint: http://127.0.0.1:8402/healthz   # green API (direct, band 84xx)
-      - endpoint: http://127.0.0.1:8089/healthz   # sandbox API (direct)
+      - endpoint: http://127.0.0.1:11420/healthz  # sandbox API (direct; moved 8089→11420, 1PESI direct swap — stack was down)
       - endpoint: http://127.0.0.1:8095/auth/realms/confinia   # Keycloak
       - endpoint: https://api.confinia.io/healthz # public edge -> ACTIVE color
 
@@ -44,16 +54,19 @@ processors:
 exporters:
   prometheus:
     endpoint: 0.0.0.0:8094
+  # 1PESI dual-serve — prometheus keeps scraping 8094 until the flip.
+  prometheus/new:
+    endpoint: 0.0.0.0:11061
 
 service:
   pipelines:
     metrics:
-      receivers: [otlp]
+      receivers: [otlp, otlp/new]
       processors: [batch]
-      exporters: [prometheus]
+      exporters: [prometheus, prometheus/new]
     # Environment probes (issue #85) get their own pipeline so the transform
     # never touches the application metrics.
     metrics/env:
       receivers: [httpcheck, filestats]
       processors: [transform/env, batch]
-      exporters: [prometheus]
+      exporters: [prometheus, prometheus/new]

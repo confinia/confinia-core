@@ -10,14 +10,47 @@ upstream caddy. To avoid grabbing generic ports that another product may want,
 
 ## Reserved ranges (Confinia)
 
+### NEW: band 11xxx — the 1PESI scheme (platform PR #8, 2026-08-14)
+
+The platform now allocates one **thousand-block per product**, digits
+spelling `1 · Product · Env · Service · Instance` (platform RULES.md §3).
+Confinia's product digit is **1** → band **11000–11999**. Read a port like
+a sentence: `11320` = confinia(1) · staging(3) · api(2) · main(0).
+
+Old → new map (dual-published during the migration; legacy dropped at the
+platform's decommission step):
+
+| Service | Legacy | 1PESI |
+|---|---|---|
+| app caddy (all hostnames) | 8085† | **11000** |
+| app caddy admin | 2085 | **11090** (at flip) |
+| grafana | 8086 | **11040** |
+| otel OTLP http / grpc | 8088† / 4317† | **11060 / 11062** (stays 0.0.0.0 — pushed via `host.containers.internal`; ufw-shielded; network-join is the real fix) |
+| otel prometheus exporter | 8094† | **11061** |
+| keycloak | 8095 | **11070** |
+| blue api / geo db | 8091 / 5441 | **11120 / 11130** |
+| green web / api / geo db | 8401 / 8402 / 5442 | **11210 / 11220 / 11230** |
+| staging api | 8403 | **11320** |
+| sandbox api | 8089 | **11420** (direct swap — stack was down) |
+| demo preview | 8097 | **11510** |
+| ops-db | — | none (network-join since 2026-08-12, publishes nothing) |
+
+**11434 is BURNED inside our band**: the VM-level `ollama` service (own
+Unix user, systemd, binds 0.0.0.0) sits there. Never bind it; the platform
+tracks its relocation.
+
+### Legacy ranges (valid until the platform decommissions them)
+
 | Range | Purpose |
 |---|---|
 | **8085–8099** | HTTP services (loopback `127.0.0.1` only, except where a public bind is required and firewalled) |
+| **84xx** | green web/api + staging api |
 | **5440–5449** | PostgreSQL (ops + color geo databases) |
 | **2085** | app caddy admin address (unique-admin VM rule) |
 
-Anything Confinia adds must take the next free port **inside these ranges**.
-Never bind a generic port (8000, 3000, 4318, 8080, 8180…) on the host.
+Anything Confinia adds now takes the next free port **inside 11xxx,
+following the digit scheme**. Never bind a generic port (8000, 3000, 4318,
+8080, 8180…) on the host.
 
 ## Allocation (issue #75: migration DONE)
 

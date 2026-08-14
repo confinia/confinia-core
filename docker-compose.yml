@@ -110,6 +110,7 @@ services:
       KC_HTTP_MANAGEMENT_PORT: "9001"   # health/metrics off the public path
     ports:
       - "127.0.0.1:8095:8180"
+      - "127.0.0.1:11070:8180"   # 1PESI dual-publish — 11xxx migration, platform PR #8
     restart: unless-stopped
 
   # --- Observability (Step 5b): OTel collector -> Prometheus -> Grafana ---
@@ -158,6 +159,7 @@ services:
       - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
     ports:
       - "127.0.0.1:8086:3000"   # reached by caddy (host network)
+      - "127.0.0.1:11040:3000"  # 1PESI dual-publish — 11xxx migration, platform PR #8
     restart: unless-stopped
 
   # Local/VM preview of the demo (make demo). The demo's production will
@@ -167,6 +169,7 @@ services:
     command: caddy file-server --root /srv --listen :80
     ports:
       - "127.0.0.1:8097:80"   # loopback, in range (issue #75; 8090 squatted by orbit-poc)
+      - "127.0.0.1:11510:80"  # 1PESI dual-publish — 11xxx migration, platform PR #8
     volumes:
       - ./demo:/srv:ro
     profiles: ["tools"]
