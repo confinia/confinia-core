@@ -36,7 +36,8 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-PORT=8403
+PORT=8403        # legacy — dropped at 1PESI decommission (platform PR #8)
+NEW_PORT=11320   # 1PESI: confinia(1) · staging(3) · api(2) · main(0)
 NAME=confinia-staging_api_1
 OPS_DB=confinia_staging
 
@@ -57,15 +58,18 @@ podman exec confinia_ops-db_1 psql -U confinia -d postgres -tAc \
 
 # The guard from #123: never destroy a working container for a port we cannot
 # get back.
-if ss -ltn 2>/dev/null | grep -qE "127\.0\.0\.1:$PORT " \
-   && ! podman ps --format '{{.Names}}' | grep -qx "$NAME"; then
-	echo "REFUSING: 127.0.0.1:$PORT is held by something that is not $NAME" >&2
-	exit 1
-fi
+for p in "$PORT" "$NEW_PORT"; do
+	if ss -ltn 2>/dev/null | grep -qE "127\.0\.0\.1:$p " \
+	   && ! podman ps --format '{{.Names}}' | grep -qx "$NAME"; then
+		echo "REFUSING: 127.0.0.1:$p is held by something that is not $NAME" >&2
+		exit 1
+	fi
+done
 
 podman rm -f "$NAME" >/dev/null 2>&1 || true
 podman run -d --name "$NAME" --network "$NET" \
 	-p "127.0.0.1:${PORT}:8000" \
+	-p "127.0.0.1:${NEW_PORT}:8000" \
 	--env-file deploy/secrets.env \
 	-e PG_DSN="postgresql://confinia:${PW}@db:5432/confinia" \
 	-e OPS_DSN="postgresql://confinia:${PW}@confinia_ops-db_1:5432/${OPS_DB}" \
