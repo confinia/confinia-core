@@ -127,3 +127,12 @@ Three things learned doing it, worth knowing before touching this again:
   `docker-compose.yml` and proven with `--force-recreate`.
 - **Recreating the database requires restarting the API containers.** Their
   connection pools hold dead sockets and return 500s until they do.
+- **`deploy/secrets.env` carries `OPS_DSN`, and I fixed the running containers
+  without fixing it.** For 24 hours the declaration still said
+  `host.containers.internal:5440`, a port that no longer existed. CI then
+  recreated the green colour from that declaration and it **exited cleanly, code
+  0, about 60 seconds after each start** — no crash, no error status, just
+  `Application startup failed. Exiting.` Production was one recreate away from
+  the same fate, and was only alive because it happened to be the container I
+  had patched by hand. Both colours have since been recreated **from the
+  declaration**, which is the only version of "it works" that counts.
