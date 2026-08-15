@@ -145,3 +145,32 @@ def test_the_runner_privilege_is_asserted_at_deploy_time():
     s = _wf("deploy-staging.yml")
     assert "sudo -n true" in s, \
         "deploy-staging must assert the runner cannot become root (issue #114)"
+
+
+def test_no_file_names_another_products_port():
+    """A wrong port in a comment is how the wrong port gets bound.
+
+    That is not hypothetical: maplibre took 8092 from our band, and I took 8501
+    from panoramax's — both after checking a port was *free* rather than *ours*.
+    A comment asserting "the VM default is 8087" (mapmax's) is the same trap one
+    step earlier.
+    """
+    import glob
+    foreign = {"8087": "mapmax", "8090": "overwatch", "8096": "overwatch",
+               "8092": "maplibre", "8093": "maplibre",
+               "8501": "panoramax", "8502": "panoramax", "8503": "panoramax"}
+    checked = ([os.path.join(WF, f) for f in ("deploy-staging.yml", "promote-production.yml",
+                                              "subscription-tests.yml")]
+               + glob.glob(os.path.join(ROOT, "deploy", "*.sh")))
+    for path in checked:
+        lines = open(path, encoding="utf-8").read().splitlines()
+        for i, line in enumerate(lines, 1):
+            for port, owner in foreign.items():
+                if port not in line:
+                    continue
+                # An explanation can span several lines, so look at the window
+                # around the mention rather than the single line.
+                window = " ".join(lines[max(0, i - 4):i + 3])
+                assert any(w in window for w in
+                           (owner, "BURNED", "burned", "belongs", "never", "NOT", "self-assigned")), \
+                    f"{os.path.basename(path)}:{i} names {port} ({owner}'s) with no explanation: {line.strip()[:70]}"
