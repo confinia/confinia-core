@@ -117,6 +117,9 @@ jobs:
       - name: The #123 watchdog repairs honestly (issue #123)
         if: always()
         run: pytest -v tests/test_portwatch_selfheal.py
+      - name: Realm bootstrap survives set -u (issue #132)
+        if: always()
+        run: pytest -v tests/test_setup_realm_static.py
       - name: Credits we owe to people (issue #92)
         if: always()
         run: pytest -v tests/test_credits_static.py
