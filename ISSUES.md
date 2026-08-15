@@ -7,8 +7,14 @@ the work is deployed, and "merged" has been mistaken for "live" here before.
 **Where can I try it** uses the four answers of RULES 12: **nowhere** ·
 **sandbox** · **staging** · **production**.
 
-Last updated: **2026-08-12**, `main` at `861a9f8`.
-Active colour: **blue** on `:8091` (production) · passive: **green** on `:8402` (staging, band 84xx since 2026-08-11).
+Last updated: **2026-08-15**, `main` at `0492f86`.
+Active colour: **blue** on `:8091` (production) · passive: **green** on `:8402`.
+**Band 11xxx (1PESI) is merged and on the VM** (`0492f86`), dual-published
+alongside the legacy ports. It arrives **one container at a time, on each
+recreate** — today only `confinia-green_db_1` also answers on `11230`. The app
+caddy (`8085`→`11000`) and blue (`8091`→`11120`) still publish legacy only,
+because recreating them touches production and is a scheduled act, not a
+side effect of a merge.
 
 ## Open
 
