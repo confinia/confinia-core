@@ -23,7 +23,7 @@ jobs:
       # Files whose content is a promise to someone, or the shared contract of
       # the project. Extend when something else gets lost.
       PROTECTED: >-
-        README.md RULES.md SOURCES.md SPECIFICATIONS.md PORTS.md
+        README.md SOURCES.md PORTS.md
         ENVIRONMENTS.md ingestion/sources.sql
       PR_TITLE: ${{ github.event.pull_request.title }}
       PR_BODY: ${{ github.event.pull_request.body }}

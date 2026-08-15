@@ -39,3 +39,10 @@ deploy/mail.env
 # Captured HTTP archives may contain session cookies — never commit
 *.har
 api/VERSION
+
+# Business-sensitive documents (2026-08-15, founder decision). Present on disk,
+# never in git: they were purged from the whole history, and .gitignore is what
+# stops them coming back on the next `git add -A`.
+RULES.md
+POLAR.md
+SPECIFICATIONS.md
