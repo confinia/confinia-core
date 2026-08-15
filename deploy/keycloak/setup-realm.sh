@@ -11,7 +11,10 @@ KC=${KC_SETUP_URL:-http://127.0.0.1:8095/auth}
 # Which realm to configure. `confinia` is production; `confinia-sbx` is the
 # sandbox, and it is where anything touching e-mail is proven first -- a broken
 # SMTP with verifyEmail on makes registration fail for everyone (issue #132).
-REALM="$REALM"
+# The default matters: with `set -u` a self-referential REALM="$REALM" is an
+# unbound variable and the script dies on line 14, which is exactly what a
+# blanket ${REALM:-confinia} -> $REALM substitution did to its own declaration.
+REALM="${REALM:-confinia}"
 
 ADMIN_USER=${KC_SETUP_ADMIN_USER:-$(grep '^KC_BOOTSTRAP_ADMIN_USERNAME=' secrets.env | cut -d= -f2-)}
 ADMIN_PASS=${KC_SETUP_ADMIN_PASS:-$(grep '^KC_BOOTSTRAP_ADMIN_PASSWORD=' secrets.env | cut -d= -f2-)}
