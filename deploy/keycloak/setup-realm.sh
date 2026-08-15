@@ -67,6 +67,18 @@ else
 	echo "  [!] $MAIL_ENV absent -> SMTP left untouched (registration mails will not be sent)"
 fi
 
+echo "== language of the transactional mail"
+# Without this Keycloak serves its ENGLISH defaults, and the first message a
+# French user gets after signing up reads "Update Your Account — Your
+# administrator has just requested that you update your Confinia-sbx account".
+# That is wrong twice over: the product is French-first (issue #79), and the
+# subject names neither Confinia nor what the reader is meant to do -- it reads
+# like phishing, which is how a verification mail gets deleted unread.
+curl -sf -X PUT "$KC/admin/realms/$REALM" -H "$AUTH" \
+  -H "Content-Type: application/json" \
+  -d '{"internationalizationEnabled": true, "defaultLocale": "fr", "supportedLocales": ["fr","en"]}' \
+  >/dev/null && echo "  French by default, English available"
+
 echo "== e-mail verification"
 # DELIBERATELY NOT automatic. With verifyEmail true and SMTP broken, Keycloak
 # fails the registration flow at the send step: nobody can sign up. So: configure
