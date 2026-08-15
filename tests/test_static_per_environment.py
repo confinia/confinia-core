@@ -22,7 +22,10 @@ def _roots():
     """{hostname: {roots it serves}} from the project Caddyfile."""
     host, out = None, {}
     for line in _read("deploy", "caddy", "Caddyfile").splitlines():
-        m = re.match(r"^http://([a-z.]+) \{", line)
+        # Site addresses may list several host:port entries during the
+        # 1PESI dual-listen period (e.g. "http://www.confinia.io:8085,
+        # http://www.confinia.io:11000 {") — take the first hostname.
+        m = re.match(r"^http://([a-z.]+)(?::\d+)?[ ,]", line)
         if m:
             host = m.group(1)
         m = re.search(r"root \* (\S+)", line)

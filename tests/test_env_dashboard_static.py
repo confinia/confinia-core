@@ -16,7 +16,7 @@ def test_collector_probes_every_environment():
     cfg = _read("deploy", "otel-collector.yaml")
     for target in ("http://127.0.0.1:8091/healthz",      # blue
                    "http://127.0.0.1:8402/healthz",      # green
-                   "http://127.0.0.1:8089/healthz",      # sandbox
+                   "http://127.0.0.1:11420/healthz",     # sandbox (1PESI)
                    "http://127.0.0.1:8095/auth/realms/confinia",  # keycloak
                    "https://api.confinia.io/healthz"):   # public edge -> active
         assert target in cfg, f"missing probe: {target}"
@@ -47,7 +47,7 @@ def test_dashboard_shows_roles_and_liveness():
     assert d["uid"] == "confinia-environments"
     exprs = " ".join(t["expr"] for p in d["panels"] for t in p.get("targets", []))
     assert 'file_name="active-blue"' in exprs and 'file_name="active-green"' in exprs
-    for url in ("127.0.0.1:8091", "127.0.0.1:8402", "127.0.0.1:8089",
+    for url in ("127.0.0.1:8091", "127.0.0.1:8402", "127.0.0.1:11420",
                 "127.0.0.1:8095", "api.confinia.io"):
         assert url in exprs, f"liveness query missing for {url}"
     titles = [p["title"] for p in d["panels"]]
