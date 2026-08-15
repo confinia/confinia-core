@@ -117,7 +117,8 @@ services:
     image: docker.io/otel/opentelemetry-collector-contrib:latest
     command: ["--config=/etc/otelcol/config.yaml"]
     # Host network (issue #85): the environment probes (httpcheck) target the
-    # loopback-bound APIs (blue 8000, green 8001, sandbox 8089, keycloak 8180),
+    # loopback-bound APIs (blue 8091, green 8402, sandbox 8089, keycloak 8095;
+    # 8000/8001 were the CONTAINER-internal ports and never the host ones),
     # unreachable from a bridge network. OTLP 4318 and the prometheus exporter
     # 8889 now bind on the host; ufw blocks both from the outside.
     network_mode: host
