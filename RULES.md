@@ -134,7 +134,11 @@ podman-compose ciblée ; jamais de source de données contenant U+FFFD.
    doc, une fonctionnalité data et une migration bloquée. Sans consigne, on
    reprend ce qu'on vient de toucher — et une issue de sécurité reste ouverte
    une semaine pendant qu'on en ferme trois cosmétiques. L'état sur lequel
-   s'appuyer est `ISSUES.md` (règle 14). (issue #140)
+   s'appuyer est `ISSUES.md` (règle 14), dont la section « Open » est **triée
+   par priorité** : ce qui casse maintenant, puis ce qui est presque fini, puis
+   ce qui rapporte, puis ce qui est seulement inachevé. Un blocage y nomme
+   toujours son bloqueur — « bloqué » sans bloqueur est la façon dont une
+   ligne reste en tête de liste pendant un mois. (issue #140)
 
 16. **Ne pas demander pour une question fermée.** Par défaut : **oui**, y compris
    pour autoriser l'exécution d'un script. Ne solliciter le fondateur que
