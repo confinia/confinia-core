@@ -22,9 +22,16 @@ def _roots():
     """{hostname: {roots it serves}} from the project Caddyfile."""
     host, out = None, {}
     for line in _read("deploy", "caddy", "Caddyfile").splitlines():
-        m = re.match(r"^http://([a-z.]+) \{", line)
-        if m:
-            host = m.group(1)
+        # A vhost line may list several addresses, with or without a port:
+        #   http://www.confinia.io {
+        #   http://www.confinia.io:8085, http://www.confinia.io:11000 {
+        # The second form arrived with the 1PESI dual-publish; parsing only the
+        # first made this test read "www serves nothing" and pass or fail for
+        # the wrong reason.
+        if line.startswith("http://") and line.rstrip().endswith("{"):
+            hosts = re.findall(r"http://([a-z0-9.-]+)(?::\d+)?", line)
+            if hosts:
+                host = hosts[0]
         m = re.search(r"root \* (\S+)", line)
         if m and host:
             out.setdefault(host, set()).add(m.group(1))
