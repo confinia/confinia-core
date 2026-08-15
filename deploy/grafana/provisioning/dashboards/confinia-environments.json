@@ -170,7 +170,7 @@
       "title": "Sandbox API (:8089)",
       "gridPos": { "x": 12, "y": 5, "w": 6, "h": 4 },
       "targets": [
-        { "expr": "max(httpcheck_status{http_url=\"http://127.0.0.1:8089/healthz\",http_status_class=\"2xx\"})", "legendFormat": "sandbox" }
+        { "expr": "max(httpcheck_status{http_url=\"http://127.0.0.1:11420/healthz\",http_status_class=\"2xx\"})", "legendFormat": "sandbox" }
       ],
       "options": {
         "colorMode": "background",
@@ -226,7 +226,7 @@
       "targets": [
         { "expr": "max(httpcheck_status{http_url=\"http://127.0.0.1:8091/healthz\",http_status_class=\"2xx\"})", "legendFormat": "blue" },
         { "expr": "max(httpcheck_status{http_url=\"http://127.0.0.1:8402/healthz\",http_status_class=\"2xx\"})", "legendFormat": "green" },
-        { "expr": "max(httpcheck_status{http_url=\"http://127.0.0.1:8089/healthz\",http_status_class=\"2xx\"})", "legendFormat": "sandbox" },
+        { "expr": "max(httpcheck_status{http_url=\"http://127.0.0.1:11420/healthz\",http_status_class=\"2xx\"})", "legendFormat": "sandbox" },
         { "expr": "max(httpcheck_status{http_url=\"http://127.0.0.1:8095/auth/realms/confinia\",http_status_class=\"2xx\"})", "legendFormat": "keycloak" },
         { "expr": "max(httpcheck_status{http_url=\"https://api.confinia.io/healthz\",http_status_class=\"2xx\"})", "legendFormat": "public edge" }
       ],
@@ -246,7 +246,7 @@
       "targets": [
         { "expr": "max(httpcheck_duration_milliseconds{http_url=\"http://127.0.0.1:8091/healthz\"})", "legendFormat": "blue" },
         { "expr": "max(httpcheck_duration_milliseconds{http_url=\"http://127.0.0.1:8402/healthz\"})", "legendFormat": "green" },
-        { "expr": "max(httpcheck_duration_milliseconds{http_url=\"http://127.0.0.1:8089/healthz\"})", "legendFormat": "sandbox" },
+        { "expr": "max(httpcheck_duration_milliseconds{http_url=\"http://127.0.0.1:11420/healthz\"})", "legendFormat": "sandbox" },
         { "expr": "max(httpcheck_duration_milliseconds{http_url=\"http://127.0.0.1:8095/auth/realms/confinia\"})", "legendFormat": "keycloak" },
         { "expr": "max(httpcheck_duration_milliseconds{http_url=\"https://api.confinia.io/healthz\"})", "legendFormat": "public edge" }
       ],
