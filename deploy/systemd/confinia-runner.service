@@ -1,0 +1,30 @@
+[Unit]
+Description=GitHub Actions runner for confinia/confinia-core (unprivileged)
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/actions-runner
+ExecStart=%h/actions-runner/run.sh
+Restart=always
+RestartSec=10
+
+# Delegate=yes is what stops issue #123. Without it podman cannot create its own
+# transient scopes from inside a job, so the containers it starts -- and their
+# rootlessport helpers -- stay in the job's cgroup and are cleaned up when the
+# job ends, about 45 seconds later. The symptom was a container left running
+# with a port mapping that no process implemented, and it cost a week of wrong
+# hypotheses: dying publisher, shared account, orphaned process, port squatting.
+#
+# Publishers started from an ssh session survive because they land in their own
+# podman-NNNN.scope under user.slice. This makes the runner behave the same way.
+Delegate=yes
+
+# Only the runner itself is signalled on stop; containers it started are owned
+# by their own scopes and must outlive the job.
+KillMode=process
+KillSignal=SIGTERM
+TimeoutStopSec=5min
+
+[Install]
+WantedBy=default.target

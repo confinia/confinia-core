@@ -114,6 +114,9 @@ jobs:
       - name: Each environment serves its own static files (issue #111)
         if: always()
         run: pytest -v tests/test_static_per_environment.py
+      - name: The #123 watchdog repairs honestly (issue #123)
+        if: always()
+        run: pytest -v tests/test_portwatch_selfheal.py
       - name: Credits we owe to people (issue #92)
         if: always()
         run: pytest -v tests/test_credits_static.py
