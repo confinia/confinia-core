@@ -32,7 +32,17 @@ groups:
             relativeTimeRange: {from: 300, to: 0}
             datasourceUid: PBFA97CFB590B2093
             model:
-              expr: 'min_over_time(httpcheck_status{http_url=~"http://127.0.0.1:(8091|8402)/healthz", http_status_class="2xx"}[5m])'
+              # The INSTANT value, not min_over_time([5m]). With the window, a
+              # single sample at 0 anywhere in five minutes kept the alert
+              # firing long after recovery -- so the watchdog repaired the fault
+              # in ~20 s and the e-mail still arrived minutes later, describing
+              # something already fixed. An alert that reports the past is only
+              # slightly better than one that reports nothing.
+              # `for: 5m` below is what debounces; the query must not also.
+              # Net effect: this now fires only when the colour is down for five
+              # CONTINUOUS minutes, i.e. when the self-repair has failed -- which
+              # is the only case that deserves an interruption.
+              expr: 'httpcheck_status{http_url=~"http://127.0.0.1:(8091|8402)/healthz", http_status_class="2xx"}'
               instant: true
               refId: PROBE
           - refId: BREACH

@@ -131,3 +131,21 @@ def test_no_rule_fires_because_nothing_is_wrong():
             f"fires: {line.strip()[:90]}")
     assert "noDataState: OK" in rules, \
         "an unreachable datasource is a monitoring problem, not an API outage"
+
+
+def test_the_colour_rule_uses_the_instant_value():
+    """A range window plus `for:` makes an alert describe the past.
+
+    `min_over_time(...[5m])` keeps firing for five minutes after recovery,
+    because one sample at 0 anywhere in the window drags the minimum down. With
+    the watchdog repairing the fault in ~20 seconds, the founder received alerts
+    for outages that were already over. `for: 5m` is the debounce; the query
+    must report *now*.
+    """
+    rules = _read("deploy", "grafana", "provisioning", "alerting", "rules.yml")
+    for line in rules.splitlines():
+        if "httpcheck_status" not in line or line.strip().startswith("#"):
+            continue
+        assert "_over_time" not in line, (
+            "the colour rule must use the instant value; `for:` debounces: "
+            f"{line.strip()[:80]}")
