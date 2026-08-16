@@ -31,9 +31,18 @@
   .meter-fill { height: 100%; border-radius: 99px; background: #7ab8ff; width: 0; transition: width .4s; }
   .feats { margin: .4rem 0 0; padding-left: 1.2rem; font-size: .9rem; }
   .feats li { margin: .25rem 0; opacity: .85; }
+#paymode[hidden] { display: none; }
+#paymode { display: block; margin: 0 0 1rem; padding: .6rem .9rem; border-radius: 6px;
+  background: #3a2a10; color: #e6ac63; border: 1px solid #e6ac63;
+  font: 600 .85rem/1.4 ui-monospace, monospace; }
 </style>
 </head>
 <body><main>
+<!-- Payment mode, reported by the API (GET /healthz -> payment_mode), never
+     inferred from the hostname: a host-driven badge would stay silent if
+     PRODUCTION were ever pointed at Polar sandbox, which is the dangerous
+     direction -- customers "paying" while nothing is collected. -->
+<div id="paymode" hidden></div>
 <h1><span>Confinia</span> · your account</h1>
 <div id="content"><p class="muted">Signing you in…</p></div>
 <script type="module">
@@ -44,6 +53,17 @@ const REDIRECT = location.origin + "/account.html";
 const PRO_CHECKOUT = "https://buy.polar.sh/polar_cl_VYpdGBRjeH4Pn7vvD1dNbN450Yncw9sOHwqLf154vRQ";
 const ENT_CHECKOUT = "https://buy.polar.sh/polar_cl_Z6irg2Ji3tuuvlKjUx6gjW4iEIw6fNRK49evF3AKe7L";
 const API = "/api";
+
+// Ask the API what mode it is really in. Fire-and-forget: a missing banner must
+// never block the page, but a WRONG banner would be worse than none, so it is
+// only ever shown on an explicit "sandbox" answer.
+fetch(`${API}/healthz`).then(r => r.json()).then(h => {
+  if (h && h.payment_mode === "sandbox") {
+    const el = document.getElementById("paymode");
+    el.textContent = "SANDBOX PAYMENTS — test cards only, no real money is charged";
+    el.hidden = false;
+  }
+}).catch(() => {});
 const el = document.getElementById("content");
 
 const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf)))
