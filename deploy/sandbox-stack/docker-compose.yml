@@ -1,0 +1,31 @@
+# Confinia SANDBOX EDGE -- its own compose project, so the sandbox caddy can be
+# restarted, reconfigured or broken without touching confinia_caddy_1 (platform
+# RULES.md §6). Bringing this up is `./deploy/sandbox-edge-up.sh`.
+#
+# The API it fronts is NOT here: deploy/sandbox-up.sh owns confinia-sbx_api on
+# 11420. This project is the edge tier only, which is the tier that was shared.
+services:
+  sandbox-caddy:
+    image: docker.io/library/caddy:2
+    container_name: confinia-sandbox_caddy_1
+    # Host network for the same reason as the production edge: it proxies to
+    # loopback-bound services (the sandbox API on 11420, Keycloak on 11070) that
+    # a bridge network cannot reach.
+    network_mode: host
+    env_file:
+      - ../secrets.env          # STAGING_USER / STAGING_HASH (the sandbox auth gate)
+    volumes:
+      - ../caddy-sandbox:/etc/caddy:ro
+      # Generated snippets, deliberately OUTSIDE the rsync mirror: (staging_auth)
+      # lives here, and the sandbox shares staging's credentials.
+      - ${HOME}/confinia-edge-state:/etc/caddy/active:ro
+      # The sandbox serves its OWN checkout (issue #111), never production's.
+      - ${HOME}/sandbox/confinia/deploy/site:/srv/sbx-site:ro
+      - ${HOME}/sandbox/confinia/demo:/srv/sbx-demo:ro
+      - sandbox_caddy_data:/data
+      - sandbox_caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  sandbox_caddy_data:
+  sandbox_caddy_config:

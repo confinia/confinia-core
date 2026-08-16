@@ -139,7 +139,7 @@ http://api.confinia.io:11000 {
 # Human validation before promotion, behind BASIC AUTH (credentials via
 # the container env: never in the repo). Demo (VM mirror) + candidate API
 # on the same origin under /api: a single login covers everything.
-http://staging.confinia.io:11000 {
+http://staging.confinia.io:11000, http://staging.confinia.io:11300 {
 	import staging_auth
 	encode zstd gzip
 	handle_path /api/* {
@@ -176,7 +176,7 @@ http://staging.confinia.io:11000 {
 }
 
 # Candidate API alone (curl), same credentials.
-http://staging.api.confinia.io:11000 {
+http://staging.api.confinia.io:11000, http://staging.api.confinia.io:11300 {
 	import staging_auth
 	encode zstd gzip
 	route {

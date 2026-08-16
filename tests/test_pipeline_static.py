@@ -352,3 +352,48 @@ def test_the_alert_check_reads_the_source_not_a_mailbox():
     # An unreachable Grafana must not read as 'nothing is firing'.
     assert "CANNOT REACH GRAFANA" in sh, \
         "a Grafana that cannot be reached is a finding, not a clean result"
+
+
+def test_the_sandbox_edge_is_a_separate_process():
+    """Platform RULES §6: the sandbox gets its own caddy, not another listener.
+
+    Until 2026-08-16 sandbox.confinia.io came out of confinia_caddy_1, the same
+    process as www and api -- so a config error while working on the sandbox,
+    which is by definition where unfinished things are tried, took production
+    with it. A second port on the same process satisfies the numbering and none
+    of the isolation, which is exactly the shortcut this test refuses.
+    """
+    compose = open(os.path.join(ROOT, "deploy", "sandbox-stack", "docker-compose.yml"),
+                   encoding="utf-8").read()
+    assert "container_name: confinia-sandbox_caddy_1" in compose, \
+        "the sandbox edge must be its own container"
+
+    sbx = open(os.path.join(ROOT, "deploy", "caddy-sandbox", "Caddyfile"),
+               encoding="utf-8").read()
+    prod = open(os.path.join(ROOT, "deploy", "caddy", "Caddyfile"), encoding="utf-8").read()
+
+    assert "http://sandbox.confinia.io:11400" in sbx
+    assert "sandbox.confinia.io:11400" not in prod, \
+        "11400 must be served by the sandbox process, not added to production's"
+
+    # A shared admin address lets `caddy reload` load a config into ANOTHER
+    # caddy's process -- the VM-wide outage of 2026-07-20.
+    admin_sbx = re.search(r"admin localhost:(\d+)", sbx)
+    admin_prod = re.search(r"admin localhost:(\d+)", prod)
+    assert admin_sbx and admin_prod, "both edges must pin an admin address"
+    assert admin_sbx.group(1) != admin_prod.group(1), \
+        f"both edges share admin {admin_sbx.group(1)}; a reload could cross processes"
+
+    # And the reload script must talk to the sandbox admin, never production's.
+    sh = open(os.path.join(ROOT, "deploy", "sandbox-edge-up.sh"), encoding="utf-8").read()
+    assert admin_sbx.group(1) in sh and f"localhost:{admin_prod.group(1)}" not in sh, \
+        "the sandbox reload script must address its own admin endpoint"
+
+
+def test_staging_dual_listens_until_the_platform_flips():
+    """Rollback is doing nothing, as in the band migration."""
+    prod = open(os.path.join(ROOT, "deploy", "caddy", "Caddyfile"), encoding="utf-8").read()
+    for host in ("staging.confinia.io", "staging.api.confinia.io"):
+        line = next(l for l in prod.splitlines() if l.startswith(f"http://{host}:"))
+        assert ":11000" in line and ":11300" in line, \
+            f"{host} must answer on both ports until the edge is flipped: {line}"
