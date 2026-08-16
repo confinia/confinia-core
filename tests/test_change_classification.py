@@ -1,0 +1,119 @@
+"""What counts as a change (issues #167, #169).
+
+Both fixtures are real, and both were measured against the production API before
+these tests were written — they are not invented edge cases.
+"""
+import os
+import re
+import sys
+
+ROOT = os.path.join(os.path.dirname(__file__), "..")
+
+
+def _load():
+    """Pull the pure helpers out of api/main.py without importing FastAPI."""
+    src = open(os.path.join(ROOT, "api", "main.py"), encoding="utf-8").read()
+    ns = {"BOUNDARY_NOISE_PCT": float(
+        re.search(r"^BOUNDARY_NOISE_PCT = ([\d.]+)", src, re.M).group(1))}
+    for fn in ("_norm_name", "name_delta", "_ring_area_km2", "boundary_delta"):
+        m = re.search(rf"^def {fn}\(.*?(?=^def |\Z)", src, re.S | re.M)
+        assert m, f"{fn} not found in api/main.py"
+        exec(m.group(0), ns)
+    return ns
+
+
+def _square(lon, lat, side):
+    return {"type": "Polygon", "coordinates": [[
+        [lon, lat], [lon + side, lat], [lon + side, lat + side],
+        [lon, lat + side], [lon, lat]]]}
+
+
+def test_a_deleted_space_is_not_a_renaming():
+    """09472116 Bad Berneck: the whole difference between two BKG vintages.
+
+    `prev["nom"] != p["nom"]` called this a rename, so Confinia minted a version
+    — and charged a report for it — on one space character.
+    """
+    ns = _load()
+    d = ns["name_delta"]("Bad Berneck i. Fichtelgebirge", "Bad Berneck i.Fichtelgebirge")
+    assert d is not None, "the difference is real and must be reported"
+    assert d["kind"] == "respelled", "a space is typography, not an authority renaming"
+    assert d["removed"] == [" "] and d["added"] == [], \
+        "the reader must be told exactly what changed, since it is invisible"
+
+
+def test_a_real_renaming_is_still_a_renaming():
+    """01028 Labastida alternates between the Spanish and Basque forms."""
+    ns = _load()
+    d = ns["name_delta"]("Labastida", "Labastida / Bastida")
+    assert d["kind"] == "renamed"
+    assert "".join(d["added"]).strip().endswith("Bastida")
+
+
+def test_normalisation_does_not_swallow_a_different_name():
+    ns = _load()
+    for before, after in (("Sainte-Marie", "Sainte-Anne"), ("Le Havre", "Havre"),
+                          ("Colmar", "Kolmar")):
+        assert ns["name_delta"](before, after)["kind"] == "renamed", \
+            f"{before} -> {after} is a real change and must survive normalisation"
+
+
+def test_identical_names_produce_no_event():
+    assert _load()["name_delta"]("Paris", "Paris") is None
+
+
+def test_redigitisation_is_not_a_boundary_change():
+    """The measured noise, made a fixture.
+
+    Labastida's area moves 0.115 % across five INE vintages and Bad Berneck's
+    0.022 % across two BKG ones, as the same outline is re-digitised. Drawing a
+    panel per version told the reader the boundary moved; it did not.
+    """
+    ns = _load()
+    base = _square(-2.8, 42.6, 0.09)
+    for pct in (0.115, 0.022, -0.115, 0.0):
+        grown = _square(-2.8, 42.6, 0.09 * (1 + pct / 100) ** 0.5)
+        d = ns["boundary_delta"](base, grown)
+        assert d is not None
+        assert not d["changed"], f"{pct}% is vintage noise, not a boundary change"
+
+
+def test_a_real_boundary_change_is_reported():
+    ns = _load()
+    base = _square(-2.8, 42.6, 0.09)
+    bigger = _square(-2.8, 42.6, 0.09 * (1.13) ** 0.5)      # +13 %
+    d = ns["boundary_delta"](base, bigger)
+    assert d["changed"], "a 13% change is a real event"
+    assert d["area_delta_pct"] > 10
+
+
+def test_a_missing_geometry_is_unknown_and_never_unchanged():
+    """The distinction the founder's rule depends on.
+
+    'We measured that it did not move' and 'we cannot tell' must not collapse:
+    hiding a boundary on the second would assert something never checked.
+    """
+    ns = _load()
+    assert ns["boundary_delta"](None, _square(-2.8, 42.6, 0.09)) is None
+    assert ns["boundary_delta"](_square(-2.8, 42.6, 0.09), None) is None
+    assert ns["boundary_delta"](None, None) is None
+
+
+def test_the_page_draws_nothing_when_the_boundary_did_not_move():
+    """The founder's decision, checked where it is implemented.
+
+    'if the change is only on town name, and not in borders, then don't expose
+    its borders' — so consecutive versions sharing a boundary must collapse into
+    one card, and an UNKNOWN boundary must still be drawn.
+    """
+    page = open(os.path.join(ROOT, "deploy", "site", "commune.html"),
+                encoding="utf-8").read()
+    assert "draw_boundary === false" in page, \
+        "the page must group versions that share a boundary into one card"
+    assert "d.versions.map(f =>" not in page.split('getElementById("grid")')[1][:200], \
+        "one card per version is the rendering this issue removes"
+
+    api = open(os.path.join(ROOT, "api", "main.py"), encoding="utf-8").read()
+    m = re.search(r'"draw_boundary": (.+?),?\n', api)
+    assert m and "bd is None" in m.group(1), \
+        "an unknown boundary must still be drawn, never hidden as if measured"

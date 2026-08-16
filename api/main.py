@@ -550,6 +550,142 @@ EVENT_PHRASES = {
 }
 
 
+# --- What actually changed between two versions (issues #167, #169) ----------
+# A version pair is not automatically an event. Two failures were measured on
+# real data before this was written:
+#
+#   Labastida (01028, ES) records five versions and four "changes". All four are
+#   the Spanish/Basque name alternating; the boundary never moves. Its area
+#   varies by 0.115 % across the five INE vintages, on 38.6 km2, as the outline
+#   is re-digitised from 32 vertices to 30.
+#
+#   Bad Berneck i.Fichtelgebirge (09472116, DE) records a whole version whose
+#   entire difference is ONE DELETED SPACE: "i. Fichtelgebirge" became
+#   "i.Fichtelgebirge" between two BKG vintages.
+#
+# So: normalise before deciding a name changed, and measure before claiming a
+# boundary did. Both were previously decided by `prev["nom"] != p["nom"]`.
+
+# Below this, two vintages of the same boundary are the same boundary. Chosen
+# from the measurements above: re-digitisation moved Labastida by 0.115 % and
+# Bad Berneck by 0.022 %. A real change is orders of magnitude larger -- a
+# commune losing a hamlet loses percent, not fractions of one. A change BELOW
+# this that is real would be a few hectares, which these sources do not resolve
+# anyway; claiming it from vintage noise would be inventing it.
+BOUNDARY_NOISE_PCT = 0.5
+
+
+def _norm_name(nom: str | None) -> str:
+    """Collapse the differences that are typography, not decisions."""
+    import re as _re
+    import unicodedata
+    if not nom:
+        return ""
+    n = unicodedata.normalize("NFC", nom)
+    n = n.replace("\u2019", "'").replace("\u2010", "-").replace("\u2011", "-")
+    n = _re.sub(r"\s+", " ", n)
+    n = _re.sub(r"\s*([.\-/'])\s*", r"\1", n)   # "i. Fichtel" == "i.Fichtel"
+    return n.strip().casefold()
+
+
+def name_delta(before: str | None, after: str | None) -> dict | None:
+    """What changed in the name, at character level, or None if nothing did.
+
+    `kind` is "renamed" when the difference survives normalisation and
+    "respelled" when it does not -- a respelling is the source's typography
+    changing between vintages, not an authority renaming anything.
+    """
+    import difflib
+    b, a = before or "", after or ""
+    if b == a:
+        return None
+    kind = "renamed" if _norm_name(b) != _norm_name(a) else "respelled"
+    added, removed = [], []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, b, a).get_opcodes():
+        if tag in ("replace", "delete"):
+            removed.append(b[i1:i2])
+        if tag in ("replace", "insert"):
+            added.append(a[j1:j2])
+    return {"kind": kind, "before": b, "after": a,
+            "added": [x for x in added if x], "removed": [x for x in removed if x]}
+
+
+def _ring_area_km2(geom: dict | None) -> float | None:
+    """Planar area of a GeoJSON polygon, good enough to answer 'did it move'.
+
+    Deliberately not PostGIS: this is a comparison between two versions of the
+    SAME outline at the same latitude, so the projection error cancels and a
+    round trip to the database would buy nothing.
+    """
+    import math
+    if not geom or not geom.get("coordinates"):
+        return None
+    t = geom.get("type")
+    if t == "Polygon":
+        rings = geom["coordinates"]
+    elif t == "MultiPolygon":
+        rings = [r for poly in geom["coordinates"] for r in poly]
+    else:
+        return None
+    if not rings or len(rings[0]) < 4:
+        return None
+    total = 0.0
+    for idx, ring in enumerate(rings):
+        shoelace = abs(sum(ring[j][0] * ring[j + 1][1] - ring[j + 1][0] * ring[j][1]
+                           for j in range(len(ring) - 1)) / 2)
+        total += shoelace if idx == 0 else -shoelace
+    lat = sum(pt[1] for pt in rings[0]) / len(rings[0])
+    return abs(total) * (111.32 * 111.32 * math.cos(math.radians(lat)))
+
+
+def boundary_delta(before: dict | None, after: dict | None) -> dict | None:
+    """Whether the outline moved, or only its digitisation did.
+
+    Returns None when it cannot be told -- one of the versions has no geometry.
+    "Unknown" and "unchanged" must not collapse: the first is a gap in what we
+    hold, and reporting it as the second would be a claim we cannot support.
+    """
+    a, b = _ring_area_km2(before), _ring_area_km2(after)
+    if a is None or b is None or a == 0:
+        return None
+    pct = (b - a) / a * 100
+    return {"changed": abs(pct) > BOUNDARY_NOISE_PCT,
+            "area_before_km2": round(a, 4), "area_after_km2": round(b, 4),
+            "area_delta_pct": round(pct, 4)}
+
+
+def annotate_changes(versions: list[dict]) -> list[dict]:
+    """Tag each version with what changed since the previous one.
+
+    The founder's rule (issue #167): a change that is only a name shows NO
+    boundary panel. Rendering five near-identical outlines tells the reader the
+    boundary moved five times; it moved none. So the decision is made here,
+    once, and both the page and the PDF read it -- rather than each deciding
+    for itself and drifting apart.
+
+    `boundary` is None when it cannot be told. A caller must treat that as
+    "unknown", never as "unchanged".
+    """
+    for i, v in enumerate(versions):
+        props = v.setdefault("properties", {})
+        if i == 0:
+            props["change"] = None
+            continue
+        prev = versions[i - 1]
+        nd = name_delta(prev.get("properties", {}).get("nom"), props.get("nom"))
+        bd = boundary_delta(prev.get("geometry"), v.get("geometry"))
+        props["change"] = {
+            "name": nd,
+            "boundary": bd,
+            # What the renderer acts on. draw_boundary is False only when we
+            # have measured that the outline did not move -- an unknown
+            # boundary is still drawn, because hiding it would assert something
+            # we did not check.
+            "draw_boundary": True if bd is None else bool(bd["changed"]),
+        }
+    return versions
+
+
 def derive_events(versions: list[dict], lang: str = "en") -> list[dict]:
     """Chronologie des ÉVÉNEMENTS d'une unité, dérivée de ses versions :
     renommages (avec les deux noms), fusions/absorptions, scissions, création,
@@ -561,13 +697,20 @@ def derive_events(versions: list[dict], lang: str = "en") -> list[dict]:
         return []
     code = vs[0]["code"]
     events: list[dict] = []
+    # The boundary comparison needs the geometry, which lives on the feature
+    # rather than on properties; derive_events only ever saw properties before.
+    geoms = [v.get("geometry") for v in versions]
     for i, p in enumerate(vs):
         prev = vs[i - 1] if i > 0 else None
         contiguous = prev is not None and prev["valid_to"] == p["valid_from"]
         other_parents = sorted({c for c in (p["parents"] or []) if c != code})
-        if contiguous and prev["nom"] != p["nom"]:
-            events.append({"date": p["valid_from"], "type": "renamed",
-                           "detail": f"{prev['nom']} → {p['nom']}"})
+        nd = name_delta(prev["nom"], p["nom"]) if contiguous else None
+        if nd:
+            # A respelling is the source's typography changing between vintages,
+            # not an authority renaming anything -- see name_delta.
+            events.append({"date": p["valid_from"], "type": nd["kind"],
+                           "detail": f"{prev['nom']} → {p['nom']}",
+                           "name_delta": nd})
             if other_parents:
                 events.append({"date": None, "type": "absorbed",
                                "detail": ph["absorbed"](', '.join(other_parents),
@@ -1135,6 +1278,7 @@ def _report_data(code: str, country: str, lang: str = "en") -> dict:
     if pop and pop["source"] in src_info:
         # The census source must appear in the report's attribution block too.
         attributions = sorted(set(attributions) | {src_info[pop["source"]]})
+    annotate_changes(feats)
     return {"code": code, "country": country, "lang": lang, "versions": versions,
             "events": derive_events(feats, lang),
             "bbox": bbox,
@@ -2023,6 +2167,7 @@ def commune_history(code: str, geometry: bool = Query(False),
         raise HTTPException(404, f"Code INSEE inconnu : {code}")
     versions = [feature(r) for r in rows]
     L = resolve_lang(lang, "FR")
+    annotate_changes(versions)
     out = {"code": code, "versions": versions, "events": derive_events(versions, L)}
     if population:
         out["population"] = population_series(code, "FR", L)
@@ -2244,6 +2389,7 @@ def unit_history(code: str, country: str | None = Query(None), geometry: bool = 
     if not rows:
         raise HTTPException(404, f"Code inconnu : {code}")
     versions = [feature(r) for r in rows]
+    annotate_changes(versions)
     return {"code": code, "versions": versions,
             "events": derive_events(versions, resolve_lang(lang, (country or "").upper()))}
 
@@ -2260,4 +2406,5 @@ def nuts_history(code: str, geometry: bool = Query(False)):
     if not rows:
         raise HTTPException(404, f"Code NUTS inconnu : {code}")
     versions = [feature(r) for r in rows]
+    annotate_changes(versions)
     return {"code": code.upper(), "versions": versions, "events": derive_events(versions)}
