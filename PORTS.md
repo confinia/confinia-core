@@ -81,6 +81,37 @@ Taken by OTHER products inside 8085-8099: 8087 (mapmax), 8090 (orbit-poc),
 8096 (ovw2), 8099 (unknown python). Free for future Confinia use: **8098** only —
 coordinate with the platform band table before claiming anything else.
 
+## Migration step 2b — what is REAL on the new band (2026-08-16)
+
+Merging the dual-publish opened nothing: each container keeps its old publisher
+until it is recreated. Verified with `ss`, never with `podman ps` — see below.
+
+| Service | 1PESI port | Live |
+|---|---|---|
+| grafana | 11040 | yes |
+| otel OTLP http / grpc | 11060 / 11062 | yes |
+| otel prometheus exporter | 11061 | yes |
+| keycloak | 11070 | yes (~2 min identity outage: Quarkus re-augments on recreate) |
+| green api / geo db | 11220 / 11230 | yes |
+| staging api | 11320 | yes |
+| sandbox api | 11420 | yes |
+| blue api / geo db | 11120 / 11130 | **no** — blue is ACTIVE; needs the promotion first |
+| app caddy | 11000 | **no** — public edge, recreated last |
+
+**`podman ps` is not evidence of a listener.** `confinia-green_db_1` reported
+`5442->5432` and `11230->5432` while `ss` showed neither: its rootless
+port-forwarder had died, exactly as the green API's did on 2026-08-14. Green kept
+serving — its API reaches the database by container name — so nothing looked
+wrong, while every host-side path (build-geo.sh, backups, psql) was broken. The
+recreate repaired it. Second instance of the lesson already written below: `ss`
+is the only source of truth.
+
+**A systemd unit publishes what it declares, and nothing else.** A green Quadlet
+unit was already installed on the VM carrying `8402` alone. Because the unit
+takes priority in `deploy-api.sh`, the deployment kept republishing one port and
+green would never have reached 11220, however many times it was recreated. The
+units now carry both bands and a test refuses one that does not.
+
 ## Note
 
 The platform Caddyfile's comment band still mentions the old notable ports
