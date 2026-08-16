@@ -91,6 +91,40 @@ in place, with production answering 200 throughout.
 
 ---
 
+## Edge split — staging 11300, sandbox 11400 (done 2026-08-16)
+
+The platform edge template gives each product one block per environment, the
+environment fixed by the 1PESI E digit: PROD `X000`, STAGING `X300`,
+SANDBOX `X400`.
+
+| Hostname | Port | Served by |
+|---|---|---|
+| www · api · time-slider | `11000` | `confinia_caddy_1` |
+| staging · staging.api | `11000` **+** `11300` | `confinia_caddy_1` (listener split) |
+| sandbox | `11000` **+** `11400` | **`confinia-sandbox_caddy_1`** — its own process |
+
+The sandbox is a separate **process**, not a second listen address, because
+that is what platform RULES §6 is for: it was served by the production caddy,
+so a config error while working on the sandbox — which is where unfinished
+things are tried — took www and api down with it. Its own compose project
+(`deploy/sandbox-stack/`), its own config (`deploy/caddy-sandbox/`), its own
+reload script (`deploy/sandbox-edge-up.sh`).
+
+Its admin endpoint is **11490**, production's is 2085. A shared admin address is
+how a `caddy reload` loaded one config into another caddy's process on
+2026-07-20, and a second edge is exactly when that bites.
+
+Verified — every hostname answers identically on old and new:
+
+```
+www           :11000 200                staging      :11000 401  :11300 401
+api           :11000 200                staging.api  :11000 401  :11300 401
+time-slider   :11000 301                sandbox      :11000 401  :11400 401
+```
+
+Legacy `:11000` blocks stay until the platform flips, so rollback is doing
+nothing.
+
 ## Prompt for the platform Claude Code session
 
 Copy everything between the rules below and paste it into the platform session.
@@ -120,8 +154,15 @@ Also listening, verified with `ss -ltn` rather than `podman ps`: grafana
 `11220`/`11230`, staging api `11320`, sandbox api `11420`. The ops database
 publishes no host port at all since 2026-08-12 and is reached by container name.
 
-**Please proceed with the flip**: verify with `ss`, probe `11000` per vhost, then
-point all six `confinia` hostnames at `11000`.
+**Please proceed with the flip.** Two things are ready:
+
+1. **The band**: verify with `ss`, probe `11000` per vhost, point all six
+   `confinia` hostnames at `11000`.
+2. **The environment split**: `staging.confinia.io` and
+   `staging.api.confinia.io` also answer on **`11300`**, and
+   `sandbox.confinia.io` on **`11400`** — the latter from
+   `confinia-sandbox_caddy_1`, its own process with its own admin endpoint
+   (11490), not a second listener on production's caddy.
 
 Two things to know before you do:
 
@@ -134,13 +175,20 @@ Two things to know before you do:
    Unix user, systemd, binds `0.0.0.0`) sits there. We will never bind it; it
    needs relocating on your side to make our band whole.
 
-After the flip, tell us and we will drop the legacy publishes — the second
-`ports:` line on each service and the legacy receivers in
-`deploy/otel-collector.yaml` — so you can close the decommission step.
+**Already dropped** (2026-08-16): caddy `8085`, grafana `8086`, keycloak `8095`,
+demo `8097`, green `8402`/`5442`, staging `8403`, OTLP gRPC `4317`, prometheus
+exporter `8094`. Still legacy, each for a stated reason: `8091`/`5441` (blue is
+active), `2085` (admin, moves to 11090 with the http_port global), and the OTLP
+receiver **`8088`** — blue pushes to it and its endpoint only changes when blue
+is recreated. An API whose exporter has nowhere to send does not fail, it stops
+reporting, so that one cannot go first.
 
-One request for the band table: record that **`8092`, `8093`, `8096` and `8098`
-are burned for us** (taken by `maplibre`, `overwatch` and an nginx outside their
-own bands), and that `8501`–`8503` are panoramax's, which we self-assigned from
-by mistake on 2026-08-12 and vacated the same day.
+After the flip, tell us and we will drop the `:11000` blocks for staging and
+sandbox, so you can close the decommission step.
+
+On the burned ports: you were right to re-measure rather than take our list.
+`8092`, `8093`, `8096` and `8501`–`8503` are released; only **`8098`** (an nginx)
+is still held, and PORTS.md had been offering it as free. Corrected there.
+**`11434`** (ollama) remains burned inside our band.
 
 ---
