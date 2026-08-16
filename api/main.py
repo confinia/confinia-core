@@ -1889,7 +1889,13 @@ def passage(
 def healthz():
     with cursor() as cur:
         cur.execute("SELECT count(*) FROM commune_version")
-        return {"status": "ok", "version": APP_VERSION, "versions": cur.fetchone()[0]}
+        return {"status": "ok", "version": APP_VERSION, "versions": cur.fetchone()[0],
+                # Reported by the API, never inferred from the hostname. A badge
+                # driven by the host would say nothing if PRODUCTION were ever
+                # pointed at Polar sandbox -- and that is the dangerous
+                # direction: customers "paying" while no money is collected,
+                # with every page looking normal. Here it is also an ops signal.
+                "payment_mode": payment_mode()}
 
 
 # Événements UI de la démo. Hors /v1/ (jamais soumis à clé), fire-and-forget
@@ -1989,6 +1995,15 @@ POLAR_ACTIVE = ("active", "trialing")
 # token needs `customer_sessions:write`; absent = the billing button degrades
 # to the receipt-email note. Never committed — provided via backend secrets.
 POLAR_API_BASE = os.environ.get("POLAR_API_BASE", "https://api.polar.sh").rstrip("/")
+
+
+def payment_mode() -> str:
+    """"sandbox" when no real money can move, "production" otherwise.
+
+    Derived from the Polar host actually configured, not from an environment
+    name or a hostname: those describe intent, and this must describe fact.
+    """
+    return "sandbox" if "sandbox" in POLAR_API_BASE else "production"
 POLAR_ACCESS_TOKEN = os.environ.get("POLAR_ACCESS_TOKEN", "")
 
 

@@ -217,3 +217,31 @@ def test_both_report_renderers_print_the_note():
 def test_no_change_no_note():
     ns = _notes()
     assert ns["change_note"](None, "fr") is None
+
+
+def test_the_payment_badge_comes_from_the_api_not_the_hostname():
+    """A host-driven badge is silent in the one case that matters.
+
+    If PRODUCTION were ever pointed at Polar sandbox, customers would "pay"
+    while nothing is collected, on www, with every page looking normal. So the
+    banner must reflect what the API reports about the Polar host it actually
+    calls -- and the API must derive that from POLAR_API_BASE, not from an
+    environment name.
+    """
+    api = open(os.path.join(ROOT, "api", "main.py"), encoding="utf-8").read()
+    assert "def payment_mode()" in api
+    fn = api.split("def payment_mode()")[1].split("\ndef ")[0]
+    # Strip the docstring: it NAMES the things the code must not read.
+    body = fn.split('"""')[2] if fn.count('"""') >= 2 else fn
+    assert "POLAR_API_BASE" in body, "the mode must come from the Polar host in use"
+    for smell in ("CONFINIA_ENV", "hostname", "POLAR_MODE"):
+        assert smell not in body, f"payment_mode reads {smell}; that is intent, not fact"
+    assert '"payment_mode": payment_mode()' in api, "/healthz must expose it"
+
+    for page in ("account.html", "pricing.html", os.path.join("sbx", "account.html")):
+        html = open(os.path.join(ROOT, "deploy", "site", page), encoding="utf-8").read()
+        assert 'id="paymode"' in html, f"{page} has no payment banner"
+        assert 'payment_mode === "sandbox"' in html, \
+            f"{page} must show the banner only on an explicit sandbox answer"
+        assert "location.hostname" not in html.split('id="paymode"')[1][:800], \
+            f"{page} decides the banner from the hostname"

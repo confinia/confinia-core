@@ -14,9 +14,18 @@ code{background:#10151d;border:1px solid #33405a;border-radius:6px;padding:.15re
 .hidden{display:none}.meter{height:8px;border-radius:99px;background:#26314a;overflow:hidden;margin:.5rem 0 .8rem}
 .meter-fill{height:100%;border-radius:99px;background:#7ab8ff;width:0;transition:width .4s}
 .feats{margin:.4rem 0 0;padding-left:1.2rem;font-size:.9rem}.feats li{margin:.25rem 0;opacity:.85}
+#paymode[hidden] { display: none; }
+#paymode { display: block; margin: 0 0 1rem; padding: .6rem .9rem; border-radius: 6px;
+  background: #3a2a10; color: #e6ac63; border: 1px solid #e6ac63;
+  font: 600 .85rem/1.4 ui-monospace, monospace; }
 </style></head>
 <body>
-<div class="bar">SANDBOX — test environment. Use Stripe test card 4242 4242 4242 4242, any future date, any CVC. No real payment.</div>
+
+<!-- The banner matters most HERE: this is the page walked during the Polar
+     sandbox rehearsal. Still driven by the API's answer, not by the fact that
+     this file lives under sbx/ -- a file path is not evidence about where the
+     money goes. -->
+<div id="paymode" hidden></div><div class="bar">SANDBOX — test environment. Use Stripe test card 4242 4242 4242 4242, any future date, any CVC. No real payment.</div>
 <main>
 <h1><a href="/" style="text-decoration:none"><span>Confinia</span></a> · your account <span style="font-size:.7em;opacity:.6">(sandbox)</span></h1>
 <div id="content"><p class="muted">Signing you in…</p></div>
@@ -88,4 +97,13 @@ function showSignIn(){el.innerHTML='<div class="card"><b>Sign in or create an ac
  // Already logged in before on this browser? Complete silently via SSO (no button).
  if(localStorage.getItem("confinia_session")&&!sessionStorage.getItem("silent")){sessionStorage.setItem("silent","1");login({prompt:"none"});return;}
  showSignIn();})();
-</script></body></html>
+</script><script>
+fetch("/api/healthz").then(r => r.json()).then(h => {
+  if (h && h.payment_mode === "sandbox") {
+    const el = document.getElementById("paymode");
+    el.textContent = "SANDBOX PAYMENTS — test cards only, no real money is charged";
+    el.hidden = false;
+  }
+}).catch(() => {});
+</script>
+</body></html>

@@ -44,9 +44,15 @@
   a { color: #7ab8ff; text-decoration: none; } a:hover { text-decoration: underline; }
   footer { margin-top: 3rem; font-size: .85rem; opacity: .75;
            border-top: 1px solid #26314a; padding-top: 1.2rem; }
+#paymode[hidden] { display: none; }
+#paymode { display: block; margin: 0 0 1rem; padding: .6rem .9rem; border-radius: 6px;
+  background: #3a2a10; color: #e6ac63; border: 1px solid #e6ac63;
+  font: 600 .85rem/1.4 ui-monospace, monospace; }
 </style>
 </head>
 <body><main>
+<!-- Payment mode from the API, never from the hostname (see account.html). -->
+<div id="paymode" hidden></div>
 <h1><a href="/about">Confinia</a> · Pricing</h1>
 <p class="tag">The Free tier stays free during the public beta. Paid tiers are
 <b>live</b>: checkout, EU VAT and invoices are handled by Polar (merchant of
@@ -156,4 +162,16 @@ form.addEventListener("submit", async ev => {
 });
 </script>
 <script src="/polar-embed.js" data-auto-init></script>
+
+<script>
+// Only ever shown on an explicit "sandbox" answer: a missing banner must not
+// block the page, and a WRONG banner would be worse than none.
+fetch("/api/healthz").then(r => r.json()).then(h => {
+  if (h && h.payment_mode === "sandbox") {
+    const el = document.getElementById("paymode");
+    el.textContent = "SANDBOX PAYMENTS — test cards only, no real money is charged";
+    el.hidden = false;
+  }
+}).catch(() => {});
+</script>
 </body></html>
