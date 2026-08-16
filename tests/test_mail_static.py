@@ -149,3 +149,27 @@ def test_the_colour_rule_uses_the_instant_value():
         assert "_over_time" not in line, (
             "the colour rule must use the instant value; `for:` debounces: "
             f"{line.strip()[:80]}")
+
+
+def test_the_bounce_mailbox_is_checked_and_failure_to_read_is_not_success():
+    """alert@ is send-only, so anything in its inbox is a delivery failure.
+
+    On 2026-08-11 it held `550 <contact@confinia.io>: User unknown` -- the
+    recipient mailbox did not exist yet, so every alert of that day went
+    nowhere. Nothing reported a problem: Grafana calls a send successful the
+    moment SMTP accepts it, and the bounce comes back later, out of band. The
+    mailbox had never been read.
+    """
+    import os
+    root = os.path.join(os.path.dirname(__file__), "..")
+    sh = open(os.path.join(root, "deploy", "alerts.sh"), encoding="utf-8").read()
+    assert "mailcheck.py" in sh, "the alert check must also look at what bounced"
+
+    py = open(os.path.join(root, "deploy", "mailcheck.py"), encoding="utf-8").read()
+    assert "readonly=True" in py, "a monitoring read must never mutate the mailbox"
+    # Being unable to look is not the same as nothing being there -- the whole
+    # point is that this failure mode is silent.
+    assert "CANNOT READ" in py and "return 2" in py, \
+        "an unreadable mailbox must be a distinct outcome, not a clean result"
+    assert "GF_SMTP_PASSWORD" in py and "password" not in py.lower().split("gf_smtp_password")[0][-40:], \
+        "credentials come from the environment, never from a literal"

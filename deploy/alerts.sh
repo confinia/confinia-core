@@ -2,11 +2,17 @@
 # What is firing RIGHT NOW (RULES 17). Run ON THE VM:
 #   ./deploy/alerts.sh          -> exits 1 if anything is firing
 #
-# RULES 17 says to watch the mailbox for incidents. This reads the SOURCE those
-# mails are generated from instead, which is better in three ways: no inbox
-# credentials, no delivery delay, and it says what is firing NOW rather than
-# what fired at some point. alert@confinia.io is send-only by design and its
-# inbox is deliberately tiny, so it was never the place to look anyway.
+# Two checks, because they fail differently:
+#
+#   1. What Grafana says is firing NOW -- the source the notification mails are
+#      generated from. No delivery delay, and it answers the present tense.
+#   2. What bounced. alert@confinia.io is send-only, so anything in its inbox
+#      means mail we sent was never delivered. That is the only place where
+#      "the alerting itself is broken" shows up: Grafana calls a send
+#      successful as soon as SMTP accepts it, and the bounce arrives later,
+#      out of band. On 2026-08-11 that mailbox held a bounce nobody read --
+#      contact@confinia.io did not exist yet, so every alert of that day went
+#      nowhere while both ends reported success.
 #
 # Why this exists: on 2026-08-16 a regression put /grafana at 502 in production.
 # The alert fired correctly and left in 34 seconds -- and was seen only because
@@ -21,6 +27,7 @@ body=$(curl -sf --max-time 10 -u "admin:$PW" \
 	echo "CANNOT REACH GRAFANA on 11040 -- which is itself worth investigating" >&2
 	exit 2; }
 
+status=0
 printf '%s' "$body" | python3 -c '
 import json, sys
 alerts = json.load(sys.stdin)
@@ -36,4 +43,16 @@ for a in firing:
     if summary:
         print(f"    {summary}")
 raise SystemExit(1)
-'
+' || status=$?
+
+# The bounce mailbox. Same OVH login as the SMTP sender -- IMAP needs no extra
+# secret, which is why this check costs nothing to keep.
+if [ -r deploy/mail.env ]; then
+	set -a; . ./deploy/mail.env; set +a
+	python3 deploy/mailcheck.py || status=$?
+else
+	echo "deploy/mail.env not readable: bounces NOT checked" >&2
+	[ "$status" = 0 ] && status=2
+fi
+
+exit "$status"
