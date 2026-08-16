@@ -210,3 +210,29 @@ def test_the_systemd_units_carry_both_port_bands():
         assert legacy and new, (
             f"{os.path.basename(path)} publishes {sorted(published) or 'nothing'}; "
             "a unit must carry the legacy port AND its 11xxx twin while both bands live")
+
+
+def test_no_host_network_container_depends_on_a_container_name():
+    """`--network host` and a container-name DSN cannot both be true.
+
+    A container name resolves only inside a podman network. On the host network
+    there is no such resolver, so the reference is unreachable — and since the
+    ops database stopped publishing a host port on 2026-08-12 (platform audit),
+    there is no fallback either.
+
+    The sandbox shipped exactly that pair. It was stopped when the publish was
+    removed, so nothing failed until it was next started: uvicorn printed
+    "Waiting for application startup" and hung there forever, with no error and
+    no non-zero exit. A hang is the worst shape this can take, because every
+    "is it running?" check says yes.
+    """
+    import glob
+    for path in sorted(glob.glob(os.path.join(ROOT, "deploy", "*.sh"))):
+        s = open(path, encoding="utf-8").read()
+        body = "\n".join(l for l in s.splitlines() if not l.lstrip().startswith("#"))
+        if "--network host" not in body:
+            continue
+        for name in ("confinia_ops-db_1", "confinia-blue_db_1", "confinia-green_db_1"):
+            assert name not in body, (
+                f"{os.path.basename(path)} runs on the host network and references "
+                f"{name}, which only resolves inside a podman network")
