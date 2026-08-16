@@ -40,3 +40,35 @@ def test_the_script_still_runs_under_set_u():
     # guard rather than the behaviour, which is what a static test can do.
     s = _read()
     assert "set -eu" in s, "the script relies on set -eu; keep it and keep it honest"
+
+
+def test_each_realm_only_accepts_its_own_hosts():
+    """A redirect URI is a security boundary, not a convenience list.
+
+    The sandbox realm exists to be used FROM sandbox.confinia.io, and it listed
+    only www and staging -- so Keycloak answered "Paramètre invalide :
+    redirect_uri" and the sandbox signup journey could not start at all.
+
+    The fix must stay PER REALM. Adding the sandbox host to one shared list
+    would let production accept a code redirected to the sandbox host, which is
+    exactly what this parameter exists to prevent.
+    """
+    import os
+    root = os.path.join(os.path.dirname(__file__), "..")
+    sh = open(os.path.join(root, "deploy", "keycloak", "setup-realm.sh"),
+              encoding="utf-8").read()
+
+    assert 'case "$REALM" in' in sh, "redirect hosts must depend on the realm"
+    sbx = sh.split("confinia-sbx)")[1].split(";;")[0]
+    assert "sandbox.confinia.io" in sbx, "the sandbox realm must accept the sandbox host"
+    assert "www.confinia.io" not in sbx, \
+        "the sandbox realm has no reason to accept the production host"
+
+    default = sh.split("\t*)")[1].split(";;")[0]
+    assert "sandbox.confinia.io" not in default, \
+        "production must never accept a redirect to the sandbox host"
+    assert "www.confinia.io" in default
+
+    # And the values must reach the request body, not just be computed.
+    assert '"redirectUris": [\'"$HOSTS"\']' in sh, \
+        "HOSTS is computed but the client body still hardcodes the URIs"

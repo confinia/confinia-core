@@ -124,17 +124,36 @@ curl -sf -X PUT "$KC/admin/realms/$REALM/users/profile" -H "$AUTH" \
 rm -f /tmp/kc-profile.json
 echo "  user profile in place"
 
-echo "== public PKCE client confinia-web"
+# Which hosts may complete a login, PER REALM. The sandbox realm exists to be
+# used FROM sandbox.confinia.io, and listing only www and staging made that
+# impossible: Keycloak answers "Paramètre invalide : redirect_uri" and the
+# journey cannot start at all.
+#
+# Deliberately NOT one shared list. A redirect URI is what stops an attacker
+# sending a code to a host they control, so production must never accept the
+# sandbox host, and the sandbox realm has no reason to accept www.
+case "$REALM" in
+	confinia-sbx)
+		HOSTS='"https://sandbox.confinia.io/*"'
+		ORIGINS='"https://sandbox.confinia.io"'
+		LOGOUT="https://sandbox.confinia.io/*" ;;
+	*)
+		HOSTS='"https://www.confinia.io/*", "https://staging.confinia.io/*"'
+		ORIGINS='"https://www.confinia.io", "https://staging.confinia.io"'
+		LOGOUT="https://www.confinia.io/*" ;;
+esac
+
+echo "== public PKCE client confinia-web (redirects: $HOSTS)"
 CID=$(curl -sf -H "$AUTH" "$KC/admin/realms/$REALM/clients?clientId=confinia-web" \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['id'] if d else '')")
 BODY='{
   "clientId": "confinia-web", "protocol": "openid-connect",
   "publicClient": true, "standardFlowEnabled": true,
   "directAccessGrantsEnabled": false, "serviceAccountsEnabled": false,
-  "redirectUris": ["https://www.confinia.io/*", "https://staging.confinia.io/*"],
-  "webOrigins": ["https://www.confinia.io", "https://staging.confinia.io"],
+  "redirectUris": ['"$HOSTS"'],
+  "webOrigins": ['"$ORIGINS"'],
   "attributes": {"pkce.code.challenge.method": "S256",
-                 "post.logout.redirect.uris": "https://www.confinia.io/*"},
+                 "post.logout.redirect.uris": "'"$LOGOUT"'"},
   "protocolMappers": [{
     "name": "organization", "protocol": "openid-connect",
     "protocolMapper": "oidc-usermodel-attribute-mapper",
