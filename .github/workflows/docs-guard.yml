@@ -14,6 +14,13 @@ permissions:
 
 on:
   pull_request:
+    # `edited` matters: this job reads DOC-REMOVE-OK out of the PR body, and the
+    # body it sees comes from the EVENT PAYLOAD, not from a live API read. With
+    # the default trigger set (opened, synchronize, reopened) a body edited to
+    # acknowledge a removal can never unblock the job -- re-running it replays
+    # the stale payload, so the only way through was to close and reopen the PR
+    # or push an empty commit. Both were done, twice, before this was noticed.
+    types: [opened, synchronize, reopened, edited]
 
 jobs:
   no-silent-deletion:
