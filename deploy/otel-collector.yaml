@@ -3,13 +3,16 @@
 # Le conteneur tourne en réseau hôte : les cibles sondées sont liées à la
 # loopback (choix de sécurité), injoignables depuis un réseau bridge.
 receivers:
+  # LEGACY, still load-bearing: confinia-blue_api_1 pushes here, and blue is the
+  # ACTIVE colour. Its endpoint only changes when blue is recreated, which waits
+  # on the founder's promotion. Dropping this receiver before then loses
+  # production telemetry silently -- the API does not fail when its exporter has
+  # nowhere to send. Legacy gRPC 4317 is gone: nothing ever used it.
   otlp:
     protocols:
       http:
         endpoint: 0.0.0.0:8088
-      grpc:
-        endpoint: 0.0.0.0:4317
-  # 1PESI dual-listen (11xxx migration, platform PR #8). Must stay 0.0.0.0:
+  # 1PESI (11xxx migration, platform PR #8). Must stay 0.0.0.0:
   # the stack APIs push via host.containers.internal, which is NOT the host
   # loopback (same lesson as ops-db, PORTS.md) — ufw shields it. Target for
   # a true loopback story: network-join like ops-db, a separate change.
@@ -25,7 +28,7 @@ receivers:
     collection_interval: 30s
     targets:
       - endpoint: http://127.0.0.1:8091/healthz   # blue API (direct)
-      - endpoint: http://127.0.0.1:8402/healthz   # green API (direct, band 84xx)
+      - endpoint: http://127.0.0.1:11220/healthz  # green API (direct, 1PESI)
       - endpoint: http://127.0.0.1:11420/healthz  # sandbox API (direct; moved 8089→11420, 1PESI direct swap — stack was down)
       - endpoint: http://127.0.0.1:8095/auth/realms/confinia   # Keycloak
       - endpoint: https://api.confinia.io/healthz # public edge -> ACTIVE color
@@ -52,9 +55,7 @@ processors:
           - set(attributes["file_name"], resource.attributes["file.name"]) where resource.attributes["file.name"] != nil
 
 exporters:
-  prometheus:
-    endpoint: 0.0.0.0:8094
-  # 1PESI dual-serve — prometheus keeps scraping 8094 until the flip.
+  # deploy/prometheus.yml scrapes this; the pair moves together or metrics stop.
   prometheus/new:
     endpoint: 0.0.0.0:11061
 
@@ -63,10 +64,10 @@ service:
     metrics:
       receivers: [otlp, otlp/new]
       processors: [batch]
-      exporters: [prometheus, prometheus/new]
+      exporters: [prometheus/new]
     # Environment probes (issue #85) get their own pipeline so the transform
     # never touches the application metrics.
     metrics/env:
       receivers: [httpcheck, filestats]
       processors: [transform/env, batch]
-      exporters: [prometheus, prometheus/new]
+      exporters: [prometheus/new]
