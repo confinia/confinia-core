@@ -62,7 +62,7 @@ import /etc/caddy/active/*.caddy
 # Confinia frontend (founder's request): the DEMO is the www homepage;
 # the pitch/quickstart lives on /about, the blog keeps its published URLs
 # (/blog/*). Canonical paths: /api/ (API) and /grafana (APPLICATION grafana).
-http://www.confinia.io:8085, http://www.confinia.io:11000 {
+http://www.confinia.io:11000 {
 	encode zstd gzip
 	handle /grafana* {
 		reverse_proxy 127.0.0.1:8086
@@ -128,7 +128,7 @@ http://www.confinia.io:8085, http://www.confinia.io:11000 {
 
 # Historical API hostname: published everywhere (OHM posts, OpenCage
 # backlink, README, release): NEVER break it.
-http://api.confinia.io:8085, http://api.confinia.io:11000 {
+http://api.confinia.io:11000 {
 	encode zstd gzip
 	route {
 		import block_scanners
@@ -139,7 +139,7 @@ http://api.confinia.io:8085, http://api.confinia.io:11000 {
 # Human validation before promotion, behind BASIC AUTH (credentials via
 # the container env: never in the repo). Demo (VM mirror) + candidate API
 # on the same origin under /api: a single login covers everything.
-http://staging.confinia.io:8085, http://staging.confinia.io:11000 {
+http://staging.confinia.io:11000 {
 	import staging_auth
 	encode zstd gzip
 	handle_path /api/* {
@@ -176,7 +176,7 @@ http://staging.confinia.io:8085, http://staging.confinia.io:11000 {
 }
 
 # Candidate API alone (curl), same credentials.
-http://staging.api.confinia.io:8085, http://staging.api.confinia.io:11000 {
+http://staging.api.confinia.io:11000 {
 	import staging_auth
 	encode zstd gzip
 	route {
@@ -190,7 +190,7 @@ http://staging.api.confinia.io:8085, http://staging.api.confinia.io:11000 {
 # ops db confinia_sbx, realm confinia-sbx). Sandbox Polar only (test cards,
 # no real fees). Never promoted; parallel to prod. Auth uses the confinia-sbx
 # realm via the canonical Keycloak host (www) for cookie correctness.
-http://sandbox.confinia.io:8085, http://sandbox.confinia.io:11000 {
+http://sandbox.confinia.io:11000 {
 	encode zstd gzip
 	# Polar sandbox webhook: PUBLIC (signature-verified) — Polar can't send
 	# basic auth. Must stay outside the auth guard below.
@@ -240,6 +240,6 @@ http://sandbox.confinia.io:8085, http://sandbox.confinia.io:11000 {
 # Historical demo hostname: the demo is now the www homepage (same
 # content as the GitHub Pages mirror) — we redirect there.
 # permanent: www is the canonical origin (decision of 2026-07-20).
-http://time-slider.confinia.io:8085, http://time-slider.confinia.io:11000 {
+http://time-slider.confinia.io:11000 {
 	redir https://www.confinia.io{uri} permanent
 }

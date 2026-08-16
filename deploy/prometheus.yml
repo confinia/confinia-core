@@ -6,7 +6,7 @@ scrape_configs:
     static_configs:
       # The collector runs on the HOST network (issue #85: loopback probes);
       # prometheus (bridge) reaches its exporter via the host gateway.
-      - targets: ["host.containers.internal:8094"]
+      - targets: ["host.containers.internal:11061"]
   - job_name: prometheus
     static_configs:
       - targets: ["localhost:9090"]

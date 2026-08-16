@@ -16,13 +16,13 @@
 #            build artefact and every write in api/main.py targets OPS_DSN.
 #            tests/test_staging_isolation.py asserts that premise still holds.
 #
-# PORT 8403 is inside confinia's own 84xx band (platform table: "confinia GREEN
-# + staging"). It was 8501 for a few hours on 2026-08-12 -- self-assigned from a
-# band I had only checked was FREE, not whether it was MINE. 85xx belongs to
-# panoramax. "Free" is not "available", which is exactly the reasoning that cost
-# us 8092: another tenant checked the same way.
-# If 84xx ever fills up, request an extension via confinia/platform. Never
-# self-assign.
+# PORT 11320 is confinia's 1PESI slot: confinia(1) staging(3) api(2) main(0).
+# It was 8403 (our 84xx band) until the legacy drop, and 8501 for a few hours on
+# 2026-08-12 -- self-assigned from a band I had only checked was FREE, not
+# whether it was MINE. 85xx belongs to panoramax. "Free" is not "available",
+# which is exactly the reasoning that cost us 8092: another tenant checked the
+# same way. If 11xxx ever fills up, request an extension via confinia/platform.
+# Never self-assign.
 #
 # The ops database is reached BY CONTAINER NAME, not through a published host
 # port. Proven on 2026-08-12: confinia_ops-db_1 resolves on the colour network
@@ -36,8 +36,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-PORT=8403        # legacy — dropped at 1PESI decommission (platform PR #8)
-NEW_PORT=11320   # 1PESI: confinia(1) · staging(3) · api(2) · main(0)
+PORT=11320   # 1PESI: confinia(1) · staging(3) · api(2) · main(0)
 NAME=confinia-staging_api_1
 OPS_DB=confinia_staging
 
@@ -58,7 +57,7 @@ podman exec confinia_ops-db_1 psql -U confinia -d postgres -tAc \
 
 # The guard from #123: never destroy a working container for a port we cannot
 # get back.
-for p in "$PORT" "$NEW_PORT"; do
+for p in "$PORT"; do
 	if ss -ltn 2>/dev/null | grep -qE "127\.0\.0\.1:$p " \
 	   && ! podman ps --format '{{.Names}}' | grep -qx "$NAME"; then
 		echo "REFUSING: 127.0.0.1:$p is held by something that is not $NAME" >&2
@@ -69,7 +68,6 @@ done
 podman rm -f "$NAME" >/dev/null 2>&1 || true
 podman run -d --name "$NAME" --network "$NET" \
 	-p "127.0.0.1:${PORT}:8000" \
-	-p "127.0.0.1:${NEW_PORT}:8000" \
 	--env-file deploy/secrets.env \
 	-e PG_DSN="postgresql://confinia:${PW}@db:5432/confinia" \
 	-e OPS_DSN="postgresql://confinia:${PW}@confinia_ops-db_1:5432/${OPS_DB}" \

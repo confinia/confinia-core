@@ -27,9 +27,6 @@ Image=localhost/confinia-api:latest
 # Joining the colour network is what makes PG_DSN's `db` host resolve to THIS
 # colour's database -- `db` is a network alias, not a hostname we control.
 Network=confinia-green_default
-PublishPort=127.0.0.1:8402:8000
-# 1PESI dual-publish — the unit must carry BOTH ports, or moving a colour
-# to systemd silently drops it off the new band (11xxx migration, platform PR #8).
 PublishPort=127.0.0.1:11220:8000
 # PG_DSN, OPS_DSN and the rest live here; the file is gitignored and 600.
 EnvironmentFile=%h/projects/confinia/deploy/secrets.env

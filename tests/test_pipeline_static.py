@@ -192,24 +192,29 @@ def test_the_deploy_prefers_a_systemd_unit():
     assert i_unit < i_compose, "the systemd path must be tried FIRST, compose only as fallback"
 
 
-def test_the_systemd_units_carry_both_port_bands():
-    """Moving a colour to systemd must not drop it off the 11xxx band.
+def test_every_systemd_unit_publishes_its_1pesi_port():
+    """A unit publishes what it declares, and it beats compose.
 
-    The Quadlet units were written before the 1PESI migration, when a colour had
-    exactly one port. Replaying them onto a tree that dual-publishes would have
-    given the compose path two ports and the systemd path one — and since the
-    systemd path is the one that runs, the new band would have quietly stopped
-    answering for whichever colour was migrated first.
+    A green unit carrying only 8402 was already installed on the VM when the
+    11xxx band landed. Since deploy-api.sh prefers the unit, green would never
+    have reached 11220 however many times it was recreated -- the declaration in
+    docker-compose-green.yml was simply not the one being used.
+
+    Blue keeps its legacy 8091 alongside 11120 until it is recreated, which
+    waits on a production promotion; that is the one documented exception.
     """
     import glob
     for path in sorted(glob.glob(os.path.join(ROOT, "deploy", "quadlet", "*.container"))):
         s = open(path, encoding="utf-8").read()
         published = set(re.findall(r"^PublishPort=127\.0\.0\.1:(\d+):", s, re.M))
+        assert any(p.startswith("11") for p in published), (
+            f"{os.path.basename(path)} publishes {sorted(published) or 'nothing'} and no "
+            "11xxx port; the unit wins over compose, so the colour would never reach the band")
         legacy = {p for p in published if not p.startswith("11")}
-        new = {p for p in published if p.startswith("11")}
-        assert legacy and new, (
-            f"{os.path.basename(path)} publishes {sorted(published) or 'nothing'}; "
-            "a unit must carry the legacy port AND its 11xxx twin while both bands live")
+        if legacy:
+            assert "blue" in os.path.basename(path), (
+                f"{os.path.basename(path)} still publishes legacy {sorted(legacy)}; only blue "
+                "keeps its legacy port, until the promotion lets it be recreated")
 
 
 def test_no_host_network_container_depends_on_a_container_name():

@@ -78,13 +78,20 @@ table (founder-only, RULES 8) remains the authority.
 | blue / green geo db | **5441 / 5442** (loopback) | |
 
 Taken by OTHER products inside 8085-8099: 8087 (mapmax), 8090 (orbit-poc),
-8096 (ovw2), 8099 (unknown python). Free for future Confinia use: **8098** only —
-coordinate with the platform band table before claiming anything else.
+8096 (ovw2), 8099 (unknown python). **Nothing in 80xx is "free for future
+Confinia use"**: this section used to offer 8098, which is held by an nginx —
+see the corrected BURNED table below. Confinia claims nothing outside 11xxx.
 
 ## Migration step 2b — what is REAL on the new band (2026-08-16)
 
 Merging the dual-publish opened nothing: each container keeps its old publisher
 until it is recreated. Verified with `ss`, never with `podman ps` — see below.
+
+**Legacy publishes dropped 2026-08-16** (platform step 4), except three: blue
+`8091`/`5441` (active colour, waits on the promotion), the caddy admin `2085`
+(moves to `11090` separately), and the otel receiver `8088` — blue still pushes
+to it, and an API whose exporter has nowhere to send does not fail, it just
+stops reporting.
 
 | Service | 1PESI port | Live |
 |---|---|---|
@@ -119,21 +126,33 @@ The platform Caddyfile's comment band still mentions the old notable ports
 `8086 grafana, 8088 otlp, 8089 sbx, 8091 api-blue, 8095 kc` + band **84xx** for GREEN. No routing change
 (the platform only ever targets 8085).
 
-## BURNED ports — never bind these again (2026-08-11)
+## BURNED ports — corrected 2026-08-16, measured not remembered
 
-Squatted by other tenants **outside their own bands**. Confinia does not fight
-for them; the platform band table records them as burned.
+The platform re-checked this table with `ss` instead of copying it forward, and
+**it was backwards**. Only one entry still holds.
 
-| Port | Held by | What it cost us |
+| Port | Held by | Status 2026-08-16 |
 |---|---|---|
-| **8092** | `maplibre` | the green colour could not start at all — `rootlessport listen tcp 127.0.0.1:8092: bind: address already in use`. Diagnosed as four different things over a week before the error message was actually read (issue #123) |
-| **8093** | `maplibre` | was our "staging data slot", probed **first** on every staging request. It answers 404 on `/healthz` so caddy marks it down — but had it ever answered 2xx, our staging traffic would have been proxied into another product's application |
-| **8096** | `overwatch` | — |
-| **8098** | an nginx | bound on `0.0.0.0`, not loopback |
+| **8098** | an nginx, bound on `0.0.0.0` | **STILL HELD.** This file previously listed it as "free for future Confinia use" — the one line that was actually dangerous |
+| **11434** | `ollama` (own Unix user, systemd, binds `0.0.0.0`) | **STILL HELD, and inside our own band.** Never bind it; the platform is relocating it |
+| ~~8092~~ | was `maplibre` | silent, back in the free pool |
+| ~~8093~~ | was `maplibre` | silent, back in the free pool |
+| ~~8096~~ | was `overwatch` | silent, back in the free pool |
+| ~~8501–8503~~ | panoramax | silent; we self-assigned 8501 for a few hours on 2026-08-12 and vacated it the same day |
 
-**GREEN now owns band `84xx`** (8401 web — reserved, unused today since colours
-have no per-colour web; **8402 api**). Nothing else on the VM uses 84xx. Same
-precedent as overwatch's green move to 90xx.
+What these cost while they were held is still worth reading: **8092** stopped
+the green colour from starting at all (`rootlessport listen tcp
+127.0.0.1:8092: bind: address already in use`), diagnosed as four different
+things over a week before the error message was read (issue #123). **8093** was
+our "staging data slot", probed *first* on every staging request; it answered
+404 so caddy marked it down, but had it ever answered 2xx our staging traffic
+would have been proxied into another product's application.
+
+**None of this changes what we bind.** Confinia is leaving 80xx/84xx entirely
+for band 11xxx, so a released legacy port is not an invitation. The reason to
+keep the table accurate is the opposite one: a stale "burned" list makes the
+*whole* list untrustworthy, and 8098 — the entry that was wrong in the unsafe
+direction — is the one that proves it.
 
 The lesson worth carrying: a reserved band is a *convention*, not an
 enforcement. `ss -ltnp` is the only source of truth about who holds a port, and

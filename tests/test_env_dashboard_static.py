@@ -15,7 +15,7 @@ def _read(*parts):
 def test_collector_probes_every_environment():
     cfg = _read("deploy", "otel-collector.yaml")
     for target in ("http://127.0.0.1:8091/healthz",      # blue
-                   "http://127.0.0.1:8402/healthz",      # green
+                   "http://127.0.0.1:11220/healthz",      # green
                    "http://127.0.0.1:11420/healthz",      # sandbox
                    "http://127.0.0.1:8095/auth/realms/confinia",  # keycloak
                    "https://api.confinia.io/healthz"):   # public edge -> active
@@ -38,7 +38,10 @@ def test_promote_maintains_active_marker():
 
 
 def test_prometheus_scrapes_host_collector():
-    assert "host.containers.internal:8094" in _read("deploy", "prometheus.yml")
+    # The scrape target and the collector's prometheus exporter are one pair:
+    # change either alone and metrics stop with both processes reporting healthy.
+    assert "host.containers.internal:11061" in _read("deploy", "prometheus.yml")
+    assert "endpoint: 0.0.0.0:11061" in _read("deploy", "otel-collector.yaml")
 
 
 def test_dashboard_shows_roles_and_liveness():
