@@ -59,7 +59,12 @@ def test_staging_is_routed_to_its_own_stack():
     stacks = _read("deploy", "stacks.sh")
     m = re.search(r"\(staging_upstreams\) \{\n\treverse_proxy ([^\n{]+)", stacks)
     assert m, "the staging upstream block changed shape"
-    assert "8403" in m.group(1), "staging must reach the dedicated stack first"
+    # 11320 since the legacy drop; it was 8403. The assertion is that staging
+    # reaches its OWN stack FIRST -- the fallback to the passive colour answers
+    # /healthz identically, so a wrong first upstream looks perfectly healthy.
+    first = m.group(1).split()[0]
+    assert first.endswith(":11320"), \
+        f"staging must reach the dedicated stack first, not {first}"
 
 
 def test_staging_does_not_bind_a_burned_or_colour_port():
