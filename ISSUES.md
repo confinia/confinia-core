@@ -7,30 +7,48 @@ the work is deployed, and "merged" has been mistaken for "live" here before.
 **Where can I try it** uses the four answers of RULES 12: **nowhere** ·
 **sandbox** · **staging** · **production**.
 
-Last updated: **2026-08-16**, `main` at `d5a8f28`.
+Last updated: **2026-08-16**, `main` at `95e9927`.
 Active colour: **blue** on `:8091` (production) · passive: **green** on `:8402`.
-**Band 11xxx (1PESI): migration step 2b done except the two that need the
-founder.** Grafana, otel, Keycloak, green, staging and sandbox all answer on
-their 11xxx port (verified with `ss`). **Blue (11120/11130) waits on the
-promotion** — it is the active colour — and the **app caddy (11000) is
-recreated last**, because the edge flip depends on it and the last caddy
-recreate cost 46 seconds of public downtime.
 
-## Open
+**Band 11xxx (1PESI): 9 of 10.** The app caddy answers on **`:11000`** for all
+six vhosts (graceful `caddy reload`, production at 200 throughout), alongside
+Grafana `11040`, otel `11060`/`11061`/`11062`, Keycloak `11070`, green
+`11220`/`11230`, staging `11320` and sandbox `11420`. Verified with `ss`, never
+with `podman ps` — PORTS.md records why that distinction cost a day. **Blue
+`11120`/`11130` is the only one left**, and it waits on the promotion because it
+is the active colour. Full account for the platform session: MOVE.md.
 
-| # | Issue | Stage | Where can I try it |
-|---|---|---|---|
-| [#123](https://github.com/confinia/confinia-core/issues/123) | Colour port publisher problems | **half solved.** Cause 1 — another tenant squatted 8092/8093 — **fixed**: green moved to band 84xx, burned ports recorded, and `deploy-api.sh` now refuses to destroy a container for a port it cannot get back. Cause 2 — the publisher stops some minutes after start, on an uncontested port — **open**; correlates with other tenants' throwaway containers on the shared `debian` podman, which points at #99 | staging works again; `deploy-staging` green on `6a88b86` |
-| [#132](https://github.com/confinia/confinia-core/issues/132) | Transactional email | **ops alerts DELIVERED**; **registration mail sent from the sandbox realm 2026-08-14** (`execute-actions-email` → 204). Awaiting the founder's confirmation that both arrived, then `VERIFY_EMAIL=1` | **production** (alerts) · **sandbox** (registration) |
-| [#127](https://github.com/confinia/confinia-core/issues/127) | Report: colour what a boundary gained and lost — refuse to draw when the data cannot support it | issue created, **not started**; blocked by missing historical geometry, not by rendering | nowhere |
-| [#121](https://github.com/confinia/confinia-core/issues/121) | Commune report: make it a document an expert office would sign | issue created, **not started** | nowhere |
-| [#115](https://github.com/confinia/confinia-core/issues/115) | Adopt STACK_template.md: close the documented gaps | issue created, tracking others | nowhere (umbrella) |
-| [#114](https://github.com/confinia/confinia-core/issues/114) | **SECURITY** — CI runner ran as `debian`, passwordless root | **DONE 2026-08-12**: runs as `confinia` via a user-level unit; `deploy-staging` asserts `sudo -n` fails on every run | **production** — the next `deploy-staging` run |
-| [#113](https://github.com/confinia/confinia-core/issues/113) | Staging needs its own stack and DB; today it writes into production data | issue created, **not started** | nowhere |
-| [#111](https://github.com/confinia/confinia-core/issues/111) | Sandbox and staging need their own working directories | **static files DONE 2026-08-12**: `~/staging/confinia` and `~/sandbox/confinia`, mounted separately; proven a staging edit does not reach www. Deploying a PR branch to the sandbox API is the remaining half | **staging** |
-| [#99](https://github.com/confinia/confinia-core/issues/99) | Move the stack to its own Unix user | **DONE 2026-08-11/12.** ~23 min downtime, every count matched first time; green rebuilt by double ingestion and both colours now agree exactly (205 370 / 2 128 / 1 285 119). Old volumes kept until #114 lands | **production** — the whole stack runs as `confinia`, rollback target restored |
-| [#91](https://github.com/confinia/confinia-core/issues/91) | Italy: temporal model, then historical demography | **half delivered** — lineage merged (PR #120); demography not started | **staging** — 2 128 dead comuni now route to a successor, 1865-2024 |
-| [#90](https://github.com/confinia/confinia-core/issues/90) | PDF/SVG report: traceability annex | issue created, **not started**; folded into #121's structure | nowhere |
+## Open, most worth doing first
+
+Ranked by what it costs us to leave undone, not by issue number.
+
+| Rank | # | Issue | Stage | Where can I try it |
+|---|---|---|---|---|
+| 1 | [#113](https://github.com/confinia/confinia-core/issues/113) | Staging needs its own stack and its own database | **DONE, awaiting close.** Verified 2026-08-16: `confinia-staging_api_1` writes to `confinia_staging`, which is not production's `confinia`. The only work left is closing the issue | **staging** — `11320` + `8403` |
+| 2 | [#167](https://github.com/confinia/confinia-core/issues/167) + [#169](https://github.com/confinia/confinia-core/issues/169) | The page implies a boundary change at every event (#167), and never says what actually changed (#169) | created 2026-08-16, **not started**. Labastida (01028, ES) draws five panels for four name changes, 0.115 % area spread; Bad Berneck (09472116, DE) mints a version whose entire difference is **one deleted space**. **Founder decision on #167**: a name-only change shows no boundary panel at all. #169 adds the sentence that replaces it, and asks whether a whitespace-only difference is a version at all | nowhere — the page is wrong in **production** today |
+| 3 | [#132](https://github.com/confinia/confinia-core/issues/132) | Transactional email | **one step from done.** Ops alerts delivered; registration mail sent from the sandbox realm. Remaining: see the *real* self-registration mail (what was tested was the admin-initiated template), then `VERIFY_EMAIL=1` on the production realm | **production** (alerts) · **sandbox** (registration) |
+| 4 | [#90](https://github.com/confinia/confinia-core/issues/90) + [#168](https://github.com/confinia/confinia-core/issues/168) | Traceability annex — per kind of fact (#90), per individual change with a URL (#168) | both **not started**. #168 is the row-level form of #90 and says so; **they must not be built as two annexes** | nowhere |
+| 5 | [#121](https://github.com/confinia/confinia-core/issues/121) | Commune report: make it a document an expert office would sign | **not started**. The gap is form, not information — and form decides whether a professional attaches it to a file | nowhere |
+| 6 | [#127](https://github.com/confinia/confinia-core/issues/127) | Report: colour what a boundary gained and lost — refuse to draw when the data cannot support it | **not started**; measured and found unusable as a naive `ST_Difference` (97 pieces each way, one significant). #167 must settle first — no delta can be drawn for a change that is a re-digitisation | nowhere |
+| 7 | [#91](https://github.com/confinia/confinia-core/issues/91) | Italy: historical demography | **half delivered** — lineage merged (PR #120) and live; demography not started | **production** — 2 128 dead comuni route to a successor, 1865-2024 |
+| 8 | [#115](https://github.com/confinia/confinia-core/issues/115) | Adopt STACK_template.md: close the documented gaps | umbrella, tracking the others | nowhere |
+
+Why this order: #113 is finished work that only needs closing; #167/#169 are the
+only entries where **production actively tells customers something untrue**, and
+the founder has already settled #167's one open question; #132 is a single flag
+from done. Then the provenance chain (#90/#168 → #121), which is what the product
+sells, before #127 and #91 which are both gated on data we do not hold.
+
+## Closed, but this file still listed them as open
+
+The drift this ranking pass was meant to catch.
+
+| # | What | Verified |
+|---|---|---|
+| [#123](https://github.com/confinia/confinia-core/issues/123) | Colour port publisher dies | **CLOSED.** Cause 1: another tenant squatted 8092/8093 → green moved to 84xx. Cause 2: a container created by a CI job is a **child of that job** and died ~2 min after it ended → Quadlet units, so it belongs to systemd |
+| [#114](https://github.com/confinia/confinia-core/issues/114) | **SECURITY** — CI runner ran as `debian`, passwordless root | **CLOSED.** Runs as `confinia`; `deploy-staging` asserts `sudo -n` fails every run |
+| [#111](https://github.com/confinia/confinia-core/issues/111) | Sandbox needs its own working directory | **CLOSED.** Per-environment static roots proven; the sandbox API itself was repaired 2026-08-16 — it could reach neither of its databases |
+| [#99](https://github.com/confinia/confinia-core/issues/99) | Move the stack to its own Unix user | **CLOSED.** ~23 min downtime, every count matched first time (205 370 / 2 128 / 1 285 119) |
 
 ## Promoted to production 2026-08-03, verified live
 
@@ -49,6 +67,7 @@ recreate cost 46 seconds of public downtime.
 
 ## Founder-only, not GitHub work
 
+- **Promote to production** — `promote-production`, manual, requires your
+  review. Blue's move to `11120`/`11130` is the last thing waiting on it.
 - **2FA on GitHub** — load-bearing since the self-hosted runner exists (#114).
 - **Off-VM backups** — dumps exist, on the same VM, which is not a backup.
-- **Promote to production** — `promote-production`, manual, requires your review.
