@@ -25,6 +25,11 @@ services:
       # Public confinia.io page (pitch, quickstart, attributions)
       - ./deploy/site:/srv/site:ro
       - ./demo:/srv/demo:ro
+      # ONE copy of the front-end libraries for every product on the VM
+      # (issue #185). Outside the repo mirror on purpose: shared state, like
+      # confinia-edge-state, and a `git reset --hard` must not take another
+      # product's library with it. Installed by deploy/shared-lib-up.sh.
+      - ${HOME}/shared-lib:/srv/shared-lib:ro
       # STAGING and SANDBOX serve their OWN checkouts (issue #111). Until
       # 2026-08-12 all three hostnames served /srv/site, so editing a static
       # file WAS a production change and there was no way to validate one

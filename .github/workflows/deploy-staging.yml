@@ -58,6 +58,15 @@ jobs:
           # be validated only after it was already live on www.
           ./deploy/checkout-env.sh staging "$GITHUB_SHA"
 
+      - name: Install the shared front-end libraries
+        run: |
+          set -eu
+          cd "$DEPLOY_DIR"
+          # MUST run before the edge reload: the edge serves /lib/* from this
+          # directory, and an empty one means a 404 on a module -- a silently
+          # hanging map, not a visible error (issue #185).
+          ./deploy/shared-lib-up.sh
+
       - name: Reload the edge if its config changed
         run: |
           set -eu

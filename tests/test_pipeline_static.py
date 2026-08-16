@@ -397,3 +397,16 @@ def test_staging_dual_listens_until_the_platform_flips():
         line = next(l for l in prod.splitlines() if l.startswith(f"http://{host}:"))
         assert ":11000" in line and ":11300" in line, \
             f"{host} must answer on both ports until the edge is flipped: {line}"
+
+
+def test_the_shared_libraries_are_installed_before_the_edge_reloads():
+    """Order matters: the edge serves /lib/* from that directory.
+
+    Reloading an edge pointed at an empty directory returns 404 for a module,
+    and a missing module is a map that hangs with no error -- the same silence
+    this whole family of bug hides behind.
+    """
+    s = _wf("deploy-staging.yml")
+    assert "shared-lib-up.sh" in s, "the pipeline must install the shared libraries"
+    assert s.index("shared-lib-up.sh") < s.index("deploy-edge.sh"), \
+        "the libraries must be in place BEFORE the edge starts serving them"
