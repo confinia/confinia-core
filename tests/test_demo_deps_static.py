@@ -70,13 +70,51 @@ def test_vendored_path_carries_an_explicit_version():
 
 
 def test_vendored_files_are_present_with_their_licence():
+    """All THREE ESM chunks, not two.
+
+    v6 publishes no UMD bundle -- dist/maplibre-gl.js is a 404 -- and splits
+    into maplibre-gl.mjs, -shared.mjs and -worker.mjs. Shipping two of the three
+    is one of the ways this has already failed: the worker never starts, no
+    error event fires, nothing reaches the console, and the basemap still draws.
+    Only the data is missing.
+    """
     html = _read("demo", "index.html")
     v = re.findall(r"lib/maplibre/([^/]+)/", html)[0]
     base = os.path.join(ROOT, "demo", "lib", "maplibre", v)
-    for f in ("maplibre-gl.js", "maplibre-gl.css", "LICENSE.txt"):
+    required = ["maplibre-gl.css", "LICENSE.txt"]
+    required += (["maplibre-gl.mjs", "maplibre-gl-shared.mjs", "maplibre-gl-worker.mjs"]
+                 if int(v.split(".")[0]) >= 6 else ["maplibre-gl.js"])
+    for f in required:
         path = os.path.join(base, f)
         assert os.path.exists(path), f"missing vendored file: {f}"
         assert os.path.getsize(path) > 100, f"vendored {f} looks truncated"
+
+
+def test_the_esm_bundle_is_imported_as_a_module():
+    """v6 has no UMD and no default export.
+
+    The old tag was `<script src=".../maplibre-gl.js">` feeding a global. That
+    file does not exist in v6, so bumping the version in place would have served
+    a 404 and left `maplibregl` undefined. And `import maplibregl from ...`
+    yields undefined too -- the bundle exports named symbols only.
+    """
+    html = _read("demo", "index.html")
+    v = re.findall(r"lib/maplibre/([^/]+)/", html)[0]
+    if int(v.split(".")[0]) < 6:
+        return
+    assert 'src="lib/maplibre' not in html,         "v6 publishes no UMD bundle; a <script src> tag would 404"
+    assert re.search(r'import \* as maplibregl from "\./lib/maplibre/[^"]+/maplibre-gl\.mjs"' , html),         "the ESM bundle must be imported with a namespace import, not a default one"
+    assert '<script type="module">' in html,         "the script consuming maplibregl must itself be a module"
+
+
+def test_no_second_vendored_major_lingers():
+    """Two majors on disk means one of them is being served by accident."""
+    base = os.path.join(ROOT, "demo", "lib", "maplibre")
+    present = sorted(d for d in os.listdir(base)
+                     if os.path.isdir(os.path.join(base, d)))
+    html = _read("demo", "index.html")
+    used = sorted(set(re.findall(r"lib/maplibre/([^/]+)/", html)))
+    assert present == used,         f"vendored {present} but the page references {used}; remove what is unused"
 
 
 def test_publish_target_ships_the_whole_demo_directory():

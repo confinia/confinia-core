@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>Confinia — communes through time</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link href="lib/maplibre/5.24.0/maplibre-gl.css" rel="stylesheet">
+<link href="lib/maplibre/6.4.0/maplibre-gl.css" rel="stylesheet">
 <style>
   :root { color-scheme: dark; }
   html, body { margin: 0; height: 100%; background: #10151d; color: #e8eaed;
@@ -305,12 +305,19 @@
 </script>
 <!-- MapLibre vendored, never loaded from a CDN (issue #105): the most public
      page must not depend on a third party being up, and v6 chunks loaded
-     cross-origin hang silently with no error at all. The version lives in
-     the path so an upgrade is a visible diff. BSD-3-Clause, license kept
-     next to the files. Served by the caddy container (./demo mount). -->
-<script src="lib/maplibre/5.24.0/maplibre-gl.js"></script>
-<script>
+     cross-origin hang silently with no error at all -- still open upstream as
+     maplibre/maplibre-gl-js#8018. The version lives in the path so an upgrade
+     is a visible diff. BSD-3-Clause, license kept next to the files. Served by
+     the caddy container (./demo mount).
+
+     v6 ships NO UMD bundle: dist/maplibre-gl.js is a 404, so the old
+     <script src> tag cannot be version-bumped in place -- it has to become a
+     module import. All THREE chunks must sit here same-origin
+     (maplibre-gl.mjs, -shared.mjs, -worker.mjs); shipping two of the three is
+     one of the ways this has failed silently before. -->
+<script type="module">
 "use strict";
+import * as maplibregl from "./lib/maplibre/6.4.0/maplibre-gl.mjs";
 // Sur staging.confinia.io, l'API candidate (instance verte) est servie en même
 // origine sous /api : le basic auth du staging couvre aussi les appels API.
 const API = new URLSearchParams(location.search).get("api")
