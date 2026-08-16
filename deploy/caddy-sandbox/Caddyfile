@@ -47,6 +47,19 @@ import /etc/caddy/active/*.caddy
 }
 
 http://sandbox.confinia.io:11400 {
+	# Loopback only (platform audit, overwatch #35). The platform edge reaches
+	# us on 127.0.0.1, so routing is unchanged -- but binding every interface
+	# made ufw the single rule between staging/sandbox and the internet, the
+	# same shape as the ops-db finding. Worse here: the basic_auth gate lives in
+	# THIS process, so anyone reaching it directly would send credentials over
+	# plaintext HTTP, around the edge's TLS.
+	#
+	# The otel collector must NOT get this treatment: the stack APIs push through
+	# host.containers.internal, the podman gateway, which is not the host
+	# loopback. A loopback bind there makes it unreachable from every container
+	# at once -- and an exporter with nowhere to send does not error, it stops
+	# reporting.
+	bind 127.0.0.1
 	encode zstd gzip
 	# Polar sandbox webhook: PUBLIC (signature-verified) — Polar can't send
 	# basic auth. Must stay outside the auth guard below.
