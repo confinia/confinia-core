@@ -174,3 +174,39 @@ def test_no_file_names_another_products_port():
                 assert any(w in window for w in
                            (owner, "BURNED", "burned", "belongs", "never", "NOT", "self-assigned")), \
                     f"{os.path.basename(path)}:{i} names {port} ({owner}'s) with no explanation: {line.strip()[:70]}"
+
+
+def test_the_deploy_prefers_a_systemd_unit():
+    """A container created by a CI job is a child of that job (issue #123).
+
+    About two minutes after the job ended, the passive colour was killed with
+    `exit=-1` — neither a crash nor a clean stop — and staging stayed dead. The
+    identical command over ssh survived nine hours. Quadlet makes the container
+    belong to systemd, so a deployment only ever restarts it.
+    """
+    sh = open(os.path.join(ROOT, "deploy", "deploy-api.sh"), encoding="utf-8").read()
+    assert "systemctl --user restart" in sh, \
+        "the deploy must restart a systemd unit, not create a container as its own child"
+    i_unit = sh.index("systemctl --user restart")
+    i_compose = sh.index("podman-compose -p \"confinia-$P\"")
+    assert i_unit < i_compose, "the systemd path must be tried FIRST, compose only as fallback"
+
+
+def test_the_systemd_units_carry_both_port_bands():
+    """Moving a colour to systemd must not drop it off the 11xxx band.
+
+    The Quadlet units were written before the 1PESI migration, when a colour had
+    exactly one port. Replaying them onto a tree that dual-publishes would have
+    given the compose path two ports and the systemd path one — and since the
+    systemd path is the one that runs, the new band would have quietly stopped
+    answering for whichever colour was migrated first.
+    """
+    import glob
+    for path in sorted(glob.glob(os.path.join(ROOT, "deploy", "quadlet", "*.container"))):
+        s = open(path, encoding="utf-8").read()
+        published = set(re.findall(r"^PublishPort=127\.0\.0\.1:(\d+):", s, re.M))
+        legacy = {p for p in published if not p.startswith("11")}
+        new = {p for p in published if p.startswith("11")}
+        assert legacy and new, (
+            f"{os.path.basename(path)} publishes {sorted(published) or 'nothing'}; "
+            "a unit must carry the legacy port AND its 11xxx twin while both bands live")

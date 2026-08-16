@@ -1,0 +1,45 @@
+# Confinia green API as a SYSTEMD unit, not as a child of whatever started it
+# (issue #123).
+#
+# THE FAULT THIS FIXES: `deploy-api.sh stage` run from a CI job created the
+# container as a child of that job. About two minutes after the job ended the
+# container was killed -- `exit=-1`, not a crash and not a clean stop -- and the
+# passive colour was dead until someone noticed. The same command over ssh
+# survived nine hours. Six other hypotheses were tested and disproved first: a
+# dying publisher, shared-account churn, an orphaned process, port squatting,
+# the host-network smoke container, and cgroup delegation.
+#
+# With Quadlet the container belongs to systemd. CI runs
+# `systemctl --user restart confinia-green-api` and the container outlives
+# the job by construction, not by luck.
+#
+# Install: rsync this directory to ~/.config/containers/systemd/ then
+#   systemctl --user daemon-reload && systemctl --user start confinia-green-api
+[Unit]
+Description=Confinia green API
+# The colour's geo database and the shared ops database must be up first; they
+# are podman-compose managed and long-lived, so this is an ordering hint only.
+After=network-online.target
+
+[Container]
+ContainerName=confinia-green_api_1
+Image=localhost/confinia-api:latest
+# Joining the colour network is what makes PG_DSN's `db` host resolve to THIS
+# colour's database -- `db` is a network alias, not a hostname we control.
+Network=confinia-green_default
+PublishPort=127.0.0.1:8402:8000
+# 1PESI dual-publish — the unit must carry BOTH ports, or moving a colour
+# to systemd silently drops it off the new band (11xxx migration, platform PR #8).
+PublishPort=127.0.0.1:11220:8000
+# PG_DSN, OPS_DSN and the rest live here; the file is gitignored and 600.
+EnvironmentFile=%h/projects/confinia/deploy/secrets.env
+
+[Service]
+Restart=always
+RestartSec=10
+# A colour that cannot start must fail loudly rather than flap forever.
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+[Install]
+WantedBy=default.target
