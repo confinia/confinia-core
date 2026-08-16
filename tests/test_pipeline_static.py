@@ -303,10 +303,26 @@ def test_the_colour_ports_the_deploy_waits_on_are_published():
         assert port in published, \
             f"deploy-api.sh waits on {port}, which no colour stack or unit publishes"
 
-    wf = open(os.path.join(WF, "promote-production.yml"), encoding="utf-8").read()
-    for port in re.findall(r"port=(\d+)", wf):
+    # Every workflow, not just promote-production: the same literal appeared a
+    # third time in deploy-staging's smoke step, and each miss cost a full
+    # red pipeline to discover.
+    import glob as _glob
+    for path in sorted(_glob.glob(os.path.join(WF, "*.yml"))):
+        wf = open(path, encoding="utf-8").read()
+        # Only the colour conditional -- other ports in these files are
+        # container-internal (CI's throwaway Keycloak on 8180, for one).
+        for line in re.findall(r'^.*\$active" = blue.*$', wf, re.M):
+            for port in re.findall(r"port=(\d+)", line):
+                assert port in published, (
+                    f"{os.path.basename(path)} checks {port} for a colour, which no colour "
+                    "stack or unit publishes")
+
+    # And the watchdog, which repairs colour publishers by name and port.
+    pw = open(os.path.join(ROOT, "deploy", "portwatch.sh"), encoding="utf-8").read()
+    body = "\n".join(l for l in pw.splitlines() if not l.lstrip().startswith("#"))
+    for port in re.findall(r"(?:blue|green):(\d+)", body):
         assert port in published, \
-            f"promote-production checks {port}, which no colour stack or unit publishes"
+            f"portwatch.sh watches {port}, which no colour stack or unit publishes"
 
 
 def test_the_pipeline_reloads_the_edge():

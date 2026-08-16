@@ -3,8 +3,8 @@
 # record the evidence, and repair it.
 #
 # THE FAULT, characterised over four days: podman reports `8000/tcp ->
-# 127.0.0.1:8402`, the container is `running`, the app answers `/healthz` 200 on
-# port 8000 INSIDE its namespace, and no rootlessport process holds 8402 on the
+# 127.0.0.1:11220`, the container is `running`, the app answers `/healthz` 200 on
+# port 8000 INSIDE its namespace, and no rootlessport process holds 11220 on the
 # host. It happens within ~a minute of a deployment made BY THE CI RUNNER, and
 # not after the same command run over ssh.
 #
@@ -46,15 +46,15 @@ print("\n".join(rows[-8:]))' >> "$LOG" 2>/dev/null
 
 prev="__init__"
 while true; do
-  now=$(ss -ltn 2>/dev/null | grep -oE '127\.0\.0\.1:(8091|8402)' | sort | tr '\n' ' ')
+  now=$(ss -ltn 2>/dev/null | grep -oE '127\.0\.0\.1:(8091|11220)' | sort | tr '\n' ' ')
   [ "$now" != "$prev" ] && {
     log "=== $(date -u +%FT%TZ)  listeners=[${now:-NONE}]  was=[${prev}]"
-    for c in blue:8091 green:8402; do evidence "confinia-${c%%:*}_api_1" "${c##*:}"; done
+    for c in blue:8091 green:11220; do evidence "confinia-${c%%:*}_api_1" "${c##*:}"; done
     prev="$now"
   }
 
   # The repair: mapping claimed, container running, nothing listening.
-  for pair in blue:8091 green:8402; do
+  for pair in blue:8091 green:11220; do
     colour=${pair%%:*}; port=${pair##*:}; name="confinia-${colour}_api_1"
     podman ps --format '{{.Names}}' 2>/dev/null | grep -qx "$name" || continue
     ss -ltn 2>/dev/null | grep -q "127.0.0.1:$port " && continue
