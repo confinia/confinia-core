@@ -61,11 +61,38 @@ stage() {
 	fi
 	echo "== the $P API (passive, $(port_of "$P")) switches to the new version; the public stays on $A"
 	port_is_ours "$(port_of "$P")" "confinia-${P}_api_1" || exit 1
-	podman rm -f "confinia-${P}_api_1" >/dev/null 2>&1 || true
-	# --no-deps is MANDATORY: without it, a hash change of secrets.env
-	# makes compose recreate the db and tear down its dependents (doctrine, 2 incidents).
-	podman-compose -p "confinia-$P" -f "$PWD/deploy/stack/docker-compose-$P.yml" \
-		--profile serve up -d --no-deps api >/dev/null 2>&1
+	if systemctl --user cat "confinia-${P}-api" >/dev/null 2>&1; then
+		# Quadlet path (issue #123). The container belongs to SYSTEMD, so it
+		# outlives the process that restarted it. A container created here
+		# directly would be a child of this shell -- and when this shell is a CI
+		# job step, the container is killed about two minutes after the job ends
+		# (exit=-1, neither a crash nor a clean stop). The same command over ssh
+		# survived nine hours; that difference was the whole bug.
+		echo "   via systemd unit confinia-${P}-api"
+		# `systemctl restart` returns as soon as systemd has ACTED, not when the
+		# container is serving. wait_ok alone is not enough either: for a moment
+		# the OLD container is still answering /healthz, so the gate passes, the
+		# restart completes, and the smoke then hits nothing. That is exactly how
+		# the first Quadlet deployment failed -- smoke at 13:16:07, container up
+		# at 13:16:11.
+		# So: remember when we asked, and wait for a container that started AFTER.
+		asked=$(date -u +%s)
+		systemctl --user restart "confinia-${P}-api"
+		for _ in $(seq 1 60); do
+			started=$(podman inspect "confinia-${P}_api_1" \
+				--format '{{.State.StartedAt}}' 2>/dev/null || true)
+			[ -n "$started" ] && \
+				[ "$(date -u -d "$started" +%s 2>/dev/null || echo 0)" -ge "$asked" ] && break
+			sleep 2
+		done
+	else
+		echo "   via podman-compose (no systemd unit for $P yet -- see deploy/quadlet/)"
+		podman rm -f "confinia-${P}_api_1" >/dev/null 2>&1 || true
+		# --no-deps is MANDATORY: without it, a hash change of secrets.env
+		# makes compose recreate the db and tear down its dependents (doctrine, 2 incidents).
+		podman-compose -p "confinia-$P" -f "$PWD/deploy/stack/docker-compose-$P.yml" \
+			--profile serve up -d --no-deps api >/dev/null 2>&1
+	fi
 	wait_ok "$(port_of "$P")"
 	echo "OK: validate on https://staging.api.confinia.io then ./deploy/deploy-api.sh promote"
 }
