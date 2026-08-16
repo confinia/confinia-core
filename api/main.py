@@ -729,6 +729,47 @@ def annotate_changes(versions: list[dict]) -> list[dict]:
     return versions
 
 
+def change_note(nd: dict | None, lang: str = "en") -> str | None:
+    """One plain sentence saying what changed in a name.
+
+    The chronology printed "A → B" and stopped. When the difference is one
+    space -- Bad Berneck's entire 2023 event -- the reader sees two identical
+    strings and cannot tell what happened. The founder asked "quel changement
+    en 2023 ?" of a report that had just shown them that line.
+
+    Plain text only, no substitution glyphs: this goes into a PDF drawn with
+    Helvetica, where U+2423 OPEN BOX renders as a blank or a tofu box, which is
+    the same failure one level down.
+    """
+    if not nd:
+        return None
+    fr = lang == "fr"
+
+    def _describe(chunks: list[str]) -> str:
+        parts = []
+        for c in chunks:
+            if c.strip() == "":
+                n = len(c)
+                if fr:
+                    parts.append("une espace" if n == 1 else f"{n} espaces")
+                else:
+                    parts.append("one space" if n == 1 else f"{n} spaces")
+            else:
+                parts.append(f'"{c}"')
+        return ", ".join(parts)
+
+    bits = []
+    if nd["removed"]:
+        bits.append((("retiré : " if fr else "removed: ")) + _describe(nd["removed"]))
+    if nd["added"]:
+        bits.append((("ajouté : " if fr else "added: ")) + _describe(nd["added"]))
+    if nd["kind"] == "respelled":
+        head = "orthographe de la source" if fr else "spelling in the source"
+    else:
+        head = "nom seul, limites inchangées" if fr else "name only, boundary unchanged"
+    return head + (" · " + " · ".join(bits) if bits else "")
+
+
 def derive_events(versions: list[dict], lang: str = "en") -> list[dict]:
     """Chronologie des ÉVÉNEMENTS d'une unité, dérivée de ses versions :
     renommages (avec les deux noms), fusions/absorptions, scissions, création,
@@ -753,7 +794,7 @@ def derive_events(versions: list[dict], lang: str = "en") -> list[dict]:
             # not an authority renaming anything -- see name_delta.
             events.append({"date": p["valid_from"], "type": nd["kind"],
                            "detail": f"{prev['nom']} → {p['nom']}",
-                           "name_delta": nd})
+                           "name_delta": nd, "change_note": change_note(nd, lang)})
             if other_parents:
                 events.append({"date": None, "type": "absorbed",
                                "detail": ph["absorbed"](', '.join(other_parents),
@@ -1413,6 +1454,10 @@ def _report_svg(d: dict) -> str:
         y += 17
         pre = f"{ev['date']} · " if ev.get("date") else ""
         text(PAD + 8, y, f"• {pre}{ev['detail']}"[:130], 12)
+        # Issue #169: "A → B" is unreadable when the difference is one space.
+        if ev.get("change_note"):
+            y += 13
+            text(PAD + 20, y, ev["change_note"][:120], 10, fill="#7d8ba3")
     y += 26
     # Population curve (issue #88): the one chart that shows both the series and
     # the boundary events that break it. Drawn only when we actually have data.
@@ -1539,6 +1584,12 @@ def _report_pdf(d: dict) -> bytes:
         pre = f"{ev['date']} · " if ev.get("date") else ""
         c.setFillColorRGB(.1, .14, .2)
         c.drawString(PAD + 6, y, f"• {pre}{ev['detail']}"[:118]); y -= 14
+        # Issue #169: without this the reader sees two identical-looking names
+        # and has to ask what changed -- which the founder did, of this report.
+        if ev.get("change_note"):
+            c.setFont("Helvetica", 8); c.setFillColorRGB(.45, .5, .58)
+            c.drawString(PAD + 18, y, ev["change_note"][:110]); y -= 12
+            c.setFont("Helvetica", 9.5)
     # Population curve (issue #88). PDF is y-up: Y = top - py.
     CH_W, CH_H = W - 2 * PAD - 60, 130
     lay = _pop_layout(d.get("population"), d["events"], CH_W, CH_H)

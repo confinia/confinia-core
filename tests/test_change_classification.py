@@ -170,3 +170,50 @@ def test_both_report_renderers_use_the_grouping():
         "both the SVG and the PDF panel loops must iterate groups"
     assert "for i, v in enumerate(d[\"versions\"])" not in src, \
         "a renderer still loops versions and will draw a panel per version"
+
+
+def _notes():
+    ns = _load()
+    src = open(os.path.join(ROOT, "api", "main.py"), encoding="utf-8").read()
+    exec(re.search(r"^def change_note\(.*?(?=^def |\Z)", src, re.S | re.M).group(0), ns)
+    return ns
+
+
+def test_the_report_says_what_changed_in_words():
+    """The founder read the 2023 line and had to ask what changed.
+
+    "Bad Berneck i. Fichtelgebirge → Bad Berneck i.Fichtelgebirge" is two
+    identical-looking strings. The report must state the difference, not print
+    it and hope.
+    """
+    ns = _notes()
+    nd = ns["name_delta"]("Bad Berneck i. Fichtelgebirge", "Bad Berneck i.Fichtelgebirge")
+    fr, en = ns["change_note"](nd, "fr"), ns["change_note"](nd, "en")
+    assert "espace" in fr and "orthographe" in fr, fr
+    assert "space" in en and "spelling" in en, en
+
+
+def test_the_note_never_relies_on_a_glyph_the_pdf_font_lacks():
+    """A substitution glyph would reproduce the bug one level down.
+
+    The page can highlight a space with U+2423; the PDF is drawn in Helvetica,
+    where it renders as a blank or a tofu box -- an invisible difference again.
+    """
+    ns = _notes()
+    for before, after in (("a b", "ab"), ("a  b", "a b"), ("x", "x y")):
+        nd = ns["name_delta"](before, after)
+        for lang in ("fr", "en"):
+            note = ns["change_note"](nd, lang)
+            assert all(ord(ch) < 0x2000 or ch in "·—" for ch in note), \
+                f"{note!r} carries a glyph the PDF font may not have"
+
+
+def test_both_report_renderers_print_the_note():
+    src = open(os.path.join(ROOT, "api", "main.py"), encoding="utf-8").read()
+    assert src.count('ev["change_note"]') == 2, \
+        "the SVG and the PDF chronology must both print the note"
+
+
+def test_no_change_no_note():
+    ns = _notes()
+    assert ns["change_note"](None, "fr") is None
