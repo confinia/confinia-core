@@ -117,3 +117,56 @@ def test_the_page_draws_nothing_when_the_boundary_did_not_move():
     m = re.search(r'"draw_boundary": (.+?),?\n', api)
     assert m and "bd is None" in m.group(1), \
         "an unknown boundary must still be drawn, never hidden as if measured"
+
+
+def _report_versions(pcts):
+    """Report-shaped versions: plain rings, one per area delta (in %)."""
+    out = []
+    for i, pct in enumerate(pcts):
+        side = 0.09 * (1 + pct / 100) ** 0.5
+        out.append({"nom": f"v{i}", "rings": [[
+            [0, 42.6], [side, 42.6], [side, 42.6 + side], [0, 42.6 + side], [0, 42.6]]]})
+    return out
+
+
+def test_the_report_groups_boundaries_like_the_page_does():
+    """The PDF drew Bad Berneck's deleted space as two identical maps.
+
+    The first fix annotated the API's GeoJSON features and claimed the report
+    read them. It did not: the report builds its OWN version list, with plain
+    rings and no geometry on those features, so every boundary read as unknown
+    and every panel was drawn. A customer paid for a two-page report whose
+    second page repeated the first.
+    """
+    ns = _load()
+    src = open(os.path.join(ROOT, "api", "main.py"), encoding="utf-8").read()
+    for fn in ("_rings_area_km2", "boundary_groups"):
+        m = re.search(rf"^def {fn}\(.*?(?=^def |\Z)", src, re.S | re.M)
+        assert m, f"{fn} missing"
+        exec(m.group(0), ns)
+
+    # Labastida's five measured vintages
+    g = ns["boundary_groups"](_report_versions([0, -0.0144, 0.1294, -0.0113, -0.0188]))
+    assert len(g) == 1, f"five vintages of one boundary must be one panel, got {len(g)}"
+
+    # Bad Berneck's two
+    assert len(ns["boundary_groups"](_report_versions([0, 0.0224]))) == 1
+
+    # and a real change still separates
+    assert len(ns["boundary_groups"](_report_versions([0, 13.0]))) == 2
+
+
+def test_the_report_canvas_is_sized_on_panels_not_versions():
+    """Sizing on the version count leaves a blank half-page per removed panel."""
+    src = open(os.path.join(ROOT, "api", "main.py"), encoding="utf-8").read()
+    assert "((len(groups) + 1) // 2) * CELL_H" in src, \
+        "the SVG height must follow the panels actually drawn"
+
+
+def test_both_report_renderers_use_the_grouping():
+    """SVG and PDF must not disagree about what the report shows."""
+    src = open(os.path.join(ROOT, "api", "main.py"), encoding="utf-8").read()
+    assert src.count("boundary_groups(d[\"versions\"])") == 2, \
+        "both the SVG and the PDF panel loops must iterate groups"
+    assert "for i, v in enumerate(d[\"versions\"])" not in src, \
+        "a renderer still loops versions and will draw a panel per version"

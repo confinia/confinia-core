@@ -638,6 +638,49 @@ def _ring_area_km2(geom: dict | None) -> float | None:
     return abs(total) * (111.32 * 111.32 * math.cos(math.radians(lat)))
 
 
+def _rings_area_km2(rings: list | None) -> float | None:
+    """Same measurement as _ring_area_km2, over the report's `rings` shape.
+
+    The report builds its own version list -- plain coordinate rings, not
+    GeoJSON -- so it needs its own entry point. It is the same arithmetic on the
+    same numbers; only the container differs.
+    """
+    import math
+    if not rings or len(rings[0]) < 4:
+        return None
+    total = 0.0
+    for idx, ring in enumerate(rings):
+        shoelace = abs(sum(ring[j][0] * ring[j + 1][1] - ring[j + 1][0] * ring[j][1]
+                           for j in range(len(ring) - 1)) / 2)
+        total += shoelace if idx == 0 else -shoelace
+    lat = sum(pt[1] for pt in rings[0]) / len(rings[0])
+    return abs(total) * (111.32 * 111.32 * math.cos(math.radians(lat)))
+
+
+def boundary_groups(versions: list[dict]) -> list[list[dict]]:
+    """Consecutive versions that share a boundary, grouped into one panel.
+
+    The founder's rule (issue #167): a change that is only a name shows NO
+    boundary panel. The web page had this; the PDF did not, and drew Bad
+    Berneck's single deleted space as two identical maps on a page a customer
+    pays for.
+
+    A version whose area cannot be measured starts its own group -- unknown is
+    not unchanged.
+    """
+    groups: list[list[dict]] = []
+    for v in versions:
+        a_prev = _rings_area_km2(groups[-1][0].get("rings")) if groups else None
+        a_here = _rings_area_km2(v.get("rings"))
+        if groups and a_prev and a_here:
+            pct = abs(a_here - a_prev) / a_prev * 100
+            if pct <= BOUNDARY_NOISE_PCT:
+                groups[-1].append(v)
+                continue
+        groups.append([v])
+    return groups
+
+
 def boundary_delta(before: dict | None, after: dict | None) -> dict | None:
     """Whether the outline moved, or only its digitisation did.
 
@@ -1299,6 +1342,24 @@ def _ring_points(ring, bbox, ox, oy, w, h):
              cy - (y - (s0 + n0) / 2) * sc) for x, y in ring]
 
 
+def _group_period_str(g: list[dict], lang: str = "en") -> str:
+    """The span a single panel covers, when it stands for several versions."""
+    today = REPORT_LABELS.get(lang, REPORT_LABELS["en"])["today"]
+    last = g[-1]
+    vt = today if last["valid_to"] == FAR_FUTURE else last["valid_to"].isoformat()
+    return f"{g[0]['valid_from'].isoformat()} → {vt}"
+
+
+def _group_name(g: list[dict]) -> str:
+    """Every distinct name the panel covers -- the names DID change."""
+    seen, out = set(), []
+    for v in g:
+        if v["nom"] not in seen:
+            seen.add(v["nom"])
+            out.append(v["nom"])
+    return " · ".join(out)
+
+
 def _period_str(v, lang: str = "en") -> str:
     today = REPORT_LABELS.get(lang, REPORT_LABELS["en"])["today"]
     vt = today if v["valid_to"] == FAR_FUTURE else v["valid_to"].isoformat()
@@ -1394,7 +1455,11 @@ def _report_svg(d: dict) -> str:
         y += 14
     text(PAD, y, lab["boundaries"], 15, "bold"); y += 12
     CELL_W, CELL_H, DRAW_H = (W - 2 * PAD) // 2, 320, 250
-    for i, v in enumerate(d["versions"]):
+    # Issue #167: one panel per DISTINCT boundary, not per version. Drawing a
+    # panel per version told the reader the outline moved every time a name did.
+    groups = boundary_groups(d["versions"])
+    for i, g in enumerate(groups):
+        v = g[0]
         col, row_y = i % 2, y + (i // 2) * CELL_H
         ox = PAD + col * CELL_W
         parts.append(f'<rect x="{ox + 6}" y="{row_y + 6}" width="{CELL_W - 12}" height="{CELL_H - 12}" '
@@ -1419,14 +1484,16 @@ def _report_svg(d: dict) -> str:
                          'stroke-width="1.2" fill-rule="evenodd"/>')
         else:
             text(ox + CELL_W / 2, row_y + DRAW_H / 2, lab["no_geometry"], 12, fill="#8a94a6", anchor="middle")
-        text(ox + CELL_W / 2, row_y + DRAW_H + 16, v["nom"], 14, "bold", anchor="middle")
-        text(ox + CELL_W / 2, row_y + DRAW_H + 34, _period_str(v, d.get("lang", "en")), 12,
+        text(ox + CELL_W / 2, row_y + DRAW_H + 16, _group_name(g), 14, "bold", anchor="middle")
+        text(ox + CELL_W / 2, row_y + DRAW_H + 34, _group_period_str(g, d.get("lang", "en")), 12,
              fill="#5b6b85", anchor="middle")
         vin = lab["vintage"](v['vintage'].isoformat()) if v["vintage"] else lab["vintage_na"]
         if v["approx"]:
             vin += lab["approx"]
         text(ox + CELL_W / 2, row_y + DRAW_H + 50, vin, 10, fill="#8a94a6", anchor="middle")
-    y += ((len(d["versions"]) + 1) // 2) * CELL_H + 20
+    # Groups, not versions: sizing on the version count leaves a blank half-page
+    # for every panel the grouping removed.
+    y += ((len(groups) + 1) // 2) * CELL_H + 20
     text(PAD, y, lab["sources"], 11, "bold", "#5b6b85"); y += 4
     for attr, lic in d["attributions"]:
         y += 15
@@ -1516,13 +1583,14 @@ def _report_pdf(d: dict) -> bytes:
             c.drawString(PAD, y, "· " + lab["pop_via"](pop["code"])); y -= 10
     footer(); c.showPage()
     per_page, slot_h = 2, (H - 140) / 2
-    for i, v in enumerate(d["versions"]):
+    for i, g in enumerate(boundary_groups(d["versions"])):
+        v = g[0]
         slot = i % per_page
         if slot == 0 and i:
             footer(); c.showPage()
         top = H - 60 - slot * slot_h
         c.setFont("Helvetica-Bold", 12); c.setFillColorRGB(.1, .14, .2)
-        c.drawString(PAD, top, f"{v['nom']} · {_period_str(v, d.get('lang', 'en'))}")
+        c.drawString(PAD, top, f"{_group_name(g)} · {_group_period_str(g, d.get('lang', 'en'))}")
         vin = lab["vintage"](v['vintage'].isoformat()) if v["vintage"] else lab["vintage_na"]
         if v["approx"]:
             vin += lab["approx"]
