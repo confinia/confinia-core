@@ -58,6 +58,18 @@ jobs:
           # be validated only after it was already live on www.
           ./deploy/checkout-env.sh staging "$GITHUB_SHA"
 
+      - name: Reload the edge if its config changed
+        run: |
+          set -eu
+          cd "$DEPLOY_DIR"
+          # Until 2026-08-16 nothing in this pipeline touched the running caddy.
+          # A Caddyfile change reached the mirror and stopped there, so the edge
+          # kept proxying to ports that had been removed -- /grafana served 502
+          # in production until someone ran this script by hand. deploy-edge.sh
+          # validates in an ephemeral container first and reloads gracefully, so
+          # running it every time costs nothing when nothing changed.
+          ./deploy/deploy-edge.sh
+
       - name: Build and stage the passive colour
         run: |
           set -eu
