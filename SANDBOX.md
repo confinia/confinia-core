@@ -9,11 +9,12 @@ whole signup + subscription journey safely. Nothing here touches production.
 | Piece | Sandbox | Prod |
 |---|---|---|
 | Host | sandbox.confinia.io | www / api.confinia.io |
-| API | dedicated container `:8009` (`deploy/sandbox-up.sh`) | blue/green stacks |
+| API | dedicated container `:11420` (`deploy/sandbox-up.sh`) | blue/green stacks |
 | Ops database | throwaway `confinia_sbx` | shared ops db |
 | Identity realm | `confinia-sbx` (test accounts only) | `confinia` |
 | Polar | sandbox org (test cards) | production org |
 | Access | basic auth (webhook exempt) | public |
+| Edge | its own caddy, `confinia-sandbox_caddy_1` on `:11400` | `confinia_caddy_1` |
 
 ## Access
 
@@ -61,7 +62,7 @@ whole signup + subscription journey safely. Nothing here touches production.
 ## Operate the sandbox
 
 - Bring the sandbox API up (VM): `./deploy/sandbox-up.sh` (isolated container on
-  `:8009`, sandbox Polar secret from `deploy/sandbox.env`, throwaway
+  `:11420`, sandbox Polar secret from `deploy/sandbox.env`, throwaway
   `confinia_sbx` ops db, active-color geo read-only).
 - Sandbox Polar products/webhook are provisioned with
   `POLAR_ENV=sandbox … ./deploy/polar/setup-polar.sh` (see POLAR.md).
