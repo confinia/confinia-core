@@ -118,6 +118,16 @@ http://www.confinia.io:11000 {
 	}
 	# Homepage: the demo (the product that demonstrates itself).
 	handle {
+		# Shared libraries, served SAME-ORIGIN under each hostname (issue
+		# #185). Not a separate lib.* host: MapLibre v6 loads its worker as a
+		# module and cross-origin that worker never starts, silently.
+		# handle_path, not handle: the prefix must be STRIPPED, or
+		# /lib/maplibre/x.mjs would look for /srv/shared-lib/lib/maplibre/x.mjs
+		# and 404 -- which for a module is that same silent hang.
+		handle_path /lib/* {
+			root * /srv/shared-lib
+			file_server
+		}
 		root * /srv/demo
 		route {
 			import block_scanners

@@ -127,3 +127,34 @@ def test_publish_target_ships_the_whole_demo_directory():
         "demo-publish must ship the whole demo/ directory, not index.html alone"
     assert "git add -A" in block, \
         "demo-publish must stage new files, or vendored assets never reach Pages"
+
+
+def test_the_shared_library_is_served_same_origin():
+    """Issue #185: one copy per VM, not one host per VM.
+
+    A lib.confinia.io would be a self-hosted CDN with the exact defect that
+    pinned MapLibre to v5: v6 loads its worker as a module, and cross-origin
+    that worker never starts -- no error event, nothing in the console, the
+    basemap still drawing with no data on it.
+    """
+    caddy = _read("deploy", "caddy", "Caddyfile")
+    assert "handle_path /lib/*" in caddy, \
+        "the prefix must be stripped, or every library path 404s"
+    block = caddy.split("handle_path /lib/*")[1][:200]
+    assert "root * /srv/shared-lib" in block
+
+    compose = _read("docker-compose.yml")
+    assert "${HOME}/shared-lib:/srv/shared-lib:ro" in compose, \
+        "the shared directory must be mounted read-only into the edge"
+    assert "./shared-lib" not in compose, \
+        "it must live OUTSIDE the repo mirror: a git reset must not take " \
+        "another product's library with it"
+
+
+def test_the_installer_refuses_an_incomplete_maplibre():
+    """Two chunks of three looks identical to three, until the data never arrives."""
+    sh = _read("deploy", "shared-lib-up.sh")
+    for chunk in ("maplibre-gl.mjs", "maplibre-gl-shared.mjs", "maplibre-gl-worker.mjs"):
+        assert chunk in sh, f"the installer must verify {chunk} is present"
+    assert 'rsync -a --delete "$src" "$target"' in sh
+    assert 'DEST="${SHARED_LIB_DIR:-$HOME/shared-lib}"' in sh
