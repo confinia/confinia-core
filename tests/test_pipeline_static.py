@@ -279,3 +279,44 @@ def test_every_edge_upstream_points_at_a_port_we_actually_publish():
     assert not orphans, (
         f"the edge proxies to {sorted(orphans)}, which nothing in this repo publishes; "
         "a dead upstream does not error, it silently falls back")
+
+
+def test_the_colour_ports_the_deploy_waits_on_are_published():
+    """A stale colour port makes every deployment time out, not misroute.
+
+    Step 4 dropped green's 8402 and left `port_of` returning it. Nothing was
+    misrouted -- the deployment simply polled a port nobody serves for 120
+    seconds and failed, on a merge whose contents were fine.
+    """
+    import glob
+    published = set()
+    for rel in (glob.glob(os.path.join(ROOT, "deploy", "stack", "*.yml"))
+                + glob.glob(os.path.join(ROOT, "deploy", "quadlet", "*.container"))):
+        s = open(rel, encoding="utf-8").read()
+        published |= set(re.findall(r"127\.0\.0\.1:(\d+):", s))
+        published |= set(re.findall(r"PublishPort=127\.0\.0\.1:(\d+):", s))
+
+    sh = open(os.path.join(ROOT, "deploy", "deploy-api.sh"), encoding="utf-8").read()
+    m = re.search(r"port_of\(\) \{[^}]*echo (\d+)[^}]*echo (\d+)", sh)
+    assert m, "port_of changed shape"
+    for port in m.groups():
+        assert port in published, \
+            f"deploy-api.sh waits on {port}, which no colour stack or unit publishes"
+
+    wf = open(os.path.join(WF, "promote-production.yml"), encoding="utf-8").read()
+    for port in re.findall(r"port=(\d+)", wf):
+        assert port in published, \
+            f"promote-production checks {port}, which no colour stack or unit publishes"
+
+
+def test_the_pipeline_reloads_the_edge():
+    """The edge config was deployed by hand only, and nobody knew.
+
+    A Caddyfile change reached the VM mirror through the pipeline and stopped
+    there: the running caddy kept its old config, proxying to ports that had
+    just been removed. /grafana served 502 in production until deploy-edge.sh
+    was run by hand.
+    """
+    s = _wf("deploy-staging.yml")
+    assert "deploy-edge.sh" in s, \
+        "deploy-staging must reload the edge, or a Caddyfile change never takes effect"
