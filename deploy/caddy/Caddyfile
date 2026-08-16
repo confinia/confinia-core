@@ -63,6 +63,19 @@ import /etc/caddy/active/*.caddy
 # the pitch/quickstart lives on /about, the blog keeps its published URLs
 # (/blog/*). Canonical paths: /api/ (API) and /grafana (APPLICATION grafana).
 http://www.confinia.io:11000 {
+	# Loopback only (platform audit, overwatch #35). The platform edge reaches
+	# us on 127.0.0.1, so routing is unchanged -- but binding every interface
+	# made ufw the single rule between staging/sandbox and the internet, the
+	# same shape as the ops-db finding. Worse here: the basic_auth gate lives in
+	# THIS process, so anyone reaching it directly would send credentials over
+	# plaintext HTTP, around the edge's TLS.
+	#
+	# The otel collector must NOT get this treatment: the stack APIs push through
+	# host.containers.internal, the podman gateway, which is not the host
+	# loopback. A loopback bind there makes it unreachable from every container
+	# at once -- and an exporter with nowhere to send does not error, it stops
+	# reporting.
+	bind 127.0.0.1
 	encode zstd gzip
 	handle /grafana* {
 		reverse_proxy 127.0.0.1:11040
@@ -139,6 +152,7 @@ http://www.confinia.io:11000 {
 # Historical API hostname: published everywhere (OHM posts, OpenCage
 # backlink, README, release): NEVER break it.
 http://api.confinia.io:11000 {
+	bind 127.0.0.1
 	encode zstd gzip
 	route {
 		import block_scanners
@@ -150,6 +164,7 @@ http://api.confinia.io:11000 {
 # the container env: never in the repo). Demo (VM mirror) + candidate API
 # on the same origin under /api: a single login covers everything.
 http://staging.confinia.io:11000, http://staging.confinia.io:11300 {
+	bind 127.0.0.1
 	import staging_auth
 	encode zstd gzip
 	handle_path /api/* {
@@ -187,6 +202,7 @@ http://staging.confinia.io:11000, http://staging.confinia.io:11300 {
 
 # Candidate API alone (curl), same credentials.
 http://staging.api.confinia.io:11000, http://staging.api.confinia.io:11300 {
+	bind 127.0.0.1
 	import staging_auth
 	encode zstd gzip
 	route {
@@ -201,6 +217,7 @@ http://staging.api.confinia.io:11000, http://staging.api.confinia.io:11300 {
 # no real fees). Never promoted; parallel to prod. Auth uses the confinia-sbx
 # realm via the canonical Keycloak host (www) for cookie correctness.
 http://sandbox.confinia.io:11000 {
+	bind 127.0.0.1
 	encode zstd gzip
 	# Polar sandbox webhook: PUBLIC (signature-verified) — Polar can't send
 	# basic auth. Must stay outside the auth guard below.
@@ -251,5 +268,6 @@ http://sandbox.confinia.io:11000 {
 # content as the GitHub Pages mirror) — we redirect there.
 # permanent: www is the canonical origin (decision of 2026-07-20).
 http://time-slider.confinia.io:11000 {
+	bind 127.0.0.1
 	redir https://www.confinia.io{uri} permanent
 }

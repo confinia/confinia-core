@@ -410,3 +410,32 @@ def test_the_shared_libraries_are_installed_before_the_edge_reloads():
     assert "shared-lib-up.sh" in s, "the pipeline must install the shared libraries"
     assert s.index("shared-lib-up.sh") < s.index("deploy-edge.sh"), \
         "the libraries must be in place BEFORE the edge starts serving them"
+
+
+def test_the_app_edges_bind_loopback_but_the_collector_does_not():
+    """Two opposite requirements, and getting either backwards fails silently.
+
+    The caddies must be loopback: binding every interface left ufw as the single
+    rule between staging/sandbox and the internet, and the basic_auth gate lives
+    in those processes, so a direct connection would carry credentials over
+    plaintext HTTP around the edge's TLS.
+
+    The otel collector must NOT be: the stack APIs push through
+    host.containers.internal -- the podman gateway, not the host loopback -- so
+    a loopback bind makes it unreachable from every container at once. An
+    exporter with nowhere to send does not error; it stops reporting.
+    """
+    import glob
+    for rel in ("deploy/caddy/Caddyfile", "deploy/caddy-sandbox/Caddyfile"):
+        s = open(os.path.join(ROOT, rel), encoding="utf-8").read()
+        sites = re.findall(r"^http://[a-z.\-]+\.confinia\.io:\d+.*\{\s*$", s, re.M)
+        binds = len(re.findall(r"^\tbind 127\.0\.0\.1\s*$", s, re.M))
+        assert binds == len(sites), (
+            f"{rel}: {len(sites)} site block(s) but {binds} bind directive(s); "
+            "an unbound block listens on every interface")
+
+    otel = open(os.path.join(ROOT, "deploy", "otel-collector.yaml"), encoding="utf-8").read()
+    for endpoint in re.findall(r"endpoint: (\S+:\d+)", otel):
+        assert not endpoint.startswith("127.0.0.1"), (
+            f"otel endpoint {endpoint} is on loopback; every container pushes "
+            "through host.containers.internal and would silently stop reporting")
