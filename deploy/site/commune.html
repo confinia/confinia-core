@@ -29,6 +29,9 @@
   .dl label { font-size: .85rem; opacity: .8; }
   h2 { font-size: 1.1rem; color: #9fb3d1; margin: 1.8rem 0 .6rem; }
   .ev { margin: .25rem 0; font-size: .95rem; }
+.ch{color:#7d8ba3;font-size:12px;margin:2px 0 0 14px}
+.add{color:#7ee787;background:#12301c;border-radius:3px;padding:0 3px}
+.del{color:#ff9c9c;background:#3a1620;border-radius:3px;padding:0 3px;text-decoration:line-through}
   .ev b { color: #7ab8ff; font-weight: 600; }
   .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); }
   .card { border: 1px solid #26314a; border-radius: 12px; background: #0b0f16; padding: 1rem; }
@@ -93,6 +96,10 @@ const UI = {
         popHarmonised: d => `Census figures harmonised on the geography of ${d} — they describe today's territory, summed back through time, not the historical commune.`,
         popVia: c => ` This code no longer exists: series of ${c}, its successor.`,
         popEvents: "vertical marks = dated boundary events",
+          chNameOnly: "name only — boundary unchanged", chRespelled: "spelling in the source",
+          chBoundary: pct => `boundary ${pct > 0 ? "grew" : "shrank"} by ${Math.abs(pct).toFixed(2)}%`,
+          chUnknown: "boundary not comparable (a version has no geometry)",
+          chSpans: n => `same boundary across ${n} vintages`, chAdded: "added", chRemoved: "removed",
         qLeft: (r, l) => `${r} of ${l} free town reports left`, qUnlocked: " · this town is already unlocked (free re-download)",
         qPro: (r, l) => `Pro · ${r} of ${l} town reports left this month`, qUnlimited: "Unlimited reports (Enterprise)",
         qNone: "No free reports left —", preparing: "preparing…", dlFail: "download failed, please retry" },
@@ -105,6 +112,10 @@ const UI = {
         popHarmonised: d => `Chiffres de recensement harmonisés sur la géographie du ${d} — ils décrivent le territoire actuel, sommé rétrospectivement, et non la commune historique.`,
         popVia: c => ` Ce code n'existe plus : série de ${c}, son successeur.`,
         popEvents: "repères verticaux = événements de frontière datés",
+          chNameOnly: "nom seul — limites inchangées", chRespelled: "orthographe de la source",
+          chBoundary: pct => `limites ${pct > 0 ? "agrandies" : "réduites"} de ${Math.abs(pct).toFixed(2)} %`,
+          chUnknown: "limites non comparables (une version sans géométrie)",
+          chSpans: n => `mêmes limites sur ${n} millésimes`, chAdded: "ajouté", chRemoved: "retiré",
         qLeft: (r, l) => `${r} fiches gratuites sur ${l} restantes`, qUnlocked: " · cette commune est déjà débloquée (retéléchargement gratuit)",
         qPro: (r, l) => `Pro · ${r} fiches sur ${l} restantes ce mois-ci`, qUnlimited: "Rapports illimités (Enterprise)",
         qNone: "Plus de fiches gratuites —", preparing: "préparation…", dlFail: "échec du téléchargement, réessayez" },
@@ -202,8 +213,22 @@ function pathFor(rings, bbox, w, h) {
     const evs = d.events || [];
     if (evs.length) {
       document.getElementById("ev-h").style.display = "block";
-      document.getElementById("events").innerHTML = evs.map(ev =>
-        `<div class="ev">• ${ev.date ? `<b>${ev.date}</b> · ` : ""}${ev.detail}</div>`).join("");
+      // Issue #169: the chronology printed the before and after and stopped,
+      // leaving the reader to diff two strings. On real data that is often
+      // impossible -- Bad Berneck's entire change is one deleted space.
+      const mark = (x, cls) => x ? `<span class="${cls}">${x.replace(/ /g, "␣")}</span>` : "";
+      document.getElementById("events").innerHTML = evs.map(ev => {
+        const nd = ev.name_delta;
+        let note = "";
+        if (nd) {
+          const bits = [];
+          if (nd.removed.length) bits.push(`${UI.chRemoved} ${nd.removed.map(x => mark(x, "del")).join(", ")}`);
+          if (nd.added.length) bits.push(`${UI.chAdded} ${nd.added.map(x => mark(x, "add")).join(", ")}`);
+          const kind = nd.kind === "respelled" ? UI.chRespelled : UI.chNameOnly;
+          note = `<div class="ch">${kind}${bits.length ? " · " + bits.join(" · ") : ""}</div>`;
+        }
+        return `<div class="ev">• ${ev.date ? `<b>${ev.date}</b> · ` : ""}${ev.detail}${note}</div>`;
+      }).join("");
     }
 
     // Population curve (issue #88): the series plus the dated boundary events
@@ -249,7 +274,18 @@ function pathFor(rings, bbox, w, h) {
       const xs = allRings.flat().map(p => p[0]), ys = allRings.flat().map(p => p[1]);
       const bbox = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
       document.getElementById("gr-h").style.display = "block";
-      document.getElementById("grid").innerHTML = d.versions.map(f => {
+      // Issue #167, founder's decision: a change that is only a name shows NO
+      // boundary panel. Labastida drew five near-identical outlines for four
+      // name changes, telling the reader the boundary moved five times when it
+      // moved none. Consecutive versions sharing a boundary become ONE card.
+      const groups = [];
+      d.versions.forEach(f => {
+        const ch = f.properties.change;
+        if (groups.length && ch && ch.draw_boundary === false) groups[groups.length - 1].push(f);
+        else groups.push([f]);
+      });
+      document.getElementById("grid").innerHTML = groups.map(g => {
+        const f = g[0], last = g[g.length - 1];
         const p = f.properties, rings = ringsOf(f.geometry);
         const vg = p.geometry_vintage
           ? `${UI.vintage(p.geometry_vintage)}${p.geometry_approx ? UI.approx : ""}` : "";
@@ -267,9 +303,9 @@ function pathFor(rings, bbox, w, h) {
                <path d="${pathFor(rings, bbox, 300, 200)}" fill="#1d2c44" stroke="#7ab8ff"
                  stroke-width="1.1" fill-rule="evenodd"/>`
             : `<text x="150" y="100" fill="#5b6b85" font-size="13" text-anchor="middle">${UI.noGeom}</text>`}</svg>
-          <div class="nm">${p.nom}</div>
-          <div class="pd">${p.valid_from} → ${p.valid_to || UI.today}</div>
-          <div class="vg">${vg}</div>
+            <div class="nm">${g.length > 1 ? [...new Set(g.map(x => x.properties.nom))].join(" · ") : p.nom}</div>
+            <div class="pd">${p.valid_from} → ${last.properties.valid_to || UI.today}</div>
+            <div class="vg">${vg}${g.length > 1 ? ` · ${UI.chSpans(g.length)}` : ""}</div>
         </div>`;
       }).join("");
     }
