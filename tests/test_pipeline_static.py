@@ -336,3 +336,19 @@ def test_the_pipeline_reloads_the_edge():
     s = _wf("deploy-staging.yml")
     assert "deploy-edge.sh" in s, \
         "deploy-staging must reload the edge, or a Caddyfile change never takes effect"
+
+
+def test_the_alert_check_reads_the_source_not_a_mailbox():
+    """RULES 17 is only actionable if there is something to run.
+
+    The alert that mattered on 2026-08-16 was delivered correctly and read by
+    nobody. A mailbox needs credentials this session does not have, and reports
+    what fired at some point; the alertmanager API reports what is firing now.
+    """
+    sh = open(os.path.join(ROOT, "deploy", "alerts.sh"), encoding="utf-8").read()
+    assert "api/v2/alerts" in sh, "must query the alertmanager API"
+    assert "11040" in sh, "Grafana is on its 1PESI port"
+    assert "exit=2" not in sh
+    # An unreachable Grafana must not read as 'nothing is firing'.
+    assert "CANNOT REACH GRAFANA" in sh, \
+        "a Grafana that cannot be reached is a finding, not a clean result"
