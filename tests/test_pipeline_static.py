@@ -241,3 +241,41 @@ def test_no_host_network_container_depends_on_a_container_name():
             assert name not in body, (
                 f"{os.path.basename(path)} runs on the host network and references "
                 f"{name}, which only resolves inside a podman network")
+
+
+def test_every_edge_upstream_points_at_a_port_we_actually_publish():
+    """Dropping a publish without repointing the edge fails silently.
+
+    Step 4 removed grafana's 8086 while the Caddyfile still proxied /grafana
+    there: the dashboard went 502. Worse, it removed green's 8402 and staging's
+    8403 while stacks.sh still generated upstreams naming them -- and a dead
+    upstream does not fail, caddy simply falls back to the other one. Production
+    stayed up with no safety net, and staging routed to the passive colour
+    instead of the staging stack.
+
+    So: every loopback port the edge proxies to must be published somewhere in
+    this repo. A port that appears only in an upstream is one nothing serves.
+    """
+    import glob
+    published = set()
+    for rel in (glob.glob(os.path.join(ROOT, "deploy", "stack", "*.yml"))
+                + glob.glob(os.path.join(ROOT, "deploy", "quadlet", "*.container"))
+                + glob.glob(os.path.join(ROOT, "deploy", "*.sh"))
+                + [os.path.join(ROOT, "docker-compose.yml")]):
+        s = open(rel, encoding="utf-8").read()
+        published |= set(re.findall(r"127\.0\.0\.1:(\d+):", s))          # compose / podman -p
+        published |= set(re.findall(r"PublishPort=127\.0\.0\.1:(\d+):", s))
+        published |= set(re.findall(r"^(?:NEW_)?PORT=(\d+)", s, re.M))   # scripts
+
+    upstreams = set()
+    for rel in ["deploy/caddy/Caddyfile", "deploy/stacks.sh"]:
+        s = open(os.path.join(ROOT, rel), encoding="utf-8").read()
+        body = "\n".join(l for l in s.splitlines() if not l.lstrip().startswith("#"))
+        upstreams |= set(re.findall(r"reverse_proxy (?:127\.0\.0\.1:(\d+))", body))
+        upstreams |= set(re.findall(r"(?:ACT|PAS)=(\d+)", body))
+
+    # ecobuilding is another product behind the same edge; it publishes elsewhere.
+    orphans = {p for p in upstreams - published if p != "8020"}
+    assert not orphans, (
+        f"the edge proxies to {sorted(orphans)}, which nothing in this repo publishes; "
+        "a dead upstream does not error, it silently falls back")

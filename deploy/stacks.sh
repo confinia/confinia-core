@@ -30,7 +30,7 @@ build)
 	echo "build $c started in the background: tail -f ~/logs/build-geo-$c.log"
 	;;
 # Writes the caddy upstreams state file: active color first for the
-# public, and the DEDICATED STAGING STACK (:8403) for staging, with the passive
+# public, and the DEDICATED STAGING STACK (:11320) for staging, with the passive
 # colour as fallback so staging still answers if that stack is down.
 # Staging stopped BEING the passive colour on 2026-08-12 (issue #113): it was
 # both the thing you exercise and the thing production rolls back to, so a
@@ -43,8 +43,13 @@ build)
 write-upstreams|promote)
 	c="${2:?active color (blue|green)}"
 	case "$c" in
-		blue)  ACT=8091; PAS=8402 ;;
-		green) ACT=8402; PAS=8091 ;;
+		# Blue is still on its legacy port: it is the ACTIVE colour and cannot be
+		# recreated onto 11120 before the founder's promotion. Green is 11220 only,
+		# its legacy 8402 having been dropped at step 4. Getting this pair wrong
+		# does not fail loudly -- caddy just has one dead upstream and falls back,
+		# so production stays up while its safety net is gone.
+		blue)  ACT=8091;  PAS=11220 ;;
+		green) ACT=11220; PAS=8091  ;;
 		*) echo "unknown color: $c" >&2; exit 2 ;;
 	esac
 	mkdir -p ~/confinia-edge-state
@@ -69,7 +74,7 @@ write-upstreams|promote)
 	}
 }
 (staging_upstreams) {
-	reverse_proxy 127.0.0.1:8403 127.0.0.1:$PAS {
+	reverse_proxy 127.0.0.1:11320 127.0.0.1:$PAS {
 		lb_policy first
 		lb_try_duration 5s
 		lb_try_interval 250ms
