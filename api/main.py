@@ -1358,8 +1358,13 @@ def _gained_rings(cur, parents: list, code: str, country: str, at, bbox) -> dict
         "         ST_MakeEnvelope(%s,%s,%s,%s,4326)), 5) "
         "FROM commune_version "
         "WHERE country = %s AND code = ANY(%s) AND geom_simple IS NOT NULL "
-        "  AND valid_to <= %s "
-        "ORDER BY code, valid_to DESC",
+        # The parent's perimeter AT ABSORPTION, not at the end of its own
+        # record. Ruffieu was absorbed by Haut Valromey in 2016 and its own row
+        # still runs to 2025 -- the registries disagree about when it stopped
+        # existing. `valid_to <= at` silently dropped it, so the one parent we
+        # could actually draw was reported as undrawable.
+        "  AND valid_from <= %s "
+        "ORDER BY code, valid_from DESC",
         (w, s_, e, n, country, others, at))
     rings, drawn = [], set()
     for c, gj in cur.fetchall():

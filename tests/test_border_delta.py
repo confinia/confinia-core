@@ -49,10 +49,15 @@ def test_predecessors_we_cannot_draw_are_named():
 def test_only_the_last_version_of_each_parent_is_drawn():
     """A commune has many versions; its perimeter at absorption is the one."""
     fn = SRC.split("def _gained_rings(")[1].split("\ndef ")[0]
-    assert "ORDER BY code, valid_to DESC" in fn
+    assert "ORDER BY code, valid_from DESC" in fn
     assert "if c in drawn" in fn, "later versions of the same parent must be skipped"
-    assert "valid_to <= %s" in fn, \
-        "a parent's perimeter must be taken at absorption, not today"
+    # NOT valid_to: Ruffieu was absorbed in 2016 and its own record runs to
+    # 2025, so filtering on the end of its existence dropped the one parent we
+    # could actually draw.
+    assert "valid_from <= %s" in fn, \
+        "a parent's perimeter must be taken AT absorption, not at the end of its record"
+    assert "valid_to <= %s" not in fn, \
+        "registries disagree about when an absorbed commune stops existing"
 
 
 def test_both_renderers_colour_the_gained_area():
