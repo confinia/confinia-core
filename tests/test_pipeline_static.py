@@ -532,3 +532,25 @@ def test_the_pipeline_redeploys_what_staging_actually_serves():
     assert "sandbox-edge-up.sh" in s, "the sandbox edge must be reloaded too"
     assert s.index("smoke_prod.py") < s.index("staging-up.sh"), \
         "staging must be redeployed only after the staged colour passes its smoke"
+
+
+def test_container_replacement_is_atomic():
+    """`rm -f || true` swallows its own failure.
+
+    On 2026-08-17 the rm failed, the run that followed collided on the name, and
+    the staging environment stayed on the OLD container -- a deploy that had run
+    and changed nothing, while `podman ps` showed a published port that `ss`
+    could not see. --replace cannot half-succeed.
+    """
+    import glob
+    for path in sorted(glob.glob(os.path.join(ROOT, "deploy", "*-up.sh"))):
+        s = open(path, encoding="utf-8").read()
+        body = "\n".join(l for l in s.splitlines() if not l.lstrip().startswith("#"))
+        # Only long-lived containers: `podman run --rm` is an ephemeral
+        # validation step and owns no name to collide on.
+        if "podman run -d" not in body:
+            continue
+        assert "podman run -d --replace" in body, \
+            f"{os.path.basename(path)} must replace atomically, not rm-then-run"
+        assert "rm -f" not in body, \
+            f"{os.path.basename(path)} still removes by hand before running"
