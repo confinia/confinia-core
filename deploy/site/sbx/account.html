@@ -61,12 +61,26 @@ async function render(tok){const c=claims(tok.id_token);const email=c.email,org=
    <div class="card hidden" id="usage-card"><b>Your plan &amp; consumption</b><p class="muted" id="usage-line"></p>
      <div class="meter"><div class="meter-fill" id="usage-fill"></div></div><ul class="feats" id="usage-feats"></ul></div>
    ${tier==="free"?`<div class="card"><b>Upgrade (test card)</b><p class="muted">Billing email prefilled with <b>${email}</b> so your key flips to pro automatically after the test payment.</p>
-     <p><a class="btn primary" data-polar-checkout data-polar-checkout-theme="dark" href="${PRO_CHECKOUT}?customer_email=${encodeURIComponent(email)}">Subscribe · Pro €49/mo</a>
+     <p><a class="btn primary" data-polar-checkout data-polar-checkout-theme="dark" href="${PRO_CHECKOUT}?customer_email=${encodeURIComponent(email)}">Subscribe · Pro</a>
      <a class="btn" href="mailto:contact@confinia.io?subject=Enterprise">Enterprise — contact us</a></p></div>`:
     `<div class="card"><b>Invoices &amp; billing</b><p class="muted">Your <b>${tier}</b> plan is active. Download invoices and manage billing in the Polar customer portal. (Reload after paying if it still shows free — the webhook takes a second.)</p>
      <p><button class="btn primary" id="bill">Invoices &amp; billing</button></p><p class="muted" id="bill-note"></p></div>`}
    <p><a class="btn" href="/">← Home</a> <a class="btn" href="/pricing">Pricing</a> <a class="btn" href="/account.html">Reload</a> <button class="btn" id="lo">Sign out</button></p>`;
  if(window.Polar&&window.Polar.EmbedCheckout)window.Polar.EmbedCheckout.init();
+  // The offer comes from the deployment, never from this file: a hardcoded
+  // amount is how the page advertised one price while the environment metered
+  // another. Flat mode names no number -- the checkout shows the price.
+  fetch(API+"/v1/pricing").then(r=>r.json()).then(pc=>{
+    if(pc.mode!=="metered")return;
+    const eur=c=>(c/100).toFixed(2).replace(".",",").replace(",00","")+" €";
+    document.querySelectorAll("a[data-polar-checkout]").forEach(a=>{
+      a.textContent=`Subscribe · Pro from ${eur(pc.floor_cents)}/mo`;
+    });
+    const card=document.querySelector("a[data-polar-checkout]");
+    if(card){const note=document.createElement("p");note.className="muted";
+      note.textContent=`${eur(pc.per_report_cents)} per report beyond the minimum — never more than ${eur(pc.cap_cents)} a month.`;
+      card.parentElement.insertAdjacentElement("afterend",note);}
+  }).catch(()=>{});
  // Plan & consumption card (issue #73): read-only, does not consume quota.
  if(key)(async()=>{try{
    const u=await fetch(API+"/v1/usage",{headers:{"x-api-key":key}}).then(x=>x.ok?x.json():null);
