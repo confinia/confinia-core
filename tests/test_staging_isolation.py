@@ -108,3 +108,27 @@ def test_the_ops_database_joins_the_colour_networks_declaratively():
     for colour in ("blue", "green"):
         assert f"confinia-{colour}_default" in compose, \
             f"the {colour} colour network must be declared so the ops db joins it"
+
+
+def test_staging_runs_under_systemd_not_as_a_job_child():
+    """A container created by a CI job dies with the job (issue #123).
+
+    Its rootless port forwarder goes first, and the symptom is precise and
+    misleading: `podman ps` keeps showing `127.0.0.1:11320->8000/tcp` while `ss`
+    shows nothing listening. The environment looks deployed and answers nothing
+    -- which is how the founder got a 17-hour-old staging build three times.
+
+    The unit is GENERATED, not committed: staging follows the passive colour,
+    and that changes at every promotion. A static unit would pin yesterday's
+    network and read the wrong colour's database.
+    """
+    sh = _read("deploy", "staging-up.sh")
+    assert "systemctl --user restart confinia-staging-api" in sh, \
+        "staging must be owned by systemd, not by whatever ran the script"
+    assert "containers/systemd" in sh and "[Container]" in sh, \
+        "the unit must be generated next to the other Quadlet units"
+    assert "Network=$NET" in sh, \
+        "the generated unit must follow the passive colour, not pin one"
+    body = "\n".join(l for l in sh.splitlines() if not l.lstrip().startswith("#"))
+    assert "podman run -d" not in body, \
+        "a bare podman run reintroduces the job-child failure"
