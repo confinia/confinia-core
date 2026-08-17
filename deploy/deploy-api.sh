@@ -17,12 +17,11 @@ cd "$(dirname "$0")/.."
 
 active() { cat ~/confinia-edge-state/ACTIVE_COLOR 2>/dev/null || echo green; }
 other()  { if [ "$1" = blue ]; then echo green; else echo blue; fi; }
-# Blue is still on its legacy 8091: it is the ACTIVE colour and cannot be
-# recreated onto 11120 until the founder promotes. Green is 11220 only, its
-# legacy 8402 dropped at step 4. This function is what `stage` waits on, so a
-# stale port here does not misroute anything -- it just makes every deployment
-# time out after 120 s against a port nobody serves.
-port_of() { if [ "$1" = blue ]; then echo 8091; else echo 11220; fi; }
+# Both colours are on the 1PESI band. This function is what `stage` waits on,
+# so a stale port here does not misroute anything -- it just makes every
+# deployment time out after 120 s against a port nobody serves, which is how
+# deploy-staging broke for an afternoon when green's 8402 was dropped.
+port_of() { if [ "$1" = blue ]; then echo 11120; else echo 11220; fi; }
 
 wait_ok() {
 	for _ in $(seq 1 60); do

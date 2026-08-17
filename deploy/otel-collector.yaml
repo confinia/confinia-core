@@ -3,16 +3,7 @@
 # Le conteneur tourne en réseau hôte : les cibles sondées sont liées à la
 # loopback (choix de sécurité), injoignables depuis un réseau bridge.
 receivers:
-  # LEGACY, still load-bearing: confinia-blue_api_1 pushes here, and blue is the
-  # ACTIVE colour. Its endpoint only changes when blue is recreated, which waits
-  # on the founder's promotion. Dropping this receiver before then loses
-  # production telemetry silently -- the API does not fail when its exporter has
-  # nowhere to send. Legacy gRPC 4317 is gone: nothing ever used it.
-  otlp:
-    protocols:
-      http:
-        endpoint: 0.0.0.0:8088
-  # 1PESI (11xxx migration, platform PR #8). Must stay 0.0.0.0:
+  # Must stay 0.0.0.0:
   # the stack APIs push via host.containers.internal, which is NOT the host
   # loopback (same lesson as ops-db, PORTS.md) — ufw shields it. Target for
   # a true loopback story: network-join like ops-db, a separate change.
@@ -27,10 +18,10 @@ receivers:
   httpcheck:
     collection_interval: 30s
     targets:
-      - endpoint: http://127.0.0.1:8091/healthz   # blue API (direct)
+      - endpoint: http://127.0.0.1:11120/healthz  # blue API (direct, 1PESI)
       - endpoint: http://127.0.0.1:11220/healthz  # green API (direct, 1PESI)
       - endpoint: http://127.0.0.1:11420/healthz  # sandbox API (direct; moved 8089→11420, 1PESI direct swap — stack was down)
-      - endpoint: http://127.0.0.1:8095/auth/realms/confinia   # Keycloak
+      - endpoint: http://127.0.0.1:11070/auth/realms/confinia  # Keycloak (1PESI)
       - endpoint: https://api.confinia.io/healthz # public edge -> ACTIVE color
 
   # Active color (issue #85): stacks.sh promote maintains ONE marker file
@@ -62,7 +53,7 @@ exporters:
 service:
   pipelines:
     metrics:
-      receivers: [otlp, otlp/new]
+      receivers: [otlp/new]
       processors: [batch]
       exporters: [prometheus/new]
     # Environment probes (issue #85) get their own pipeline so the transform

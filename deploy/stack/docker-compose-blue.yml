@@ -11,7 +11,6 @@ services:
     env_file:
       - ../secrets.env
     ports:
-      - "127.0.0.1:5441:5432"
       - "127.0.0.1:11130:5432"   # 1PESI dual-publish — 11xxx migration, platform PR #8
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -28,11 +27,10 @@ services:
     env_file:
       - ../secrets.env            # PG_DSN (host `db` = THIS color's db), OPS_DSN
     environment:
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.containers.internal:8088
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.containers.internal:11060
     volumes:
       - ../../data/geoip:/geoip:ro
     ports:
-      - "127.0.0.1:8091:8000"
       - "127.0.0.1:11120:8000"   # 1PESI dual-publish — 11xxx migration, platform PR #8
     depends_on:
       db:

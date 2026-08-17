@@ -46,15 +46,15 @@ print("\n".join(rows[-8:]))' >> "$LOG" 2>/dev/null
 
 prev="__init__"
 while true; do
-  now=$(ss -ltn 2>/dev/null | grep -oE '127\.0\.0\.1:(8091|11220)' | sort | tr '\n' ' ')
+  now=$(ss -ltn 2>/dev/null | grep -oE '127\.0\.0\.1:(11120|11220)' | sort | tr '\n' ' ')
   [ "$now" != "$prev" ] && {
     log "=== $(date -u +%FT%TZ)  listeners=[${now:-NONE}]  was=[${prev}]"
-    for c in blue:8091 green:11220; do evidence "confinia-${c%%:*}_api_1" "${c##*:}"; done
+    for c in blue:11120 green:11220; do evidence "confinia-${c%%:*}_api_1" "${c##*:}"; done
     prev="$now"
   }
 
   # The repair: mapping claimed, container running, nothing listening.
-  for pair in blue:8091 green:11220; do
+  for pair in blue:11120 green:11220; do
     colour=${pair%%:*}; port=${pair##*:}; name="confinia-${colour}_api_1"
     podman ps --format '{{.Names}}' 2>/dev/null | grep -qx "$name" || continue
     ss -ltn 2>/dev/null | grep -q "127.0.0.1:$port " && continue

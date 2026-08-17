@@ -1,12 +1,12 @@
 #!/bin/bash
 # Maintenance holding page (issue #99).
 #
-#   ./deploy/maintenance.sh up     # stand in on :8085 while the stack is down
-#   ./deploy/maintenance.sh down   # step aside so the real caddy can take :8085
+#   ./deploy/maintenance.sh up     # stand in on :11000 while the stack is down
+#   ./deploy/maintenance.sh down   # step aside so the real caddy can take :11000
 #   ./deploy/maintenance.sh status
 #
 # WHY IT EXISTS: during the cutover the project caddy is stopped, so the
-# PLATFORM edge gets a connection refused on 127.0.0.1:8085 and the visitor sees
+# PLATFORM edge gets a connection refused on 127.0.0.1:11000 and the visitor sees
 # a bare 502 from someone else's server -- no explanation, and search engines
 # see an error with no Retry-After. This serves a real page with 503 instead.
 #
@@ -16,7 +16,11 @@ set -eu
 cd "$(dirname "$0")/.."
 
 NAME=confinia-maintenance
-PORT=8085
+# The port the PLATFORM edge targets, so this stands in for the project caddy
+# exactly. It was 8085 until the 1PESI migration -- and a maintenance page
+# bound to a port nobody routes to is worse than none: you reach for it
+# precisely when everything else is already broken, and it answers nowhere.
+PORT=11000
 
 case "${1:-status}" in
 up)

@@ -17,5 +17,6 @@ podman run --rm \
 	docker.io/library/caddy:2 caddy validate --config /etc/caddy/Caddyfile
 
 echo "== graceful reload (STANDARD path /etc/caddy/Caddyfile: shared contract)"
-podman exec confinia_caddy_1 caddy reload --config /etc/caddy/Caddyfile
+podman exec confinia_caddy_1 caddy reload --config /etc/caddy/Caddyfile \
+		--address localhost:11090
 echo "OK: edge reloaded with no downtime."
