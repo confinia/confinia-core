@@ -13,6 +13,9 @@ ROOT = os.path.join(os.path.dirname(__file__), "..")
 def _load():
     src = open(os.path.join(ROOT, "api", "main.py"), encoding="utf-8").read()
     ns = {}
+    g = re.search(r"^GAP_PHRASES = .*?(?=^def )", src, re.S | re.M)
+    assert g, "GAP_PHRASES not found"
+    exec(g.group(0), ns)
     m = re.search(r"^def build_source_annex\(.*?(?=^def |\Z)", src, re.S | re.M)
     assert m, "build_source_annex not found"
     exec(m.group(0), ns)
@@ -52,9 +55,12 @@ def test_a_missing_reference_is_stated_not_blanked():
     assert rows[0]["gap"], "an unregistered source must declare the gap"
     assert "registry" in rows[0]["gap"]
 
+    # A missing edition is NOT repeated as a gap: the vintage line already
+    # states it, in the reader's language. Saying it twice reads as two
+    # separate problems with the source.
     rows = build([{"source": "x", "vintage": None}], None,
                  {"x": {"attribution": "X", "license": "CC BY", "url": "https://x"}})
-    assert "edition not recorded" in rows[0]["gap"]
+    assert rows[0]["vintages"] == [] and not rows[0]["gap"]
 
     rows = build([{"source": "y", "vintage": _D("2020-01-01")}], None,
                  {"y": {"attribution": "Y", "license": "CC BY", "url": None}})
@@ -86,7 +92,23 @@ def test_both_renderers_print_the_annex():
     assert '"source_annex": build_source_annex(' in src, "the report must carry it"
 
 
-def test_the_annex_is_localised():
-    _, src = _load()
+def test_the_annex_is_localised_including_its_gaps():
+    """A French report must not explain its gaps in English.
+
+    The first version printed "manque : edition not recorded" on a French
+    document -- half-translated, on the page whose whole job is to look
+    trustworthy.
+    """
+    build, src = _load()
     for key in ('"annex"', '"annex_lead"', '"annex_cols"', '"annex_gap"', '"annex_nov"'):
         assert src.count(f"{key}:") == 2, f"{key} must exist in both language tables"
+
+    import re as _re
+    ns = {}
+    exec(_re.search(r"^GAP_PHRASES = .*?(?=^def )", src, _re.S | _re.M).group(0), ns)
+    exec(_re.search(r"^def build_source_annex\(.*?(?=^def |\Z)", src, _re.S | _re.M).group(0), ns)
+    registry = {"y": {"attribution": "Y", "license": "L", "url": None}}
+    fr = ns["build_source_annex"]([{"source": "y", "vintage": None}], None, registry, "fr")
+    en = ns["build_source_annex"]([{"source": "y", "vintage": None}], None, registry, "en")
+    assert fr[0]["gap"] != en[0]["gap"], "the gap reason must follow the report language"
+    assert "référence" in fr[0]["gap"]
