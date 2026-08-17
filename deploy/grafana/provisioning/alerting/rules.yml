@@ -42,7 +42,7 @@ groups:
               # Net effect: this now fires only when the colour is down for five
               # CONTINUOUS minutes, i.e. when the self-repair has failed -- which
               # is the only case that deserves an interruption.
-              expr: 'httpcheck_status{http_url=~"http://127.0.0.1:(8091|8402)/healthz", http_status_class="2xx"}'
+              expr: 'httpcheck_status{http_url=~"http://127.0.0.1:(11120|11220)/healthz", http_status_class="2xx"}'
               instant: true
               refId: PROBE
           - refId: BREACH
@@ -58,7 +58,7 @@ groups:
         annotations:
           summary: '{{ $labels.http_url }} has not answered 2xx for 5 minutes'
           description: >-
-            Check `ss -ltn | grep -E "8091|8402"` on the VM. If podman reports a
+            Check `ss -ltn | grep -E "11120|11220"` on the VM. If podman reports a
             port mapping but nothing listens, this is issue #123 and the colour
             must be recreated with ./deploy/deploy-api.sh stage.
 
