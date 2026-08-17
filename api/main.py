@@ -1377,7 +1377,7 @@ def _report_data(code: str, country: str, lang: str = "en") -> dict:
         attributions = sorted(set(attributions) | {src_info[pop["source"]]})
     annotate_changes(feats)
     return {"code": code, "country": country, "lang": lang, "versions": versions,
-            "source_annex": build_source_annex(versions, pop, registry),
+            "source_annex": build_source_annex(versions, pop, registry, lang),
             "events": derive_events(feats, lang),
             "bbox": bbox,
             "population": pop,
@@ -1415,8 +1415,16 @@ def _group_name(g: list[dict]) -> str:
     return " · ".join(out)
 
 
+GAP_PHRASES = {
+    "en": {"unregistered": "not in the source registry",
+           "no_url": "no published reference"},
+    "fr": {"unregistered": "absente du registre des sources",
+           "no_url": "aucune référence publiée"},
+}
+
+
 def build_source_annex(versions: list[dict], pop: dict | None,
-                       registry: dict) -> list[dict]:
+                       registry: dict, lang: str = "en") -> list[dict]:
     """One row per source this report actually used (issue #90).
 
     Provenance per fact is what this product sells, and the report is where a
@@ -1438,6 +1446,7 @@ def build_source_annex(versions: list[dict], pop: dict | None,
     is the honest half of a provenance claim. Same doctrine as #167: state the
     gap rather than imply completeness.
     """
+    ph = GAP_PHRASES.get(lang, GAP_PHRASES["en"])
     used: dict[str, set] = {}
     for v in versions:
         if v.get("source"):
@@ -1452,11 +1461,12 @@ def build_source_annex(versions: list[dict], pop: dict | None,
         meta = registry.get(key) or {}
         gaps = []
         if not meta:
-            gaps.append("not in the source registry")
+            gaps.append(ph["unregistered"])
         if not meta.get("url"):
-            gaps.append("no published reference")
-        if not used[key]:
-            gaps.append("edition not recorded")
+            gaps.append(ph["no_url"])
+        # A missing edition is NOT repeated here: the vintage line already says
+        # it, in the reader's language, and printing it twice reads as two
+        # separate problems.
         annex.append({
             "source": key,
             "attribution": meta.get("attribution") or key,
