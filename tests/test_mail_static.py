@@ -66,7 +66,10 @@ def test_alerting_is_provisioned_from_files():
 
 def test_the_colour_probe_rule_targets_the_real_ports():
     rules = _read("deploy", "grafana", "provisioning", "alerting", "rules.yml")
-    assert "8091" in rules and "8402" in rules, "both colours must be watched"
+    # 11120/11220 since the 1PESI migration. This assertion pinned the OLD
+    # ports and was exactly how the colour-down rule went blind: the test
+    # enforced the stale value instead of the property.
+    assert "11120" in rules and "11220" in rules, "both colours must be watched"
     assert "8092" not in rules and "8093" not in rules, "those ports are BURNED"
 
 
