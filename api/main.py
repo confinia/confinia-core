@@ -1267,6 +1267,8 @@ REPORT_LABELS = {
         "annex_cols": "Source · licence · edition read · where to check it",
         "annex_gap": "gap: ",
         "annex_nov": "edition not recorded",
+        "gained": "absorbed (light blue)",
+        "gained_partial": lambda who: f"no polygon held for {who} — absorbed, not drawn",
         "no_geometry": "no geometry",
         "no_geometry_period": "no geometry for this period "
                               "(pre-1943 nomenclature without communal polygons)",
@@ -1292,6 +1294,8 @@ REPORT_LABELS = {
         "annex_cols": "Source · licence · édition lue · où la vérifier",
         "annex_gap": "manque : ",
         "annex_nov": "édition non enregistrée",
+        "gained": "absorbé (bleu clair)",
+        "gained_partial": lambda who: f"aucun polygone pour {who} — absorbée(s), non dessinée(s)",
         "no_geometry": "aucune géométrie",
         "no_geometry_period": "aucune géométrie pour cette période "
                               "(nomenclature antérieure à 1943, sans polygone communal)",
@@ -1323,6 +1327,55 @@ def _feature_rings(feature: dict) -> list:
         return [ring for poly in g["coordinates"] for ring in poly]
     if g["type"] == "Polygon":
         return list(g["coordinates"])
+    return []
+
+
+def _gained_rings(cur, parents: list, code: str, country: str, at, bbox) -> dict:
+    """What a version ABSORBED, drawn from each predecessor's own polygon.
+
+    Semantics from the LINEAGE, geometry only for drawing (issue #127). A naive
+    ST_Difference between two versions of the same commune returns slivers: on
+    Haut Valromey, 97 pieces each way, of which exactly one exceeds 0.1 km2 and
+    the other 96 total 0.178 km2. They come from mismatched IGN vintages along a
+    border that never moved. Painted, they would ring the whole commune in
+    colour and tell the reader the boundary shifted everywhere.
+
+    So we do not difference. `parents` says which communes were absorbed -- that
+    is the fact -- and each one's own last polygon is what gets coloured.
+
+    Returns the rings AND the predecessors we could not draw. Three of Haut
+    Valromey's four parents have no geometry at all, so colouring only what we
+    hold would show "gained Ruffieu" and imply "and nothing else", which is a
+    false statement in a document sold on per-fact provenance. The caller must
+    name them instead.
+    """
+    others = [c for c in (parents or []) if c != code]
+    if not others or not bbox:
+        return {"rings": [], "undrawable": others}
+    w, s_, e, n = bbox
+    cur.execute(
+        "SELECT code, ST_AsGeoJSON(ST_Intersection(geom_simple, "
+        "         ST_MakeEnvelope(%s,%s,%s,%s,4326)), 5) "
+        "FROM commune_version "
+        "WHERE country = %s AND code = ANY(%s) AND geom_simple IS NOT NULL "
+        "  AND valid_to <= %s "
+        "ORDER BY code, valid_to DESC",
+        (w, s_, e, n, country, others, at))
+    rings, drawn = [], set()
+    for c, gj in cur.fetchall():
+        if c in drawn or not gj:          # the LAST version of each parent only
+            continue
+        drawn.add(c)
+        rings.extend(_rings_of_geojson(gj))
+    return {"rings": rings, "undrawable": sorted(set(others) - drawn)}
+
+
+def _rings_of_geojson(gj: str) -> list:
+    g = json.loads(gj)
+    if g.get("type") == "Polygon":
+        return g["coordinates"]
+    if g.get("type") == "MultiPolygon":
+        return [r for poly in g["coordinates"] for r in poly]
     return []
 
 
@@ -1419,6 +1472,11 @@ def _report_data(code: str, country: str, lang: str = "en") -> dict:
             v["neighbours"] = (_neighbour_rings(cur, code, country,
                                                 v["valid_from"], bbox)
                                if v["rings"] else [])
+            # What this version absorbed, from the lineage (issue #127).
+            gained = _gained_rings(cur, v.get("parents"), code, country,
+                                   v["valid_from"], bbox) if v["rings"] else {}
+            v["gained"] = gained.get("rings", [])
+            v["gained_undrawable"] = gained.get("undrawable", [])
     attributions = sorted({src_info[v["source"]] for v in versions
                            if v["source"] in src_info})
     pop = population_series(code, country, lang)
@@ -1652,8 +1710,16 @@ def _report_svg(d: dict) -> str:
                 parts.append(f'<g clip-path="url(#{cid})"><path d="{draw(v["neighbours"])}" '
                              'fill="#eef1f6" stroke="#c9d2e0" stroke-width="0.6" '
                              'fill-rule="evenodd"/></g>')
+            # Absorbed predecessors, LIGHT BLUE, under the outline (issue #127).
+            # Drawn from each parent's own polygon, never from a difference:
+            # differencing two vintages of the same commune returns slivers --
+            # 97 of them on this very example -- and colour turns noise into an
+            # assertion.
+            if v.get("gained"):
+                parts.append(f'<path d="{draw(v["gained"])}" fill="#a8d5f2" '
+                             'stroke="#5a9fd4" stroke-width="0.8" fill-rule="evenodd"/>')
             parts.append(f'<path d="{draw(v["rings"])}" fill="#dbe7fb" stroke="#3a5f95" '
-                         'stroke-width="1.2" fill-rule="evenodd"/>')
+                         'stroke-width="1.2" fill-rule="evenodd" fill-opacity="0.55"/>')
         else:
             text(ox + CELL_W / 2, row_y + DRAW_H / 2, lab["no_geometry"], 12, fill="#8a94a6", anchor="middle")
         text(ox + CELL_W / 2, row_y + DRAW_H + 16, _group_name(g), 14, "bold", anchor="middle")
@@ -1663,6 +1729,15 @@ def _report_svg(d: dict) -> str:
         if v["approx"]:
             vin += lab["approx"]
         text(ox + CELL_W / 2, row_y + DRAW_H + 50, vin, 10, fill="#8a94a6", anchor="middle")
+        if v.get("gained"):
+            text(ox + CELL_W / 2, row_y + DRAW_H + 64, lab["gained"], 9,
+                 fill="#5a9fd4", anchor="middle")
+        if v.get("gained_undrawable"):
+            # Naming them is the point: colouring only what we hold would show
+            # "gained Ruffieu" and imply "and nothing else".
+            text(ox + CELL_W / 2, row_y + DRAW_H + 76,
+                 lab["gained_partial"](", ".join(v["gained_undrawable"]))[:80], 9,
+                 fill="#a05a2c", anchor="middle")
     # Groups, not versions: sizing on the version count leaves a blank half-page
     # for every panel the grouping removed.
     y += ((len(groups) + 1) // 2) * CELL_H + 20
@@ -1826,10 +1901,31 @@ def _report_pdf(d: dict) -> bytes:
                 for ring in v["neighbours"]:
                     c.drawPath(ring_path(ring), stroke=1, fill=1)
                 c.restoreState()
+            # Absorbed predecessors, LIGHT BLUE, under the outline (issue #127),
+            # drawn from each parent's own polygon rather than a difference: two
+            # vintages of the same commune differ by slivers, 97 of them here,
+            # and colour would turn that noise into an assertion.
+            if v.get("gained"):
+                c.setFillColorRGB(.66, .84, .95); c.setStrokeColorRGB(.35, .62, .83)
+                c.setLineWidth(.6)
+                for ring in v["gained"]:
+                    c.drawPath(ring_path(ring), stroke=1, fill=1)
             c.setFillColorRGB(.86, .91, .98); c.setStrokeColorRGB(.23, .37, .58)
             c.setLineWidth(1)
+            c.setFillAlpha(0.55)
             for ring in v["rings"]:
                 c.drawPath(ring_path(ring), stroke=1, fill=1)
+            c.setFillAlpha(1)
+            legend = []
+            if v.get("gained"):
+                legend.append(lab["gained"])
+            if v.get("gained_undrawable"):
+                # Naming them is the point: colouring only what we hold would
+                # show "gained Ruffieu" and imply "and nothing else".
+                legend.append(lab["gained_partial"](", ".join(v["gained_undrawable"])))
+            if legend:
+                c.setFont("Helvetica", 7.5); c.setFillColorRGB(.35, .45, .58)
+                c.drawString(PAD, top - 26, " · ".join(legend)[:150])
         else:
             c.setFont("Helvetica", 10); c.setFillColorRGB(.54, .58, .65)
             c.drawCentredString(W / 2, top - slot_h / 2, lab["no_geometry_period"])
