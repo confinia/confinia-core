@@ -48,8 +48,8 @@ write-upstreams|promote)
 		# its legacy 8402 having been dropped at step 4. Getting this pair wrong
 		# does not fail loudly -- caddy just has one dead upstream and falls back,
 		# so production stays up while its safety net is gone.
-		blue)  ACT=8091;  PAS=11220 ;;
-		green) ACT=11220; PAS=8091  ;;
+		blue)  ACT=11120; PAS=11220 ;;
+		green) ACT=11220; PAS=11120 ;;
 		*) echo "unknown color: $c" >&2; exit 2 ;;
 	esac
 	mkdir -p ~/confinia-edge-state

@@ -439,3 +439,53 @@ def test_the_app_edges_bind_loopback_but_the_collector_does_not():
         assert not endpoint.startswith("127.0.0.1"), (
             f"otel endpoint {endpoint} is on loopback; every container pushes "
             "through host.containers.internal and would silently stop reporting")
+
+
+def test_no_legacy_port_survives_in_any_declaration():
+    """1PESI is finished only when nothing NAMES the old ports.
+
+    Every step of this migration was found by a red pipeline rather than by
+    reading: green's 8402 lived on in four files, and each fix widened the
+    search only as far as the file that had just failed.
+    """
+    import glob
+    legacy = {"8091": "blue api", "5441": "blue geo db", "8402": "green api",
+              "5442": "green geo db", "8403": "staging api", "8085": "app caddy",
+              "8086": "grafana", "8095": "keycloak", "8097": "demo",
+              "8094": "otel exporter", "2085": "caddy admin"}
+    checked = (glob.glob(os.path.join(ROOT, "deploy", "*.sh"))
+               + glob.glob(os.path.join(ROOT, "deploy", "stack", "*.yml"))
+               + glob.glob(os.path.join(ROOT, "deploy", "quadlet", "*.container"))
+               + glob.glob(os.path.join(WF, "*.yml"))
+               + [os.path.join(ROOT, "docker-compose.yml"),
+                  os.path.join(ROOT, "deploy", "caddy", "Caddyfile"),
+                  os.path.join(ROOT, "deploy", "otel-collector.yaml")])
+    for path in sorted(checked):
+        for i, line in enumerate(open(path, encoding="utf-8").read().splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith("#") or stripped.startswith("//"):
+                continue          # history is allowed to name them
+            # ...and so is a trailing comment: CI's throwaway Keycloak explains
+            # itself by contrast with the VM's old port.
+            code = stripped.split("#", 1)[0]
+            if not code.strip():
+                continue
+            for port, what in legacy.items():
+                assert port not in code, (
+                    f"{os.path.basename(path)}:{i} still names {port} ({what}): "
+                    f"{stripped[:70]}")
+
+
+def test_the_reload_addresses_the_admin_endpoint_it_declares():
+    """caddy cannot rebind its own admin through that admin.
+
+    Moving 2085 -> 11090 needs a RECREATE; and once moved, a reload issued
+    without --address talks to the default 2019 and either fails or, worse,
+    reaches ANOTHER caddy on the host -- the VM-wide outage of 2026-07-20.
+    """
+    caddy = open(os.path.join(ROOT, "deploy", "caddy", "Caddyfile"), encoding="utf-8").read()
+    admin = re.search(r"^\tadmin localhost:(\d+)", caddy, re.M)
+    assert admin, "the production edge must pin an admin address"
+    sh = open(os.path.join(ROOT, "deploy", "deploy-edge.sh"), encoding="utf-8").read()
+    assert f"--address localhost:{admin.group(1)}" in sh, \
+        f"deploy-edge.sh must reload through localhost:{admin.group(1)}"

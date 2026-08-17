@@ -94,7 +94,7 @@ jobs:
           # the bcrypt HASH lives on the VM, never the password. Going local
           # also proves the staged build itself answers, not a cached edge.
           active=$(cat ~/confinia-edge-state/ACTIVE_COLOR 2>/dev/null || echo green)
-          if [ "$active" = blue ]; then passive=green; port=11220; else passive=blue; port=8091; fi
+          if [ "$active" = blue ]; then passive=green; port=11220; else passive=blue; port=11120; fi
           echo "smoking the $passive colour on 127.0.0.1:$port"
           # DEV.md rule: everything runs in a container, never host python. The
           # first version built a venv on the host and failed — python3-venv is

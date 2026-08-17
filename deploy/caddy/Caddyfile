@@ -4,17 +4,18 @@
 # 1PESI MIGRATION (platform PR #8): every site listens on BOTH the legacy
 # port 8085 and the new-scheme port 11000 until the platform edge flips
 # and the legacy band is decommissioned; then the :8085 addresses and the
-# http_port global go away and admin moves 2085 -> 11090.
+# http_port global goes away. Admin moved 2085 -> 11090 on 2026-08-16.
 # Zero-downtime reload: ./deploy/deploy-edge.sh (ephemeral validation + reload).
 {
-	http_port 8085
 	auto_https off
 	# VM RULE: every host-network caddy MUST have a UNIQUE admin address.
 	# By default they all share localhost:2019 and a `caddy reload`
 	# can load its config into the process of ANOTHER caddy (general
 	# outage of 2026-07-20, the 8085 config swallowed by the upstream).
-	# Convention: admin = 2000 + application port % 10000 -> confinia: 2085.
-	admin localhost:2085
+	# 1PESI: confinia(1) production(0) admin(9) main(0) -> 11090. Was 2085.
+	# Changing this needs a RECREATE, not a reload: caddy cannot rebind its
+	# own admin endpoint from a command issued through that endpoint.
+	admin localhost:11090
 	# The UPSTREAM caddy talks to us from the local loopback: without this
 	# trust, caddy THROWS AWAY its X-Forwarded-For (2.5+ behavior) and the
 	# whole planet reaches the API as IP 127.0.0.1 (GLOBAL premium quota,

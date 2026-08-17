@@ -1,6 +1,6 @@
 # Maintenance holding server (issue #99).
 #
-# Stands in on 127.0.0.1:8085 while the project caddy is stopped, so the
+# Stands in on 127.0.0.1:11000 while the project caddy is stopped, so the
 # platform edge keeps getting an answer instead of a connection refused (which
 # the visitor sees as a bare 502 from someone else's server).
 #
@@ -13,7 +13,7 @@
 	auto_https off
 }
 
-:8085 {
+:11000 {
 	root * /srv
 	header Retry-After "1800"
 	header Cache-Control "no-store"

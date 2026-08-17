@@ -18,7 +18,7 @@ podman run --rm \
 	docker.io/library/caddy:2 caddy validate --config /etc/caddy/Caddyfile
 
 if podman ps --format '{{.Names}}' | grep -qx confinia-sandbox_caddy_1; then
-	echo "== graceful reload of the sandbox edge (admin 11490, NOT 2085)"
+	echo "== graceful reload of the sandbox edge (its OWN admin, 11490)"
 	podman exec confinia-sandbox_caddy_1 \
 		caddy reload --config /etc/caddy/Caddyfile --address localhost:11490
 else

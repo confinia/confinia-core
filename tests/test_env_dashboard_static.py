@@ -14,10 +14,10 @@ def _read(*parts):
 
 def test_collector_probes_every_environment():
     cfg = _read("deploy", "otel-collector.yaml")
-    for target in ("http://127.0.0.1:8091/healthz",      # blue
+    for target in ("http://127.0.0.1:11120/healthz",      # blue
                    "http://127.0.0.1:11220/healthz",      # green
                    "http://127.0.0.1:11420/healthz",      # sandbox
-                   "http://127.0.0.1:8095/auth/realms/confinia",  # keycloak
+                   "http://127.0.0.1:11070/auth/realms/confinia",  # keycloak
                    "https://api.confinia.io/healthz"):   # public edge -> active
         assert target in cfg, f"missing probe: {target}"
     assert "filestats" in cfg and "/edge-state/active-*" in cfg
