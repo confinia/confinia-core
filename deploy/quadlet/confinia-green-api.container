@@ -28,6 +28,13 @@ Image=localhost/confinia-api:latest
 # colour's database -- `db` is a network alias, not a hostname we control.
 Network=confinia-green_default
 PublishPort=127.0.0.1:11220:8000
+# Telemetry. A Quadlet unit reads ONLY the EnvironmentFile, so everything the
+# compose file used to supply through `environment:` has to be repeated here.
+# This one went missing when the colours moved to systemd, and nothing said so:
+# api/main.py exports only `if OTLP:`, so an unset variable is not a
+# misconfiguration the process complains about -- it is silence. Both colours
+# stopped reporting on 2026-08-16 and the dashboards simply stopped filling.
+Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://host.containers.internal:11060
 # PG_DSN, OPS_DSN and the rest live here; the file is gitignored and 600.
 EnvironmentFile=%h/projects/confinia/deploy/secrets.env
 

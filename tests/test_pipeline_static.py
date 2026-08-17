@@ -489,3 +489,31 @@ def test_the_reload_addresses_the_admin_endpoint_it_declares():
     sh = open(os.path.join(ROOT, "deploy", "deploy-edge.sh"), encoding="utf-8").read()
     assert f"--address localhost:{admin.group(1)}" in sh, \
         f"deploy-edge.sh must reload through localhost:{admin.group(1)}"
+
+
+def test_the_units_carry_every_variable_the_compose_file_supplies():
+    """A Quadlet unit reads ONLY its EnvironmentFile.
+
+    Moving the colours to systemd silently dropped everything the compose file
+    passed through `environment:`. OTEL_EXPORTER_OTLP_ENDPOINT was one, and
+    api/main.py exports only `if OTLP:` -- so the variable going missing is not
+    an error the process reports, it is dashboards that quietly stop filling.
+    """
+    import glob
+    compose_env = set()
+    for f in glob.glob(os.path.join(ROOT, "deploy", "stack", "docker-compose-*.yml")):
+        s = open(f, encoding="utf-8").read()
+        block = s.split("environment:")[1].split("\n    ")[0] if "environment:" in s else ""
+        compose_env |= set(re.findall(r"^\s+([A-Z][A-Z0-9_]+):", block, re.M))
+
+    for path in sorted(glob.glob(os.path.join(ROOT, "deploy", "quadlet", "*.container"))):
+        unit = open(path, encoding="utf-8").read()
+        declared = set(re.findall(r"^Environment=([A-Z][A-Z0-9_]+)=", unit, re.M))
+        has_envfile = "EnvironmentFile=" in unit
+        missing = {v for v in compose_env if v not in declared}
+        # Anything not in the unit must be in secrets.env, which the unit reads.
+        assert not (missing and not has_envfile), \
+            f"{os.path.basename(path)} supplies neither {sorted(missing)} nor an EnvironmentFile"
+        assert "OTEL_EXPORTER_OTLP_ENDPOINT" in declared, (
+            f"{os.path.basename(path)} does not set the OTLP endpoint; the API "
+            "exports only `if OTLP:` and would stop reporting in silence")
