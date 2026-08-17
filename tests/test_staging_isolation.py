@@ -132,3 +132,21 @@ def test_staging_runs_under_systemd_not_as_a_job_child():
     body = "\n".join(l for l in sh.splitlines() if not l.lstrip().startswith("#"))
     assert "podman run -d" not in body, \
         "a bare podman run reintroduces the job-child failure"
+
+
+def test_no_secret_is_written_as_a_unit_Environment_line():
+    """Environment= becomes `podman run --env ...` on the service command line.
+
+    `systemctl status` prints that line and the journal keeps it, so a DSN
+    written this way puts the database password in front of anything that can
+    read the journal. It leaked the freshly rotated password on 2026-08-17,
+    into a terminal, seconds after the rotation.
+    """
+    sh = _read("deploy", "staging-up.sh")
+    unit = sh.split("[Container]")[1].split("UNIT")[0] if "[Container]" in sh else sh
+    for line in unit.splitlines():
+        if line.startswith("Environment="):
+            assert not any(k in line for k in ("DSN", "PASSWORD", "SECRET", "TOKEN")), \
+                f"secret on the service command line: {line[:60]}"
+    assert "chmod 600" in sh, "the generated env file must not be world-readable"
+    assert "EnvironmentFile=%h/.config/containers/systemd/confinia-staging.env" in sh
