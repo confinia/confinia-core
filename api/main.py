@@ -729,7 +729,21 @@ def annotate_changes(versions: list[dict]) -> list[dict]:
     return versions
 
 
-def change_note(nd: dict | None, lang: str = "en") -> str | None:
+def _boundary_phrase(pct: float, fr: bool) -> str:
+    """"limites agrandies de 12,9 %" -- agreement and preposition included.
+
+    Written once because it appears in three branches, and a report that says
+    "limites agrandie 12.9 %" to a notaire has lost the argument before the
+    number is read.
+    """
+    if fr:
+        verb = "agrandies" if pct > 0 else "réduites"
+        return f"limites {verb} de {abs(pct):.1f} %".replace(".", ",")
+    verb = "grew" if pct > 0 else "shrank"
+    return f"boundary {verb} by {abs(pct):.1f}%"
+
+
+def change_note(nd: dict | None, lang: str = "en", bd: dict | None = None) -> str | None:
     """One plain sentence saying what changed in a name.
 
     The chronology printed "A → B" and stopped. When the difference is one
@@ -745,6 +759,20 @@ def change_note(nd: dict | None, lang: str = "en") -> str | None:
         return None
     fr = lang == "fr"
 
+    # How much of the name survived. difflib on "Hotonnes" -> "Haut Valromey"
+    # matches stray letters and reports `retiré tonn, s · ajouté aut_Valr, m, y`
+    # -- true, useless, and it makes the document look broken. A character
+    # delta earns its place only when the change is small enough that a reader
+    # cannot see it unaided, which is the case it was built for: one space.
+    # What decides whether a character delta helps is not its SIZE but how
+    # FRAGMENTED it is. "Hotonnes" -> "Haut Valromey" makes difflib match stray
+    # letters and report `retiré tonn, s · ajouté aut_Valr, m, y` -- true,
+    # useless, and it makes the document look broken. "Labastida" ->
+    # "Labastida / Bastida" is one clean insertion and worth showing, even
+    # though it is longer.
+    pieces = len(nd["added"]) + len(nd["removed"])
+    readable = pieces <= 2
+
     def _describe(chunks: list[str]) -> str:
         parts = []
         for c in chunks:
@@ -759,12 +787,32 @@ def change_note(nd: dict | None, lang: str = "en") -> str | None:
         return ", ".join(parts)
 
     bits = []
+    if not readable:
+        # A wholesale rename: name the two, do not dissect them.
+        head_only = ("renommée" if fr else "renamed")
+        if bd and bd.get("changed"):
+            pct = bd["area_delta_pct"]
+            return f"{head_only} · " + _boundary_phrase(pct, fr)
+        if bd is None:
+            return head_only + (" · limites non comparables" if fr
+                                else " · boundary not comparable")
+        return head_only + (" · limites inchangées" if fr else " · boundary unchanged")
     if nd["removed"]:
         bits.append((("retiré : " if fr else "removed: ")) + _describe(nd["removed"]))
     if nd["added"]:
         bits.append((("ajouté : " if fr else "added: ")) + _describe(nd["added"]))
     if nd["kind"] == "respelled":
         head = "orthographe de la source" if fr else "spelling in the source"
+    elif bd and bd.get("changed"):
+        # THE correction: the head used to assert "boundary unchanged" from the
+        # name alone. On Haut Valromey -- four communes absorbed, 107.9 -> 121.8
+        # km2 -- the report stated the opposite of what happened, in a document
+        # sold on per-fact provenance.
+        head = ("nom et limites · " if fr else "name and boundary · ") + \
+            _boundary_phrase(bd["area_delta_pct"], fr)
+    elif bd is None:
+        head = ("nom modifié, limites non comparables" if fr
+                else "name changed, boundary not comparable")
     else:
         head = "nom seul, limites inchangées" if fr else "name only, boundary unchanged"
     return head + (" · " + " · ".join(bits) if bits else "")
@@ -792,9 +840,11 @@ def derive_events(versions: list[dict], lang: str = "en") -> list[dict]:
         if nd:
             # A respelling is the source's typography changing between vintages,
             # not an authority renaming anything -- see name_delta.
+            bd = boundary_delta(geoms[i - 1], geoms[i]) if i else None
             events.append({"date": p["valid_from"], "type": nd["kind"],
                            "detail": f"{prev['nom']} → {p['nom']}",
-                           "name_delta": nd, "change_note": change_note(nd, lang)})
+                           "name_delta": nd, "boundary_delta": bd,
+                           "change_note": change_note(nd, lang, bd)})
             if other_parents:
                 events.append({"date": None, "type": "absorbed",
                                "detail": ph["absorbed"](', '.join(other_parents),

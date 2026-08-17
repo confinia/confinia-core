@@ -245,3 +245,60 @@ def test_the_payment_badge_comes_from_the_api_not_the_hostname():
             f"{page} must show the banner only on an explicit sandbox answer"
         assert "location.hostname" not in html.split('id="paymode"')[1][:800], \
             f"{page} decides the banner from the hostname"
+
+
+def _notes2():
+    ns = _load()
+    src = open(os.path.join(ROOT, "api", "main.py"), encoding="utf-8").read()
+    for fn in ("_boundary_phrase", "change_note"):
+        exec(re.search(rf"^def {fn}\(.*?(?=^def |\Z)", src, re.S | re.M).group(0), ns)
+    return ns
+
+
+def test_the_note_never_claims_the_boundary_held_when_it_moved():
+    """The report asserted the opposite of what happened.
+
+    Haut Valromey absorbed four communes on 2016-01-01 -- 107.9 -> 121.8 km² --
+    and the chronology read "nom seul — limites inchangées", because the note
+    was derived from the name alone. A false statement, in a document sold on
+    per-fact provenance.
+    """
+    ns = _notes2()
+    nd = ns["name_delta"]("Hotonnes", "Haut Valromey")
+    note = ns["change_note"](nd, "fr", {"changed": True, "area_delta_pct": 12.91})
+    assert "inchangées" not in note, note
+    assert "agrandies" in note and "12,9" in note, note
+
+
+def test_an_uncomparable_boundary_is_not_reported_as_unchanged():
+    ns = _notes2()
+    nd = ns["name_delta"]("Vendeuvre", "Vendeuvre-du-Poitou")
+    note = ns["change_note"](nd, "fr", None)
+    assert "non comparables" in note and "inchangées" not in note, note
+
+
+def test_a_fragmented_diff_is_summarised_not_dissected():
+    """difflib on a wholesale rename produces true, useless fragments.
+
+    "Hotonnes" -> "Haut Valromey" gave `retiré tonn, s · ajouté aut_Valr, m, y`
+    on the staged report: correct character-by-character, and it makes the
+    document look broken. One clean insertion is worth showing; five stray
+    letters are not.
+    """
+    ns = _notes2()
+    messy = ns["change_note"](ns["name_delta"]("Hotonnes", "Haut Valromey"), "fr",
+                              {"changed": True, "area_delta_pct": 12.9})
+    assert "tonn" not in messy and "aut_Valr" not in messy, messy
+
+    clean = ns["change_note"](ns["name_delta"]("Labastida", "Labastida / Bastida"), "fr",
+                              {"changed": False, "area_delta_pct": 0.01})
+    assert "Bastida" in clean, "one clean insertion must still be shown"
+
+
+def test_the_french_phrase_is_grammatical():
+    """"limites agrandie 12.9 %" loses a notaire before the number is read."""
+    ns = _notes2()
+    fr = ns["_boundary_phrase"](12.91, True)
+    assert fr == "limites agrandies de 12,9 %", fr
+    assert ns["_boundary_phrase"](-3.5, True) == "limites réduites de 3,5 %"
+    assert ns["_boundary_phrase"](12.91, False) == "boundary grew by 12.9%"
