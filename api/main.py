@@ -2048,6 +2048,24 @@ def commune_report_pdf(request: Request, code: str, country: str = "FR",
         "X-Premium-Remaining": str(quota.get("remaining"))})
 
 
+@app.get("/v1/pricing")
+def pricing_config():
+    """The offer, as the deployment is actually configured (RULES 19).
+
+    Pages must not hardcode an amount: the founder found the account page
+    advertising the OLD flat price while the environment metered the new
+    model -- the page and the eventual invoice disagreed. Amounts live in the
+    environment; this endpoint is how a page learns them. Flat deployments
+    return only the mode, and the page then names no number at all -- the
+    checkout is the single source of the flat price."""
+    if not METERED:
+        return {"mode": "flat"}
+    return {"mode": "metered",
+            "floor_cents": BILLING_FLOOR_CENTS,
+            "per_report_cents": BILLING_PER_REPORT_CENTS,
+            "cap_cents": BILLING_CAP_CENTS}
+
+
 @app.get("/v1/reports/quota")
 def reports_quota(request: Request, country: str = "FR", code: str | None = None):
     """Read-only report allowance for the caller (issue #83): {tier, used, limit,

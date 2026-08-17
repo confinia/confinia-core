@@ -71,7 +71,7 @@ whether you create it before or after.</p>
 
   <div class="tier pro">
     <h2>Pro <span class="badge">launch price</span></h2>
-    <div class="price">€49<small>/month</small></div>
+    <div class="price" id="pro-price">€49<small>/month</small></div>
     <ul>
       <li>Commercial use at scale: 50 req/s, 1M requests/month</li>
       <li><b>Up to 100 reports per month</b> (area changes <code>/v1/changes</code>, commune records SVG/PDF)</li>
@@ -79,7 +79,7 @@ whether you create it before or after.</p>
       <li>Attribution kit ready to paste (per-source, per-response)</li>
       <li>Email support, 2 business days</li>
     </ul>
-    <a class="cta primary" href="https://sandbox-api.polar.sh/v1/checkout-links/polar_cl_ISjNBK2UCRY5yztIRetmxG73mC4ro7y4lrwDm2ZyDCw/redirect" data-polar-checkout data-polar-checkout-theme="dark">Subscribe · €49/month</a>
+    <a class="cta primary" href="https://sandbox-api.polar.sh/v1/checkout-links/polar_cl_ISjNBK2UCRY5yztIRetmxG73mC4ro7y4lrwDm2ZyDCw/redirect" data-polar-checkout data-polar-checkout-theme="dark" id="pro-cta">Subscribe</a>
     <div style="text-align:center; margin-top:.6rem; font-size:.85rem">
       <a href="#" data-tier="pro">not ready? leave your intent</a></div>
   </div>
@@ -156,4 +156,18 @@ form.addEventListener("submit", async ev => {
 });
 </script>
 <script src="/polar-embed.js" data-auto-init></script>
+<script>
+// The offer comes from the deployment (RULES 19): a hardcoded amount is how
+// this page advertised one price while the environment metered another. Only
+// an explicit metered answer rewrites anything.
+fetch("/api/v1/pricing").then(r => r.json()).then(pc => {
+  if (pc.mode !== "metered") return;
+  const eur = c => (c / 100).toFixed(2).replace(".", ",").replace(",00", "") + " €";
+  const el = document.getElementById("pro-price");
+  if (el) el.innerHTML = "from " + eur(pc.floor_cents) + "<small>/month · " +
+    eur(pc.per_report_cents) + " per report · never above " + eur(pc.cap_cents) + "</small>";
+  const cta = document.getElementById("pro-cta");
+  if (cta) cta.textContent = "Subscribe · from " + eur(pc.floor_cents) + "/month";
+}).catch(() => {});
+</script>
 </body></html>

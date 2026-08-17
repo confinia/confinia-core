@@ -46,3 +46,5 @@ api/VERSION
 RULES.md
 POLAR.md
 SPECIFICATIONS.md
+deploy/creem.env
+.mcp.json
