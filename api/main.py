@@ -1212,6 +1212,11 @@ REPORT_LABELS = {
         "chronology": "Chronology",
         "boundaries": "Boundaries by period (same scale)",
         "sources": "Sources:",
+        "annex": "Annex — provenance",
+        "annex_lead": "Every fact in this report comes from one of these, in the edition named.",
+        "annex_cols": "Source · licence · edition read · where to check it",
+        "annex_gap": "gap: ",
+        "annex_nov": "edition not recorded",
         "no_geometry": "no geometry",
         "no_geometry_period": "no geometry for this period "
                               "(pre-1943 nomenclature without communal polygons)",
@@ -1232,6 +1237,11 @@ REPORT_LABELS = {
         "chronology": "Chronologie",
         "boundaries": "Contours par période (même échelle)",
         "sources": "Sources :",
+        "annex": "Annexe — provenance",
+        "annex_lead": "Chaque fait de ce rapport provient de l'une d'elles, dans l'édition indiquée.",
+        "annex_cols": "Source · licence · édition lue · où la vérifier",
+        "annex_gap": "manque : ",
+        "annex_nov": "édition non enregistrée",
         "no_geometry": "aucune géométrie",
         "no_geometry_period": "aucune géométrie pour cette période "
                               "(nomenclature antérieure à 1943, sans polygone communal)",
@@ -1326,8 +1336,11 @@ def _report_data(code: str, country: str, lang: str = "en") -> dict:
         rows = cur.fetchall()
         if not rows:
             raise HTTPException(404, f"Unité inconnue : {country}/{code}")
-        cur.execute("SELECT source, attribution, license FROM public.data_source")
-        src_info = {r[0]: (r[1], r[2]) for r in cur.fetchall()}
+        cur.execute("SELECT source, attribution, license, source_url "
+                    "FROM public.data_source")
+        registry = {r[0]: {"attribution": r[1], "license": r[2], "url": r[3]}
+                    for r in cur.fetchall()}
+        src_info = {k: (v["attribution"], v["license"]) for k, v in registry.items()}
     versions = []
     for nom, vf, vt, parents, children, src, vintage, approx, g in rows:
         rings = []
@@ -1364,6 +1377,7 @@ def _report_data(code: str, country: str, lang: str = "en") -> dict:
         attributions = sorted(set(attributions) | {src_info[pop["source"]]})
     annotate_changes(feats)
     return {"code": code, "country": country, "lang": lang, "versions": versions,
+            "source_annex": build_source_annex(versions, pop, registry),
             "events": derive_events(feats, lang),
             "bbox": bbox,
             "population": pop,
@@ -1399,6 +1413,59 @@ def _group_name(g: list[dict]) -> str:
             seen.add(v["nom"])
             out.append(v["nom"])
     return " · ".join(out)
+
+
+def build_source_annex(versions: list[dict], pop: dict | None,
+                       registry: dict) -> list[dict]:
+    """One row per source this report actually used (issue #90).
+
+    Provenance per fact is what this product sells, and the report is where a
+    customer meets that claim. A flat footer -- "INSEE, Licence Ouverte 2.0" --
+    says WHO the sources are and nothing about which fact came from which, nor
+    which edition of it.
+
+    Three things each row must carry, and the third is what makes the other two
+    checkable:
+
+      the licence, so the reader knows what they may do with it;
+      the VINTAGE WE READ, never "latest" -- these files get republished, and a
+        reader verifying next year must land on what we read, not what replaced
+        it;
+      a URL that resolves.
+
+    Where any of those is missing, the row SAYS SO. A blank reads as an
+    oversight; "no published reference for this source" is information, and it
+    is the honest half of a provenance claim. Same doctrine as #167: state the
+    gap rather than imply completeness.
+    """
+    used: dict[str, set] = {}
+    for v in versions:
+        if v.get("source"):
+            used.setdefault(v["source"], set())
+            if v.get("vintage"):
+                used[v["source"]].add(v["vintage"].isoformat())
+    if pop and pop.get("source"):
+        used.setdefault(pop["source"], set())
+
+    annex = []
+    for key in sorted(used):
+        meta = registry.get(key) or {}
+        gaps = []
+        if not meta:
+            gaps.append("not in the source registry")
+        if not meta.get("url"):
+            gaps.append("no published reference")
+        if not used[key]:
+            gaps.append("edition not recorded")
+        annex.append({
+            "source": key,
+            "attribution": meta.get("attribution") or key,
+            "license": meta.get("license"),
+            "url": meta.get("url"),
+            "vintages": sorted(used[key]),
+            "gap": " · ".join(gaps) or None,
+        })
+    return annex
 
 
 def _period_str(v, lang: str = "en") -> str:
@@ -1539,6 +1606,31 @@ def _report_svg(d: dict) -> str:
     # Groups, not versions: sizing on the version count leaves a blank half-page
     # for every panel the grouping removed.
     y += ((len(groups) + 1) // 2) * CELL_H + 20
+    # Annex (issue #90): the flat footer named WHO the sources are and nothing
+    # about which edition was read or where to check it. Provenance per fact is
+    # what this product sells; a reader must be able to take any statement here
+    # and go verify it upstream without taking our word for anything.
+    y += 10
+    text(PAD, y, lab["annex"], 13, "bold"); y += 16
+    text(PAD, y, lab["annex_lead"], 10, fill="#5b6b85"); y += 14
+    text(PAD, y, lab["annex_cols"], 9, fill="#8a94a6"); y += 6
+    for row in d.get("source_annex", []):
+        y += 16
+        head = row["attribution"]
+        if row.get("license"):
+            head += f" · {row['license']}"
+        text(PAD + 8, y, head[:120], 10)
+        y += 13
+        vint = ", ".join(row["vintages"]) if row["vintages"] else lab["annex_nov"]
+        text(PAD + 18, y, vint, 9, fill="#5b6b85")
+        if row.get("url"):
+            y += 12
+            text(PAD + 18, y, row["url"][:110], 9, fill="#3a5f95")
+        if row.get("gap"):
+            # An explicit gap beats a blank: a blank reads as an oversight.
+            y += 12
+            text(PAD + 18, y, lab["annex_gap"] + row["gap"], 9, fill="#a05a2c")
+    y += 26
     text(PAD, y, lab["sources"], 11, "bold", "#5b6b85"); y += 4
     for attr, lic in d["attributions"]:
         y += 15
@@ -1681,6 +1773,38 @@ def _report_pdf(d: dict) -> bytes:
         else:
             c.setFont("Helvetica", 10); c.setFillColorRGB(.54, .58, .65)
             c.drawCentredString(W / 2, top - slot_h / 2, lab["no_geometry_period"])
+    # Annex (issue #90), its own page: the per-page footer names WHO the sources
+    # are, which is not a provenance claim. A reader must be able to take any
+    # statement in this document and go check it upstream -- which needs the
+    # EDITION we read (these files get republished) and a reference that
+    # resolves. Where either is missing the row says so: a blank reads as an
+    # oversight, an explicit gap is information.
+    annex = d.get("source_annex") or []
+    if annex:
+        footer(); c.showPage()
+        y = H - 70
+        c.setFont("Helvetica-Bold", 14); c.setFillColorRGB(.1, .14, .2)
+        c.drawString(PAD, y, lab["annex"]); y -= 18
+        c.setFont("Helvetica", 9); c.setFillColorRGB(.36, .42, .52)
+        c.drawString(PAD, y, lab["annex_lead"][:120]); y -= 12
+        c.setFont("Helvetica", 8); c.setFillColorRGB(.55, .6, .68)
+        c.drawString(PAD, y, lab["annex_cols"][:120]); y -= 18
+        for row in annex:
+            if y < 90:
+                footer(); c.showPage(); y = H - 70
+            head = row["attribution"] + (f" · {row['license']}" if row.get("license") else "")
+            c.setFont("Helvetica-Bold", 9.5); c.setFillColorRGB(.1, .14, .2)
+            c.drawString(PAD, y, head[:105]); y -= 12
+            c.setFont("Helvetica", 8.5); c.setFillColorRGB(.36, .42, .52)
+            vint = ", ".join(row["vintages"]) if row["vintages"] else lab["annex_nov"]
+            c.drawString(PAD + 12, y, vint[:100]); y -= 11
+            if row.get("url"):
+                c.setFillColorRGB(.23, .37, .58)
+                c.drawString(PAD + 12, y, row["url"][:100]); y -= 11
+            if row.get("gap"):
+                c.setFillColorRGB(.63, .35, .17)
+                c.drawString(PAD + 12, y, (lab["annex_gap"] + row["gap"])[:100]); y -= 11
+            y -= 6
     footer(); c.showPage(); c.save()
     return buf.getvalue()
 
