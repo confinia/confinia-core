@@ -517,3 +517,18 @@ def test_the_units_carry_every_variable_the_compose_file_supplies():
         assert "OTEL_EXPORTER_OTLP_ENDPOINT" in declared, (
             f"{os.path.basename(path)} does not set the OTLP endpoint; the API "
             "exports only `if OTLP:` and would stop reporting in silence")
+
+
+def test_the_pipeline_redeploys_what_staging_actually_serves():
+    """staging.confinia.io/api reaches the staging STACK, not the passive colour.
+
+    Nothing in the pipeline redeployed it. The founder opened a staging URL on
+    three separate occasions and got a build up to 17 hours old each time, while
+    the static page beside it was current -- which reads as "the fix does not
+    work", and cost a round trip to explain every time.
+    """
+    s = _wf("deploy-staging.yml")
+    assert "staging-up.sh" in s, "the pipeline must redeploy the staging stack"
+    assert "sandbox-edge-up.sh" in s, "the sandbox edge must be reloaded too"
+    assert s.index("smoke_prod.py") < s.index("staging-up.sh"), \
+        "staging must be redeployed only after the staged colour passes its smoke"

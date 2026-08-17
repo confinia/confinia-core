@@ -107,6 +107,23 @@ jobs:
             docker.io/library/python:3.12-slim \
             sh -c "pip install -q pytest requests && pytest -q -p no:cacheprovider tests/smoke_prod.py"
 
+      - name: Redeploy the staging stack and reload the sandbox edge
+        run: |
+          set -eu
+          cd "$DEPLOY_DIR"
+          # staging.confinia.io/api reaches the DEDICATED STAGING STACK first,
+          # not the passive colour -- and nothing here ever redeployed it. The
+          # founder opened a staging URL on three separate occasions and got a
+          # build up to 17 hours old each time, while the static page beside it
+          # was current. It reads exactly like "the fix does not work".
+          #
+          # After the smoke on purpose: a build that failed must not reach the
+          # environment the founder validates on.
+          ./deploy/staging-up.sh
+          # Cheap and idempotent; the sandbox edge is its own process and its
+          # config reached the mirror without ever reaching the running caddy.
+          ./deploy/sandbox-edge-up.sh
+
       - name: Say where to try it
         run: |
           {
