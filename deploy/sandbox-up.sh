@@ -12,7 +12,10 @@ ACTIVE=$(cat ~/confinia-edge-state/ACTIVE_COLOR)
 podman exec confinia_ops-db_1 psql -U confinia -d confinia -tc \
   "SELECT 1 FROM pg_database WHERE datname='confinia_sbx'" | grep -q 1 || \
   podman exec confinia_ops-db_1 psql -U confinia -d confinia -c 'CREATE DATABASE confinia_sbx OWNER confinia'
-podman rm -f confinia-sbx_api 2>/dev/null || true
+# No `rm -f || true` here: it swallowed its own failure, the run that
+# followed collided on the name, and the environment stayed on the OLD
+# container -- a deploy that had run and changed nothing. --replace is
+# atomic and cannot half-succeed.
 # The sandbox joins the ACTIVE COLOUR'S NETWORK, and reaches both databases by
 # container name — it does NOT run on the host network.
 #
@@ -31,12 +34,12 @@ podman rm -f confinia-sbx_api 2>/dev/null || true
 #
 # Keycloak lives on confinia_default, so the sandbox joins that network too and
 # reaches it by name. Not through host.containers.internal: Keycloak publishes on
-# 127.0.0.1:8095, and the host GATEWAY address is not the host's loopback, so that
+# 127.0.0.1:11070, and the host GATEWAY address is not the host's loopback, so that
 # route is refused -- the same distinction that made the ops database unreachable.
 # (Comment kept out of the podman run: a # line inside a backslash
 # continuation ends the command and the remaining -e flags ran as their
 # own commands — the script could not work as committed.)
-podman run -d --name confinia-sbx_api --restart unless-stopped \
+podman run -d --replace --name confinia-sbx_api --restart unless-stopped \
   --network "confinia-${ACTIVE}_default" --network confinia_default \
   -p 127.0.0.1:11420:8000 \
   -e PG_DSN="postgresql://confinia:${PGPW}@db:5432/confinia" \

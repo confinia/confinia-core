@@ -65,8 +65,11 @@ for p in "$PORT"; do
 	fi
 done
 
-podman rm -f "$NAME" >/dev/null 2>&1 || true
-podman run -d --name "$NAME" --network "$NET" \
+# --replace rather than `rm -f || true`: the rm swallowed its own
+# failure, so the run that followed collided on the name and the
+# environment stayed on the OLD container -- which then looked like
+# a deploy that had run and changed nothing.
+podman run -d --replace --name "$NAME" --network "$NET" \
 	-p "127.0.0.1:${PORT}:8000" \
 	--env-file deploy/secrets.env \
 	-e PG_DSN="postgresql://confinia:${PW}@db:5432/confinia" \
