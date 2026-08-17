@@ -120,6 +120,11 @@ jobs:
           # After the smoke on purpose: a build that failed must not reach the
           # environment the founder validates on.
           ./deploy/staging-up.sh
+          # The sandbox API too: it runs the same image, and leaving it out is
+          # how /v1/pricing 404'd on the sandbox while the page beside it was
+          # current -- the third instance of "the pipeline updated the mirror
+          # but not the process that serves it".
+          ./deploy/sandbox-up.sh
           # Cheap and idempotent; the sandbox edge is its own process and its
           # config reached the mirror without ever reaching the running caddy.
           ./deploy/sandbox-edge-up.sh

@@ -529,6 +529,8 @@ def test_the_pipeline_redeploys_what_staging_actually_serves():
     """
     s = _wf("deploy-staging.yml")
     assert "staging-up.sh" in s, "the pipeline must redeploy the staging stack"
+    assert "sandbox-up.sh" in s, \
+        "the sandbox API must be redeployed: it 404'd new endpoints while the page was current"
     assert "sandbox-edge-up.sh" in s, "the sandbox edge must be reloaded too"
     assert s.index("smoke_prod.py") < s.index("staging-up.sh"), \
         "staging must be redeployed only after the staged colour passes its smoke"
