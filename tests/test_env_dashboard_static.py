@@ -50,9 +50,32 @@ def test_dashboard_shows_roles_and_liveness():
     assert d["uid"] == "confinia-environments"
     exprs = " ".join(t["expr"] for p in d["panels"] for t in p.get("targets", []))
     assert 'file_name="active-blue"' in exprs and 'file_name="active-green"' in exprs
-    for url in ("127.0.0.1:8091", "127.0.0.1:8402", "127.0.0.1:11420",
-                "127.0.0.1:8095", "api.confinia.io"):
+    for url in ("127.0.0.1:11120", "127.0.0.1:11220", "127.0.0.1:11420",
+                "127.0.0.1:11070", "api.confinia.io"):
         assert url in exprs, f"liveness query missing for {url}"
     titles = [p["title"] for p in d["panels"]]
     assert any("BLUE" in t for t in titles) and any("GREEN" in t for t in titles)
     assert any("Sandbox" in t for t in titles)
+
+
+def test_the_alert_rules_watch_the_ports_that_exist():
+    """A rule matching a port nobody publishes reports NoData, not a problem.
+
+    On 2026-08-17 the colour-down rule still matched 8091|8402 after both
+    colours moved to the 11xxx band. The metric label changed with them, so the
+    rule that exists to notice a dead colour became blind to every colour --
+    and announced it as DatasourceNoData, which reads like a monitoring hiccup
+    rather than "your safety net is off".
+    """
+    import glob
+    dead = ("8091", "8402", "8089", "8095", "8086", "8094", "8088")
+    for path in sorted(glob.glob(os.path.join(ROOT, "deploy", "grafana",
+                                              "provisioning", "**", "*.*"),
+                                 recursive=True)):
+        for i, line in enumerate(open(path, encoding="utf-8").read().splitlines(), 1):
+            if "127.0.0.1:" not in line and "grep -E" not in line:
+                continue
+            for port in dead:
+                assert port not in line, (
+                    f"{os.path.basename(path)}:{i} watches {port}, which nothing "
+                    f"publishes: {line.strip()[:70]}")
