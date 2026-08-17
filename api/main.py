@@ -1074,6 +1074,31 @@ PREMIUM_FREE = int(os.environ.get("FREE_REPORTS", "10"))
 PRO_MONTHLY = int(os.environ.get("PRO_REPORTS_PER_MONTH", "100"))
 PRICING_URL = "https://www.confinia.io/pricing"
 
+# --- Metered billing (pay-as-you-go), OFF unless the environment carries all
+# three amounts. The amounts are configuration in the same sense secrets are:
+# they never appear in this repository, only in the deployment environment
+# (RULES 19). With them absent, every tier behaves exactly as before, which is
+# what production runs while the model is rehearsed on the sandbox.
+BILLING_FLOOR_CENTS = int(os.environ.get("BILLING_FLOOR_CENTS", "0"))
+BILLING_PER_REPORT_CENTS = int(os.environ.get("BILLING_PER_REPORT_CENTS", "0"))
+BILLING_CAP_CENTS = int(os.environ.get("BILLING_CAP_CENTS", "0"))
+METERED = min(BILLING_FLOOR_CENTS, BILLING_PER_REPORT_CENTS, BILLING_CAP_CENTS) > 0
+
+
+def monthly_charge_cents(used: int) -> int:
+    """The whole tariff, in one place: floor, per-report, hard cap.
+
+    One function so the page, the invoice and the API cannot disagree. The cap
+    is a price CONTROL, not a tier boundary: past it every further report is
+    free and must keep working -- metered billing changes what a bug costs, and
+    a meter that keeps counting past the ceiling takes the wrong money from a
+    professional customer exactly once, which is how many chances we get.
+    """
+    if not METERED:
+        return 0
+    return min(BILLING_CAP_CENTS,
+               max(BILLING_FLOOR_CENTS, max(used, 0) * BILLING_PER_REPORT_CENTS))
+
 
 EPOCH = date(1970, 1, 1)   # the free tier's lifetime bucket (period sentinel)
 
@@ -1091,7 +1116,10 @@ def _premium_caller(request: Request) -> tuple:
             if row[1] == "enterprise":
                 return ("enterprise", None, None, f"key:{key}")
             if row[1] == "pro":
-                return ("pro", PRO_MONTHLY, date.today().replace(day=1), f"key:{key}")
+                # Metered: no monthly ceiling on USE -- the ceiling is on the
+                # CHARGE. limit=None with a period means "record, never refuse".
+                return ("pro", None if METERED else PRO_MONTHLY,
+                        date.today().replace(day=1), f"key:{key}")
             return ("free", PREMIUM_FREE, EPOCH, f"key:{key}")
     ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \
         or (request.client.host if request.client else "anon")
@@ -1117,7 +1145,8 @@ def premium_status(request: Request, unit: str | None = None) -> dict:
     unlocked}. `unlocked` = this `unit` already counts for the caller this period,
     so re-fetching it is free (issue #83)."""
     tier, limit, period, caller = _premium_caller(request)
-    if limit is None:
+    if period is None:
+        # Enterprise: unmetered as well as unlimited -- nothing is recorded.
         return {"tier": tier, "used": None, "limit": None,
                 "remaining": "unlimited", "unlocked": True}
     with ops_cursor() as cur:
@@ -1129,8 +1158,17 @@ def premium_status(request: Request, unit: str | None = None) -> dict:
             cur.execute("SELECT 1 FROM public.premium_seen "
                         "WHERE caller=%s AND period=%s AND unit=%s", (caller, period, unit))
             unlocked = cur.fetchone() is not None
-    return {"tier": tier, "used": used, "limit": limit,
-            "remaining": max(limit - used, 0), "unlocked": unlocked}
+    out = {"tier": tier, "used": used, "limit": limit,
+           "remaining": "unlimited" if limit is None else max(limit - used, 0),
+           "unlocked": unlocked}
+    if tier == "pro" and METERED:
+        charge = monthly_charge_cents(used)
+        out["billing"] = {"reports": used, "charge_cents": charge,
+                          "floor_cents": BILLING_FLOOR_CENTS,
+                          "per_report_cents": BILLING_PER_REPORT_CENTS,
+                          "cap_cents": BILLING_CAP_CENTS,
+                          "capped": charge >= BILLING_CAP_CENTS}
+    return out
 
 
 def premium_gate(request: Request, unit: str) -> dict:
@@ -1139,7 +1177,8 @@ def premium_gate(request: Request, unit: str) -> dict:
     this period is FREE. Raises 402 when a NEW unit would exceed the allowance.
     Returns {tier, used, limit, remaining}."""
     tier, limit, period, caller = _premium_caller(request)
-    if limit is None:
+    if period is None:
+        # Enterprise: unmetered as well as unlimited.
         return {"tier": tier, "used": None, "limit": None, "remaining": "unlimited"}
     with ops_cursor() as cur:
         cur.execute("SELECT 1 FROM public.premium_seen "
@@ -1149,12 +1188,22 @@ def premium_gate(request: Request, unit: str) -> dict:
                     (caller, period))
         used = cur.fetchone()[0]
         if not seen:
-            if used >= limit:
+            # A limit refuses; a meter records. Metered pro has NO limit -- past
+            # the cap the charge stops growing but the report must keep working,
+            # so there is deliberately no refusal path here for it.
+            if limit is not None and used >= limit:
                 _premium_402(tier)
             cur.execute("INSERT INTO public.premium_seen (caller, period, unit) "
                         "VALUES (%s, %s, %s) ON CONFLICT DO NOTHING", (caller, period, unit))
             used += 1
-    return {"tier": tier, "used": used, "limit": limit, "remaining": limit - used}
+    out = {"tier": tier, "used": used, "limit": limit,
+           "remaining": "unlimited" if limit is None else limit - used}
+    if tier == "pro" and METERED:
+        charge = monthly_charge_cents(used)
+        out["billing"] = {"reports": used, "charge_cents": charge,
+                          "cap_cents": BILLING_CAP_CENTS,
+                          "capped": charge >= BILLING_CAP_CENTS}
+    return out
 
 
 def require_tier(request: Request, allowed: tuple) -> str:

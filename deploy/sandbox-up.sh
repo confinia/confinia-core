@@ -2,6 +2,9 @@
 # Launch the dedicated SANDBOX API (issue #51): isolated container on :11420
 # (1PESI band, was 8089 — direct swap, the stack was down at migration) with
 # the SANDBOX Polar secret (deploy/sandbox.env), a throwaway ops db (confinia_sbx
+# The BILLING_* amounts also come from sandbox.env, and ONLY from there: the
+# tariff is configuration in the same sense the secrets are (RULES 19), and
+# leaving them unset keeps every tier on the old flat behaviour.
 # in the ops-db instance) and the active color's geo db (read-only). Sandbox
 # only — test cards, no real fees. Run ON THE VM after rsync.
 set -eu
@@ -50,6 +53,9 @@ podman run -d --replace --name confinia-sbx_api --restart unless-stopped \
   -e POLAR_PRODUCT_ENTERPRISE="$POLAR_PRODUCT_ENTERPRISE" \
   -e POLAR_API_BASE="https://sandbox-api.polar.sh" \
   -e POLAR_ACCESS_TOKEN="${POLAR_ACCESS_TOKEN:-}" \
+  -e BILLING_FLOOR_CENTS="${BILLING_FLOOR_CENTS:-0}" \
+  -e BILLING_PER_REPORT_CENTS="${BILLING_PER_REPORT_CENTS:-0}" \
+  -e BILLING_CAP_CENTS="${BILLING_CAP_CENTS:-0}" \
   -e KC_ISSUER="https://sandbox.confinia.io/auth/realms/confinia-sbx" \
   -e KC_DISCOVERY="http://confinia_keycloak_1:8180/auth/realms/confinia-sbx" \
   localhost/confinia-api:latest \

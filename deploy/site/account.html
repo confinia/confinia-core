@@ -156,13 +156,29 @@ async function render(tok) {
       const u = await fetch(`${API}/v1/usage`, {headers: {"x-api-key": key}}).then(x => x.ok ? x.json() : null);
       if (!u) return;
       const p = u.premium_reports;
-      const line = p.limit === null
-        ? `Unlimited town reports (fair use) · ${u.api_requests_this_month} API requests this month`
+      // A metered price nobody can see is a metered price nobody trusts: when
+      // the API reports billing, the running total and the ceiling lead the
+      // line. Amounts come from the API in cents -- this page knows none.
+      const eur = c => (c / 100).toFixed(2).replace(".", ",") + " \u20ac";
+      const line = p.billing
+        ? `${p.billing.reports} report${p.billing.reports === 1 ? "" : "s"} \u00b7 ` +
+          `${eur(p.billing.charge_cents)} this month \u00b7 capped at ${eur(p.billing.cap_cents)}` +
+          (p.billing.capped ? " \u2014 cap reached, further reports are free" : "") +
+          ` \u00b7 ${u.api_requests_this_month} API requests this month`
+        : p.limit === null
+        ? `Unlimited town reports (fair use) \u00b7 ${u.api_requests_this_month} API requests this month`
         : `${p.used} of ${p.limit} town reports used ${p.window === "month" ? "this month" : "(lifetime trial)"}` +
-          ` · ${p.remaining} left · ${u.api_requests_this_month} API requests this month`;
+          ` \u00b7 ${p.remaining} left \u00b7 ${u.api_requests_this_month} API requests this month`;
       document.getElementById("usage-line").textContent = line;
       const fill = document.getElementById("usage-fill");
-      if (p.limit !== null) {
+      if (p.billing) {
+        // The meter shows progress toward the CAP -- the number the customer
+        // budgets against.
+        const pct = Math.min(100, Math.round(100 * p.billing.charge_cents / p.billing.cap_cents));
+        fill.style.width = pct + "%";
+        if (pct >= 100) fill.style.background = "#7ee787";   // capped = safe, not alarming
+        else if (pct >= 70) fill.style.background = "#fbbf24";
+      } else if (p.limit !== null) {
         const pct = Math.min(100, Math.round(100 * p.used / p.limit));
         fill.style.width = pct + "%";
         if (pct >= 90) fill.style.background = "#f87171";
