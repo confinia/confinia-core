@@ -51,7 +51,6 @@ const ISS = location.origin + "/auth/realms/confinia";
 const CLIENT = "confinia-web";
 const REDIRECT = location.origin + "/account.html";
 const PRO_CHECKOUT = "https://buy.polar.sh/polar_cl_VYpdGBRjeH4Pn7vvD1dNbN450Yncw9sOHwqLf154vRQ";
-const ENT_CHECKOUT = "https://buy.polar.sh/polar_cl_Z6irg2Ji3tuuvlKjUx6gjW4iEIw6fNRK49evF3AKe7L";
 const API = "/api";
 
 // Ask the API what mode it is really in. Fire-and-forget: a missing banner must
@@ -138,7 +137,7 @@ async function render(tok) {
       <p><a class="btn primary" data-polar-checkout data-polar-checkout-theme="dark"
             href="${PRO_CHECKOUT}?customer_email=${encodeURIComponent(email)}">Subscribe · Pro €49/mo</a>
          <a class="btn" data-polar-checkout data-polar-checkout-theme="dark"
-            href="${ENT_CHECKOUT}?customer_email=${encodeURIComponent(email)}">Enterprise €249/mo</a></p>
+            <a class="btn" href="mailto:contact@confinia.io?subject=Enterprise">Enterprise — contact us</a></p>
     </div>` : `
     <div class="card"><b>Invoices &amp; billing</b>
       <p class="muted">Your ${tier} plan is active. Download your invoices and
