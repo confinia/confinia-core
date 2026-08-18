@@ -112,3 +112,26 @@ def test_checkout_urls_follow_the_mode():
     ns["CREEM_MODE"] = "live"
     exec(re.search(r"^def creem_checkout_url\(.*?(?=^def |\Z)", SRC, re.S | re.M).group(0), ns)
     assert ns["creem_checkout_url"]("prod_x") == "https://creem.io/product/prod_x"
+
+
+def test_the_sandbox_api_runs_under_systemd_with_secrets_in_a_file():
+    """Issue #123's third bite, plus #202's lesson, in one assertion set.
+
+    A bare `podman run` from a CI job leaves a wedged corpse when the job dies
+    (conmon exits with it), and the next deploy's --replace fails with an
+    internal libpod error -- which is exactly how two deployments failed on
+    2026-08-18. And a Quadlet Environment= line lands on the service command
+    line, so the DSNs must travel via a 600 EnvironmentFile instead.
+    """
+    sh = open(os.path.join(ROOT, "deploy", "sandbox-up.sh"), encoding="utf-8").read()
+    body = "\n".join(l for l in sh.splitlines() if not l.lstrip().startswith("#"))
+    assert "podman run -d" not in body, "a bare podman run dies with the CI job"
+    assert "systemctl --user restart confinia-sbx-api" in body
+    assert "podman rm -f --ignore" in body and "reset-failed" in body, \
+        "the deploy must outlive one wedged container"
+    assert "EnvironmentFile=%h/.config/containers/systemd/confinia-sbx.env" in sh
+    unit = sh.split("[Container]")[1].split("UNIT")[0]
+    for line in unit.splitlines():
+        if line.startswith("Environment="):
+            assert not any(k in line for k in ("DSN", "PASSWORD", "SECRET", "TOKEN")), \
+                f"secret on the service command line: {line[:50]}"
