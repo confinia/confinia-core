@@ -48,3 +48,5 @@ POLAR.md
 SPECIFICATIONS.md
 deploy/creem.env
 .mcp.json
+
+tests/e2e/.env
