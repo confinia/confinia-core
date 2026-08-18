@@ -119,10 +119,22 @@ StartLimitIntervalSec=300
 WantedBy=default.target
 UNIT
 systemctl --user daemon-reload
-# The old hand-run container holds the name; systemd cannot create its own
-# until it is gone.
-podman rm -f "$NAME" >/dev/null 2>&1 || true
-systemctl --user restart confinia-staging-api
+# The old container must be gone before systemd creates its own -- and podman
+# sometimes wedges a container in a state `rm -f` cannot clear on the first
+# try ("conmon exited prematurely ... internal libpod error", which failed a
+# whole deployment on 2026-08-18). Retry, then reset the unit's failure state:
+# a deploy must outlive one wedged container.
+for _ in 1 2 3; do
+	podman rm -f --ignore "$NAME" >/dev/null 2>&1 && break
+	sleep 3
+done
+systemctl --user reset-failed confinia-staging-api 2>/dev/null || true
+if ! systemctl --user restart confinia-staging-api; then
+	# One wedged retry: clear again and try once more before giving up loudly.
+	podman rm -f --ignore "$NAME" >/dev/null 2>&1 || true
+	systemctl --user reset-failed confinia-staging-api 2>/dev/null || true
+	systemctl --user restart confinia-staging-api
+fi
 
 for i in $(seq 1 60); do
 	curl -sf --max-time 3 "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1 && {

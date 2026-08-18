@@ -150,3 +150,18 @@ def test_no_secret_is_written_as_a_unit_Environment_line():
                 f"secret on the service command line: {line[:60]}"
     assert "chmod 600" in sh, "the generated env file must not be world-readable"
     assert "EnvironmentFile=%h/.config/containers/systemd/confinia-staging.env" in sh
+
+
+def test_the_deploy_survives_a_wedged_container():
+    """podman can wedge a container in a state rm -f cannot clear at once.
+
+    "conmon exited prematurely ... internal libpod error" failed a whole
+    deployment on 2026-08-18: the unit restart inherited the corpse and exit
+    125 killed the pipeline step. The script must retry the removal and reset
+    the unit's failure state -- a deploy must outlive one wedged container.
+    """
+    sh = _read("deploy", "staging-up.sh")
+    assert "podman rm -f --ignore" in sh, "removal must tolerate the wedged state"
+    assert "reset-failed" in sh, "a failed unit stays failed until reset"
+    assert sh.count("systemctl --user restart confinia-staging-api") >= 2, \
+        "one retry after re-clearing, then fail loudly"
