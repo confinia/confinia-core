@@ -1,0 +1,82 @@
+{
+  "id": "confinia-e2e-journey",
+  "version": "2.0",
+  "name": "Confinia \u2014 reach Creem checkout payment (Selenium IDE)",
+  "url": "https://creem.io",
+  "tests": [
+    {
+      "id": "reach-payment",
+      "name": "the checkout link is valid and reaches the payment step",
+      "commands": [
+        {
+          "id": "01",
+          "comment": "Checkout URL created per run by run.sh and templated in.",
+          "command": "open",
+          "target": "__CHECKOUT_URL__",
+          "value": ""
+        },
+        {
+          "id": "02",
+          "command": "setWindowSize",
+          "target": "1280x1500",
+          "value": ""
+        },
+        {
+          "id": "03",
+          "comment": "Step 1 -- payer details. Email is prefilled and locked.",
+          "command": "waitForElementVisible",
+          "target": "css=input[placeholder='John Doe']",
+          "value": "30000"
+        },
+        {
+          "id": "04",
+          "command": "type",
+          "target": "css=input[placeholder='John Doe']",
+          "value": "E2E Run"
+        },
+        {
+          "id": "05",
+          "command": "select",
+          "target": "css=select",
+          "value": "value=FR"
+        },
+        {
+          "id": "06",
+          "command": "click",
+          "target": "xpath=//button[contains(., 'Continue to payment')]",
+          "value": ""
+        },
+        {
+          "id": "07",
+          "comment": "The payment step renders: the priced Pay button and the cardholder field.",
+          "command": "waitForElementVisible",
+          "target": "css=input[name='cardHolderName']",
+          "value": "40000"
+        },
+        {
+          "id": "08",
+          "command": "assertElementPresent",
+          "target": "xpath=//button[contains(., 'Pay')]",
+          "value": "",
+          "comment": "Payment step reached: the priced Pay button is present. Selenium stops here by design -- the card input lives in a third-party, bot-protected iframe (Creem/UNO + Sardine + HumanSecurity) that refuses to render under Selenium. pay_and_verify.py completes the card entry and checks the provider. See README."
+        }
+      ]
+    }
+  ],
+  "suites": [
+    {
+      "id": "s",
+      "name": "journey",
+      "persistSession": false,
+      "parallel": false,
+      "timeout": 300,
+      "tests": [
+        "reach-payment"
+      ]
+    }
+  ],
+  "urls": [
+    "https://creem.io"
+  ],
+  "plugins": []
+}
