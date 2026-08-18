@@ -76,8 +76,14 @@ def test_the_webhook_is_idempotent_and_retry_aware():
     """Creem retries 5 times over 24 h; the Polar rehearsal showed what a
     non-2xx loop looks like from the customer's side (FREE forever)."""
     route = SRC.split('@app.post("/creem/webhook"')[1].split("\n@app.")[0]
-    assert "ON CONFLICT (email, tier) DO UPDATE" in route, \
-        "redelivery must converge, not duplicate"
+    # Keyed on subscription_id -- the PRIMARY KEY, the only conflict target that
+    # exists in every environment. ON CONFLICT (email, tier) needs a unique
+    # constraint that CREATE TABLE IF NOT EXISTS never added to the live tables,
+    # so a real signed webhook 500'd in the e2e run; this is what caught it.
+    assert "ON CONFLICT (subscription_id) DO UPDATE" in route, \
+        "must key on the primary key, not a constraint that may not exist"
+    assert "email, tier) DO UPDATE" not in route, \
+        "email/tier has no unique constraint on the live tables"
     assert '"unmatched": True' in route, \
         "an unmapped product must answer 200 -- a retry cannot fix it"
     assert "creem_verify" in route and "401" in route

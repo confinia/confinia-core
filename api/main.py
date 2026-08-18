@@ -2543,6 +2543,16 @@ async def creem_webhook(request: Request):
     product = obj.get("product") or {}
     product_id = product.get("id") if isinstance(product, dict) else product
     tier = CREEM_PRODUCT_TIER.get(product_id or "")
+    # The row is keyed on the subscription id -- polar_subscription's PRIMARY
+    # KEY, the only conflict target that actually exists in every environment.
+    # A subscription event carries it as object.id; a checkout.completed wraps
+    # it under object.subscription, and falls back to the order or checkout id
+    # so a one-off is still idempotent under Creem's five retries.
+    sub = obj.get("subscription")
+    sub_id = (sub.get("id") if isinstance(sub, dict) else sub) \
+        or (obj.get("id") if etype != "checkout.completed" else None) \
+        or (obj.get("order") or {}).get("id") if isinstance(obj.get("order"), dict) else None
+    sub_id = sub_id or obj.get("id")
 
     GRANT = {"checkout.completed", "subscription.active",
              "subscription.trialing", "subscription.paid"}
@@ -2558,10 +2568,11 @@ async def creem_webhook(request: Request):
     status = "active" if etype in GRANT else "canceled"
     with ops_cursor() as cur:
         cur.execute(
-            "INSERT INTO public.polar_subscription (email, tier, status) "
-            "VALUES (%s, %s, %s) "
-            "ON CONFLICT (email, tier) DO UPDATE SET status = EXCLUDED.status",
-            (email, tier, status))
+            "INSERT INTO public.polar_subscription "
+            "(subscription_id, email, tier, status) VALUES (%s, %s, %s, %s) "
+            "ON CONFLICT (subscription_id) DO UPDATE SET "
+            "  status = EXCLUDED.status, tier = EXCLUDED.tier, email = EXCLUDED.email",
+            (sub_id, email, tier, status))
     applied = polar_apply_tier(email)
     return {"received": True, "tier": applied}
 
