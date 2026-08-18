@@ -161,6 +161,18 @@ form.addEventListener("submit", async ev => {
 // this page advertised one price while the environment metered another. Only
 // an explicit metered answer rewrites anything.
 fetch("/api/v1/pricing").then(r => r.json()).then(pc => {
+  const eur0 = c => (c / 100).toFixed(2).replace(".", ",").replace(",00", "") + " €";
+  if (pc.mode === "tiers") {
+    const el = document.getElementById("pro-price");
+    if (el) el.innerHTML = "from " + eur0(pc.tiers[0].cents) + "<small>/month · " +
+      pc.tiers.map(t => eur0(t.cents) + " = " +
+        (t.reports === null ? "unlimited" : t.reports + " reports")).join(" · ") + "</small>";
+    const cta = document.getElementById("pro-cta");
+    if (cta) { cta.textContent = "Subscribe · from " + eur0(pc.tiers[0].cents) + "/month";
+               cta.href = pc.tiers[0].checkout_url; cta.target = "_blank";
+               cta.removeAttribute("data-polar-checkout"); }
+    return;
+  }
   if (pc.mode !== "metered") return;
   const eur = c => (c / 100).toFixed(2).replace(".", ",").replace(",00", "") + " €";
   const el = document.getElementById("pro-price");

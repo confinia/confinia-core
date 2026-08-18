@@ -1115,6 +1115,12 @@ def _premium_caller(request: Request) -> tuple:
         if row and row[0]:
             if row[1] == "enterprise":
                 return ("enterprise", None, None, f"key:{key}")
+            if row[1] in CREEM_TIER_REPORTS:
+                # Ladder tier: allowance from the environment. A null allowance
+                # (top tier) is unlimited-but-recorded -- limit None WITH a
+                # period, the record-never-refuse path.
+                return (row[1], CREEM_TIER_REPORTS[row[1]],
+                        date.today().replace(day=1), f"key:{key}")
             if row[1] == "pro":
                 # Metered: no monthly ceiling on USE -- the ceiling is on the
                 # CHARGE. limit=None with a period means "record, never refuse".
@@ -1128,6 +1134,12 @@ def _premium_caller(request: Request) -> tuple:
 
 
 def _premium_402(tier: str) -> None:
+    if tier in CREEM_TIER_REPORTS:
+        raise HTTPException(402, {
+            "detail": "Monthly report allowance of your plan reached.",
+            "pricing": PRICING_URL,
+            "note": "Upgrade to a higher plan for more; re-downloading a town "
+                    "you already opened stays free."})
     if tier == "pro":
         raise HTTPException(402, {
             "detail": f"Monthly allowance of the Pro tier reached "
@@ -2058,6 +2070,13 @@ def pricing_config():
     environment; this endpoint is how a page learns them. Flat deployments
     return only the mode, and the page then names no number at all -- the
     checkout is the single source of the flat price."""
+    if CREEM_TIERS:
+        return {"mode": "tiers", "tiers": [
+            {"key": f"t{i + 1}",
+             "cents": t["cents"],
+             "reports": t.get("reports"),
+             "checkout_url": creem_checkout_url(t["product"])}
+            for i, t in enumerate(CREEM_TIERS)]}
     if not METERED:
         return {"mode": "flat"}
     return {"mode": "metered",
@@ -2284,7 +2303,13 @@ def create_key(req: KeyRequest):
         cur.execute("SELECT tier FROM public.polar_subscription "
                     "WHERE email = %s AND status = ANY(%s)", (email, list(POLAR_ACTIVE)))
         tiers = {t for (t,) in cur.fetchall()}
-        tier = "enterprise" if "enterprise" in tiers else "pro" if "pro" in tiers else "free"
+        # Best active subscription wins. Creem ladder tiers rank between
+        # enterprise and the legacy flat pro, highest index first (t3 > t2 > t1).
+        tier = "free"
+        for cand in ["enterprise"] + list(reversed(CREEM_TIER_KEYS)) + ["pro"]:
+            if cand in tiers:
+                tier = cand
+                break
         cur.execute("INSERT INTO public.api_key (email, note, tier) VALUES (%s, %s, %s) "
                     "RETURNING key, created_at", (email, req.note, tier))
         key, created = cur.fetchone()
@@ -2416,6 +2441,39 @@ def polar_portal_url(email: str) -> str | None:
         return None
 
 
+# --- Creem (EU merchant of record; the successor to Polar, founder decision).
+# The tier ladder is CONFIGURATION, like the secrets: an ordered JSON list of
+# {"product": id, "cents": price, "reports": monthly allowance or null} in
+# CREEM_TIERS. No amount is committed to this repository (RULES 19); tier keys
+# are positional ("t1", "t2", ...). A null allowance is unlimited-but-recorded.
+CREEM_WEBHOOK_SECRET = os.environ.get("CREEM_WEBHOOK_SECRET", "")
+CREEM_MODE = os.environ.get("CREEM_MODE", "test")
+try:
+    CREEM_TIERS = json.loads(os.environ.get("CREEM_TIERS", "[]"))
+except Exception:
+    CREEM_TIERS = []
+CREEM_TIER_KEYS = [f"t{i + 1}" for i in range(len(CREEM_TIERS))]
+CREEM_PRODUCT_TIER = {t["product"]: f"t{i + 1}" for i, t in enumerate(CREEM_TIERS)}
+CREEM_TIER_REPORTS = {f"t{i + 1}": t.get("reports") for i, t in enumerate(CREEM_TIERS)}
+
+
+def creem_checkout_url(product_id: str) -> str:
+    base = "https://creem.io/test/product/" if CREEM_MODE == "test"         else "https://creem.io/product/"
+    return base + product_id
+
+
+def creem_verify(body: bytes, signature: str | None) -> bool:
+    """HMAC-SHA256 hex of the RAW body -- simpler than Polar's standard-webhooks
+    (no id/timestamp prelude), but the same two rules hold: never verify with an
+    empty secret, and compare in constant time."""
+    import hmac as hmac_mod
+    if not CREEM_WEBHOOK_SECRET or not signature:
+        return False
+    want = hmac_mod.new(CREEM_WEBHOOK_SECRET.encode(), body,
+                        hashlib.sha256).hexdigest()
+    return hmac_mod.compare_digest(want, signature.strip())
+
+
 def polar_verify(request: Request, body: bytes) -> bool:
     """Signature « Standard Webhooks » : HMAC-SHA256 de `id.timestamp.corps`,
     secret base64 (préfixe whsec_ éventuel), en-tête webhook-signature
@@ -2448,9 +2506,64 @@ def polar_apply_tier(email: str) -> str:
         cur.execute("SELECT tier FROM public.polar_subscription "
                     "WHERE email = %s AND status = ANY(%s)", (email, list(POLAR_ACTIVE)))
         tiers = {t for (t,) in cur.fetchall()}
-        tier = "enterprise" if "enterprise" in tiers else "pro" if "pro" in tiers else "free"
+        # Same ranking as create_key: enterprise, then the ladder top-down,
+        # then legacy pro. Two rankings would let a key and its refresh
+        # disagree about the same subscriptions.
+        tier = "free"
+        for cand in ["enterprise"] + list(reversed(CREEM_TIER_KEYS)) + ["pro"]:
+            if cand in tiers:
+                tier = cand
+                break
         cur.execute("UPDATE public.api_key SET tier = %s WHERE email = %s", (tier, email))
     return tier
+
+
+@app.post("/creem/webhook", include_in_schema=False)
+async def creem_webhook(request: Request):
+    """Creem subscription lifecycle -> tier of every key of that email.
+
+    Idempotent BY CONSTRUCTION: the upsert converges to the same row however
+    many times an event is delivered, and Creem retries five times over 24 h --
+    the Polar rehearsal showed what a non-2xx answer does (401 in a loop while
+    the page said FREE), so the failure modes here are deliberate: bad
+    signature 401 (retry cannot help), unknown product 200 (retry cannot help
+    either -- log and move on), database error 500 (retry SHOULD happen).
+    """
+    body = await request.body()
+    if not creem_verify(body, request.headers.get("creem-signature")):
+        raise HTTPException(401, "signature webhook invalide")
+    try:
+        event = json.loads(body)
+    except Exception:
+        raise HTTPException(422, "corps JSON attendu")
+    etype = event.get("eventType") or event.get("event_type") or ""
+    obj = event.get("object") or {}
+    customer = obj.get("customer") or {}
+    email = (customer.get("email") or "").strip().lower()
+    product = obj.get("product") or {}
+    product_id = product.get("id") if isinstance(product, dict) else product
+    tier = CREEM_PRODUCT_TIER.get(product_id or "")
+
+    GRANT = {"checkout.completed", "subscription.active",
+             "subscription.trialing", "subscription.paid"}
+    REVOKE = {"subscription.canceled", "subscription.paused",
+              "subscription.expired"}
+    if etype not in GRANT | REVOKE:
+        return {"received": True, "ignored": etype}
+    if not email or not tier:
+        # A retry cannot fix an unmapped product or a payload without an email;
+        # answering non-200 would only make Creem hammer us for 24 hours.
+        return {"received": True, "unmatched": True}
+
+    status = "active" if etype in GRANT else "canceled"
+    with ops_cursor() as cur:
+        cur.execute(
+            "INSERT INTO public.polar_subscription (email, tier, status) "
+            "VALUES (%s, %s, %s) "
+            "ON CONFLICT (email, tier) DO UPDATE SET status = EXCLUDED.status",
+            (email, tier, status))
+    applied = polar_apply_tier(email)
+    return {"received": True, "tier": applied}
 
 
 @app.post("/polar/webhook", include_in_schema=False)

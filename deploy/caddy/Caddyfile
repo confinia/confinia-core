@@ -226,6 +226,11 @@ http://sandbox.confinia.io:11000 {
 		# sandbox API moved 8089 -> 11420 (1PESI direct swap; stack was down)
 		reverse_proxy 127.0.0.1:11420
 	}
+	handle /creem/webhook {
+		# Public like the Polar one: the provider cannot send basic auth, and
+		# the route rejects anything unsigned itself (401).
+		reverse_proxy 127.0.0.1:11420
+	}
 	# Everything else is behind basic auth (same credentials as staging).
 	handle {
 		import staging_auth
