@@ -1460,13 +1460,26 @@ def country_outline(cur, country: str) -> list:
     """
     if country in _COUNTRY_OUTLINE:
         return _COUNTRY_OUTLINE[country]
+    # Prefer the single pre-computed national polygon (nuts0): ~16 ms. Unioning
+    # a country's communes at request time is what made the PDF time out --
+    # France is 35 000 geometries, and ST_Union over them takes far longer than
+    # a request may. The union survives only as the fallback for a country with
+    # no nuts0 (e.g. NZ, a few hundred units), where it is cheap.
     cur.execute(
-        "SELECT ST_AsGeoJSON(ST_SimplifyPreserveTopology("
-        "  ST_Union(geom_simple), 0.05), 4) "
+        "SELECT ST_AsGeoJSON(ST_SimplifyPreserveTopology(geom_simple, 0.03), 4) "
         "FROM commune_version "
-        "WHERE country = %s AND valid_to = %s AND geom_simple IS NOT NULL",
+        "WHERE country = %s AND unit_type = 'nuts0' AND valid_to = %s "
+        "  AND geom_simple IS NOT NULL LIMIT 1",
         (country, FAR_FUTURE))
     row = cur.fetchone()
+    if not (row and row[0]):
+        cur.execute(
+            "SELECT ST_AsGeoJSON(ST_SimplifyPreserveTopology("
+            "  ST_Union(geom_simple), 0.05), 4) "
+            "FROM commune_version "
+            "WHERE country = %s AND valid_to = %s AND geom_simple IS NOT NULL",
+            (country, FAR_FUTURE))
+        row = cur.fetchone()
     rings = _rings_of_geojson(row[0]) if row and row[0] else []
     _COUNTRY_OUTLINE[country] = rings
     return rings
