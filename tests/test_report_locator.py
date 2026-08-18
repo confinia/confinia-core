@@ -17,7 +17,11 @@ def test_the_country_outline_is_cached():
     fn = SRC.split("def country_outline(")[1].split("\ndef ")[0]
     assert "_COUNTRY_OUTLINE" in fn and "in _COUNTRY_OUTLINE" in fn, \
         "the outline must be memoised across reports"
-    assert "ST_Union" in fn and "ST_SimplifyPreserveTopology" in fn
+    # nuts0 first: unioning a country's communes at request time timed the PDF
+    # out (France is 35 000 geometries). The single national polygon is ~16 ms.
+    assert "unit_type = 'nuts0'" in fn, "the cheap national polygon must be tried first"
+    assert fn.index("nuts0") < fn.index("ST_Union"), \
+        "the union is only the fallback for a country without nuts0"
 
 
 def test_the_locator_declines_when_it_cannot_place_the_unit():
