@@ -63,6 +63,11 @@ http://sandbox.confinia.io:11400 {
 	encode zstd gzip
 	# Polar sandbox webhook: PUBLIC (signature-verified) — Polar can't send
 	# basic auth. Must stay outside the auth guard below.
+	handle /creem/webhook {
+		# Public like the Polar one: a payment provider cannot send basic auth,
+		# and the route rejects anything unsigned itself (401).
+		reverse_proxy 127.0.0.1:11420
+	}
 	handle /polar/webhook {
 		# sandbox API moved 8089 -> 11420 (1PESI direct swap; stack was down)
 		reverse_proxy 127.0.0.1:11420

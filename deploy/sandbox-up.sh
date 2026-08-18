@@ -10,7 +10,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 PGPW=$(grep '^POSTGRES_PASSWORD=' deploy/secrets.env | cut -d= -f2)
-set -a; . deploy/sandbox.env; set +a
+set -a; . deploy/sandbox.env; [ -r deploy/creem.env ] && . deploy/creem.env; set +a
 ACTIVE=$(cat ~/confinia-edge-state/ACTIVE_COLOR)
 podman exec confinia_ops-db_1 psql -U confinia -d confinia -tc \
   "SELECT 1 FROM pg_database WHERE datname='confinia_sbx'" | grep -q 1 || \
@@ -53,6 +53,9 @@ podman run -d --replace --name confinia-sbx_api --restart unless-stopped \
   -e POLAR_PRODUCT_ENTERPRISE="$POLAR_PRODUCT_ENTERPRISE" \
   -e POLAR_API_BASE="https://sandbox-api.polar.sh" \
   -e POLAR_ACCESS_TOKEN="${POLAR_ACCESS_TOKEN:-}" \
+  -e CREEM_WEBHOOK_SECRET="${CREEM_WEBHOOK_SECRET:-}" \
+  -e CREEM_TIERS="${CREEM_TIERS:-[]}" \
+  -e CREEM_MODE="${CREEM_MODE:-test}" \
   -e BILLING_FLOOR_CENTS="${BILLING_FLOOR_CENTS:-0}" \
   -e BILLING_PER_REPORT_CENTS="${BILLING_PER_REPORT_CENTS:-0}" \
   -e BILLING_CAP_CENTS="${BILLING_CAP_CENTS:-0}" \

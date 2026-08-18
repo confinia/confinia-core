@@ -71,6 +71,20 @@ async function render(tok){const c=claims(tok.id_token);const email=c.email,org=
   // amount is how the page advertised one price while the environment metered
   // another. Flat mode names no number -- the checkout shows the price.
   fetch(API+"/v1/pricing").then(r=>r.json()).then(pc=>{
+    const eur0=c=>(c/100).toFixed(2).replace(".",",").replace(",00","")+" €";
+    if(pc.mode==="tiers"){
+      // The ladder replaces the single subscribe button: one link per tier,
+      // labels composed from API cents, checkout on the provider's hosted page.
+      const card=document.querySelector("a[data-polar-checkout]");
+      if(card){
+        const holder=card.parentElement;
+        holder.innerHTML=pc.tiers.map(t=>
+          `<a class="btn${t.key==="t1"?" primary":""}" target="_blank" rel="noopener" href="${t.checkout_url}">`+
+          `${eur0(t.cents)}/mo · ${t.reports===null?"unlimited reports":t.reports+" reports"}</a>`).join(" ")+
+          ` <a class="btn" href="mailto:contact@confinia.io?subject=Enterprise">Enterprise — contact us</a>`;
+      }
+      return;
+    }
     if(pc.mode!=="metered")return;
     const eur=c=>(c/100).toFixed(2).replace(".",",").replace(",00","")+" €";
     document.querySelectorAll("a[data-polar-checkout]").forEach(a=>{
