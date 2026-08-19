@@ -104,7 +104,11 @@ Network=$NET
 PublishPort=127.0.0.1:${PORT}:8000
 EnvironmentFile=%h/projects/confinia/deploy/secrets.env
 EnvironmentFile=%h/.config/containers/systemd/confinia-staging.env
-Environment=KC_ISSUER=https://www.confinia.io/auth/realms/confinia-sbx
+# Staging and the sandbox SHARE the confinia-sbx realm, and a realm has exactly
+# one frontendUrl, so exactly one issuer. Since #132 pinned that to
+# sandbox.confinia.io, staging must accept the same one: it previously expected
+# www.confinia.io and silently rejected every token the moment the pin landed.
+Environment=KC_ISSUER=https://sandbox.confinia.io/auth/realms/confinia-sbx
 Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://host.containers.internal:11060
 Environment=POLAR_MODE=sandbox
 Environment=CONFINIA_ENV=staging
