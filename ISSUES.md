@@ -7,16 +7,31 @@ the work is deployed, and "merged" has been mistaken for "live" here before.
 **Where can I try it** uses the four answers of RULES 12: **nowhere** ·
 **sandbox** · **staging** · **production**.
 
-Last updated: **2026-08-16**, `main` at `95e9927`.
-Active colour: **blue** on `:8091` (production) · passive: **green** on `:8402`.
+Last updated: **2026-08-19**, `main` at `c3db0a9`.
+Active colour: **blue** on `:11120`/`:11130` (production) · passive: **green** on
+`:11220`/`:11230`.
 
-**Band 11xxx (1PESI): 9 of 10.** The app caddy answers on **`:11000`** for all
-six vhosts (graceful `caddy reload`, production at 200 throughout), alongside
-Grafana `11040`, otel `11060`/`11061`/`11062`, Keycloak `11070`, green
-`11220`/`11230`, staging `11320` and sandbox `11420`. Verified with `ss`, never
-with `podman ps` — PORTS.md records why that distinction cost a day. **Blue
-`11120`/`11130` is the only one left**, and it waits on the promotion because it
-is the active colour. Full account for the platform session: MOVE.md.
+**Band 11xxx (1PESI): 10 of 10 — done.** Blue's move to `11120`/`11130` was the
+last one, and it went with the 2026-08-18 promotion. Every legacy port is
+released: `ss` shows nothing of ours on 8091, 5441, 8088, 2085, 8402 or 8403.
+The app caddy answers on `:11000` for all six vhosts, alongside Grafana `11040`,
+otel `11060`/`11061`/`11062`, Keycloak `11070`, staging `11300`/`11320` and the
+sandbox on its own edge `11400`/`11420`/`11490`. Verified with `ss`, never with
+`podman ps` — PORTS.md records why that distinction cost a day.
+
+## Not promoted yet — merged, green on staging, waiting on you
+
+Five commits sit in `main` and not in production (`984f4fe`). Promotion is
+founder-only.
+
+| Commit | What |
+|---|---|
+| `04ebe12` → `b78ca9f` | The report's **situation inset**: where the commune sits in its country. Landed broken twice and was fixed twice — it timed the PDF out by unioning 35 000 communes, then drew all of France's overseas territory (Guadeloupe 63°W to Réunion 56°E) in near-white, which is why the founder could not see it |
+| `a116ee1` `7feabf2` | The **district inset** below it — the `nuts3` region containing the commune (Ain for Haut Valromey), found by a 0.35 ms indexed point lookup, country-agnostic |
+| `c3db0a9` | The bounce detector fix (#223) |
+
+Try before promoting:
+`staging.confinia.io/api/v1/communes/01187/report.svg?country=FR&lang=fr`
 
 ## Open, most worth doing first
 
@@ -24,51 +39,53 @@ Ranked by what it costs us to leave undone, not by issue number.
 
 | Rank | # | Issue | Stage | Where can I try it |
 |---|---|---|---|---|
-| 1 | [#113](https://github.com/confinia/confinia-core/issues/113) | Staging needs its own stack and its own database | **DONE, awaiting close.** Verified 2026-08-16: `confinia-staging_api_1` writes to `confinia_staging`, which is not production's `confinia`. The only work left is closing the issue | **staging** — `11320` + `8403` |
-| 2 | [#167](https://github.com/confinia/confinia-core/issues/167) + [#169](https://github.com/confinia/confinia-core/issues/169) | The page implies a boundary change at every event (#167), and never says what actually changed (#169) | created 2026-08-16, **not started**. Labastida (01028, ES) draws five panels for four name changes, 0.115 % area spread; Bad Berneck (09472116, DE) mints a version whose entire difference is **one deleted space**. **Founder decision on #167**: a name-only change shows no boundary panel at all. #169 adds the sentence that replaces it, and asks whether a whitespace-only difference is a version at all | nowhere — the page is wrong in **production** today |
-| 3 | [#132](https://github.com/confinia/confinia-core/issues/132) | Transactional email | **one step from done.** Ops alerts delivered; registration mail sent from the sandbox realm. Remaining: see the *real* self-registration mail (what was tested was the admin-initiated template), then `VERIFY_EMAIL=1` on the production realm | **production** (alerts) · **sandbox** (registration) |
-| 4 | [#90](https://github.com/confinia/confinia-core/issues/90) + [#168](https://github.com/confinia/confinia-core/issues/168) | Traceability annex — per kind of fact (#90), per change with a URL (#168), per source with a download link or a site to consult ([#188](https://github.com/confinia/confinia-core/issues/188)) | **three issues, one annex.** None started. Built separately they would put three annexes in one PDF; **#90 should be the umbrella and all three land in one pass** — awaiting your go-ahead to consolidate | nowhere |
-| 5 | [#205](https://github.com/confinia/confinia-core/issues/205) | Commune report: make it a document an expert office would sign | **not started**. The gap is form, not information — and form decides whether a professional attaches it to a file | nowhere |
-| 6 | [#127](https://github.com/confinia/confinia-core/issues/127) | Report: colour what a boundary gained and lost — refuse to draw when the data cannot support it | **not started**; measured and found unusable as a naive `ST_Difference` (97 pieces each way, one significant). #167 must settle first — no delta can be drawn for a change that is a re-digitisation | nowhere |
-| 7 | [#91](https://github.com/confinia/confinia-core/issues/91) | Italy: historical demography | **half delivered** — lineage merged (PR #120) and live; demography not started | **production** — 2 128 dead comuni route to a successor, 1865-2024 |
-| 8 | [#185](https://github.com/confinia/confinia-core/issues/185) | Serve MapLibre once from a shared directory, same-origin | **founder approved**; not a `lib.*` host — v6's worker never starts cross-origin, silently | **staging** |
-| 9 | [#115](https://github.com/confinia/confinia-core/issues/115) | Adopt STACK_template.md: close the documented gaps | umbrella, tracking the others | nowhere |
+| 1 | [#132](https://github.com/confinia/confinia-core/issues/132) | Transactional email | **one step from done.** Ops alerts delivered; registration mail sent from the sandbox realm. Remaining: see the *real* self-registration mail (what was tested was the admin-initiated template), then `VERIFY_EMAIL=1` on the production realm. Note #223's finding: the e2e journey's synthetic recipients bounce, so turning verification on more widely will produce more of them | **production** (alerts) · **sandbox** (registration) |
+| 2 | [#205](https://github.com/confinia/confinia-core/issues/205) | Commune report: make it a document an expert office would sign | **partly under way, not claimed done.** The two locator insets are the first instalment of *form*; the annex (#90) landed before them. What remains is typography, page furniture, and the overall impression a professional signs their name under | **staging** (the insets) |
+| 3 | [#193](https://github.com/confinia/confinia-core/issues/193) | The report is thin: what should it contain? | **not started.** Deliberately separate from #205: this one is *substance*, and no amount of typesetting fixes it. Blocked on nothing but a decision about which facts are worth adding | nowhere |
+| 4 | [#127](https://github.com/confinia/confinia-core/issues/127) | Report: colour what a boundary gained and lost — refuse to draw when the data cannot support it | **delivered for gained area**, orange/light-blue per the founder's instruction; the lineage-driven `_gained_rings` refuses to draw when the data cannot support it. Left open because the *lost* side is still the naive `ST_Difference` that measured 97 unusable pieces | **production** (partly) |
+| 5 | [#91](https://github.com/confinia/confinia-core/issues/91) | Italy: historical demography | **half delivered** — lineage merged (PR #120) and live; demography not started | **production** — 2 128 dead comuni route to a successor, 1865-2024 |
+| 6 | [#115](https://github.com/confinia/confinia-core/issues/115) | Adopt STACK_template.md: close the documented gaps | umbrella, tracking the others. Its migration gap bit for real on 2026-08-18: `CREATE TABLE IF NOT EXISTS` never adds a constraint to a pre-existing table, so a Creem webhook `ON CONFLICT (email, tier)` hit a unique index that exists in no environment | nowhere |
 
-Why this order: #113 is finished work that only needs closing; #167/#169 are the
-only entries where **production actively tells customers something untrue**, and
-the founder has already settled #167's one open question; #132 is a single flag
-from done. Then the provenance chain (#90/#168 → #205), which is what the product
-sells, before #127 and #91 which are both gated on data we do not hold.
+Why this order: #132 is a single flag from done. Then the two report issues,
+which are what the product actually sells — #205 (form) before #193 (substance)
+only because form is already in motion. #127 and #91 are both gated on data we
+do not hold, and #115 is a tracker.
 
-## Closed, but this file still listed them as open
-
-The drift this ranking pass was meant to catch.
+## Closed since this file last told the truth
 
 | # | What | Verified |
 |---|---|---|
-| [#123](https://github.com/confinia/confinia-core/issues/123) | Colour port publisher dies | **CLOSED.** Cause 1: another tenant squatted 8092/8093 → green moved to 84xx. Cause 2: a container created by a CI job is a **child of that job** and died ~2 min after it ended → Quadlet units, so it belongs to systemd |
+| [#223](https://github.com/confinia/confinia-core/issues/223) | The bounce detector drowned in noise it made itself | **CLOSED 2026-08-19.** 64 messages in `alert@`, the check failing on every run since 2026-08-17 — 53 bounces the e2e journey caused itself, 10 pieces of another system's CI mail, **1** real bounce. Signal to noise 1:63 |
+| [#213](https://github.com/confinia/confinia-core/issues/213) | Creem webhook and tier ladder | **CLOSED.** Proven end to end: payment → signed webhook 200 → key flipped free→t2 |
+| [#208](https://github.com/confinia/confinia-core/issues/208) | E2E subscribe-and-pay as a Selenium IDE project | **CLOSED.** Two stages on purpose — Selenium reaches the payment step, Playwright completes the card the bot layer will not render for Selenium (measured: 30 s, never loads) |
+| [#90](https://github.com/confinia/confinia-core/issues/90) + [#168](https://github.com/confinia/confinia-core/issues/168) + [#188](https://github.com/confinia/confinia-core/issues/188) | Traceability annex — per kind of fact, per change with a URL, per source with a link | **CLOSED.** Consolidated into one annex rather than three |
+| [#167](https://github.com/confinia/confinia-core/issues/167) + [#169](https://github.com/confinia/confinia-core/issues/169) | The page implied a boundary change at every event, and never said what changed | **CLOSED.** A name-only change draws no boundary panel; a sentence says what changed instead. Verified on both measured cases |
+| [#185](https://github.com/confinia/confinia-core/issues/185) | Serve MapLibre once from a shared directory, same-origin | **CLOSED** |
+| [#113](https://github.com/confinia/confinia-core/issues/113) | Staging needs its own stack and its own database | **CLOSED.** `confinia-staging_api_1` writes to `confinia_staging`, which is not production's `confinia` |
+| [#123](https://github.com/confinia/confinia-core/issues/123) | Colour port publisher dies | **CLOSED.** A container created by a CI job is a child of that job and died with it → Quadlet units, so it belongs to systemd |
 | [#114](https://github.com/confinia/confinia-core/issues/114) | **SECURITY** — CI runner ran as `debian`, passwordless root | **CLOSED.** Runs as `confinia`; `deploy-staging` asserts `sudo -n` fails every run |
-| [#111](https://github.com/confinia/confinia-core/issues/111) | Sandbox needs its own working directory | **CLOSED.** Per-environment static roots proven; the sandbox API itself was repaired 2026-08-16 — it could reach neither of its databases |
-| [#99](https://github.com/confinia/confinia-core/issues/99) | Move the stack to its own Unix user | **CLOSED.** ~23 min downtime, every count matched first time (205 370 / 2 128 / 1 285 119) |
+| [#111](https://github.com/confinia/confinia-core/issues/111) | Sandbox needs its own working directory | **CLOSED** |
+| [#99](https://github.com/confinia/confinia-core/issues/99) | Move the stack to its own Unix user | **CLOSED.** ~23 min downtime, every count matched first time |
 
-## Promoted to production 2026-08-03, verified live
+## Live in production, verified
 
 | # | What | Verified in production |
 |---|---|---|
 | [#96](https://github.com/confinia/confinia-core/issues/96) | Neighbouring communes on the report and page | `api.confinia.io/v1/communes/01187/history?geometry=true&neighbours=true` → **16 neighbours** |
-| [#91](https://github.com/confinia/confinia-core/issues/91) | Italian comune lineage | `api.confinia.io/v1/units/024044/history?country=IT` → **ends 2024-01-22, children `[024128]`**. Replayed on the new passive colour: both colours hold 2 128 rows |
-| [#109](https://github.com/confinia/confinia-core/issues/109) | CI/CD: merge deploys staging, promotion is manual and reviewed | first CI promotion done 2026-08-03 |
-
-## Live in production since 2026-08-03
-
-| # | What | Where |
-|---|---|---|
+| [#91](https://github.com/confinia/confinia-core/issues/91) | Italian comune lineage | `api.confinia.io/v1/units/024044/history?country=IT` → **ends 2024-01-22, children `[024128]`** |
+| [#109](https://github.com/confinia/confinia-core/issues/109) | CI/CD: merge deploys staging, promotion is manual and reviewed | first CI promotion 2026-08-03 |
 | [#105](https://github.com/confinia/confinia-core/issues/105) | Demo self-hosts MapLibre instead of a floating CDN major | https://confinia.github.io/ |
 | [#118](https://github.com/confinia/confinia-core/issues/118) | `make demo-publish` no longer deletes the GIF, the README and another product's directory | (the fix that made the publish above safe) |
 
 ## Founder-only, not GitHub work
 
-- **Promote to production** — `promote-production`, manual, requires your
-  review. Blue's move to `11120`/`11130` is the last thing waiting on it.
+- **Promote to production** — `promote-production`, manual, requires your review.
+  Five commits wait on it (table above).
+- **Purge the 53 self-inflicted bounces** — `python3 deploy/mailcheck.py --purge`
+  on the VM. Deliberate and manual by design; that mailbox's quota is
+  deliberately tiny and it holds 64 messages today.
+- **Another system's CI mails `alert@confinia.io`** — 10 messages, most recent
+  2026-08-18. Not ours to fix, and it puts foreign noise in our one alerting
+  detector.
 - **2FA on GitHub** — load-bearing since the self-hosted runner exists (#114).
 - **Off-VM backups** — dumps exist, on the same VM, which is not a backup.
