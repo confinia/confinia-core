@@ -165,3 +165,19 @@ def test_the_deploy_survives_a_wedged_container():
     assert "reset-failed" in sh, "a failed unit stays failed until reset"
     assert sh.count("systemctl --user restart confinia-staging-api") >= 2, \
         "one retry after re-clearing, then fail loudly"
+
+
+def test_staging_accepts_the_issuer_the_shared_realm_actually_emits():
+    """Staging and the sandbox share the confinia-sbx realm, and a realm has
+    exactly one frontendUrl -- so exactly one issuer. When #132 pinned that to
+    sandbox.confinia.io, staging was still validating against www.confinia.io
+    and silently rejected every token: a signed-in user simply became anonymous.
+    """
+    import os
+    root = os.path.join(os.path.dirname(__file__), "..")
+    staging = open(os.path.join(root, "deploy", "staging-up.sh"), encoding="utf-8").read()
+    sandbox = open(os.path.join(root, "deploy", "sandbox-up.sh"), encoding="utf-8").read()
+    import re
+    a = re.search(r"KC_ISSUER=(\S+)", staging).group(1)
+    b = re.search(r"KC_ISSUER=(\S+)", sandbox).group(1)
+    assert a == b, f"one realm, one issuer: staging {a} vs sandbox {b}"
