@@ -1,6 +1,7 @@
 [Unit]
 Description=Confinia nightly ops-state backup (04:12 UTC)
 [Timer]
+# 04:12 UTC, as the confinia user (see the .service for why that matters).
 OnCalendar=*-*-* 04:12:00
 Persistent=true
 [Install]

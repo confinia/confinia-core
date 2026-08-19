@@ -1,4 +1,12 @@
-# User-level unit (no crontab on the minimal VM). Install:
+# User-level unit (no crontab on the minimal VM).
+#
+# INSTALL IT AS THE `confinia` USER, never as debian/platform. Rootless podman
+# is per-user: from another account `podman exec confinia_ops-db_1` cannot see
+# the container at all, and this unit ran that way for eight nights, writing a
+# 20-byte "backup" and reporting success each time (2026-08-12..19). Same root
+# cause as #123, where a container created by a CI job died with the job.
+#
+# Install:
 #   cp deploy/systemd/confinia-ops-backup.* ~/.config/systemd/user/
 #   systemctl --user daemon-reload && systemctl --user enable --now confinia-ops-backup.timer
 #   loginctl enable-linger $USER   # keeps the timer alive without a session
