@@ -3,10 +3,57 @@
 # + keycloak identities). Geo databases are NOT backed up: they are build
 # artifacts, rebuilt by double ingestion. 14-day local retention; copying
 # dumps OFF the VM is a separate concern (see the security review).
-set -eu
+#
+# This script produced EIGHT CONSECUTIVE EMPTY BACKUPS (2026-08-12..19) and
+# reported success every night. Two faults combined:
+#
+#   1. The unit ran as the debian/platform user while the stack had moved to
+#      the confinia user. Rootless podman is per-user, so `podman exec
+#      confinia_ops-db_1` could not see the container at all.
+#   2. `podman exec ... | gzip > file` -- podman failed, gzip happily wrote a
+#      valid 20-byte archive, and a pipeline's status is its LAST command, so
+#      `set -eu` never tripped. systemd recorded ExecMainStatus=0.
+#
+# A file appeared every night. It was 20 bytes. The prune on the next line
+# would have deleted the last real dump (2026-08-11) around 2026-08-26.
+#
+# So, in order: pipefail, dump to a TEMPORARY name, prove the file is a real
+# dump, publish it only then, and prune only AFTER a verified new dump exists.
+# Failure exits non-zero, which is what lets platform's tenant-unit-failed
+# alert see it -- it is blind to a job that lies about succeeding.
+set -euo pipefail
 DEST=~/backups/ops
+MIN_BYTES=${BACKUP_MIN_BYTES:-1000000}     # a real dump is megabytes; 20 bytes is the bug
 mkdir -p "$DEST"
 STAMP=$(date -u +%Y%m%d-%H%M)
-podman exec confinia_ops-db_1 pg_dumpall -U confinia | gzip > "$DEST/ops-$STAMP.sql.gz"
-find "$DEST" -name 'ops-*.sql.gz' -mtime +14 -delete
-echo "OK: $DEST/ops-$STAMP.sql.gz ($(du -h "$DEST/ops-$STAMP.sql.gz" | cut -f1))"
+TMP="$DEST/.ops-$STAMP.sql.gz.partial"
+OUT="$DEST/ops-$STAMP.sql.gz"
+trap 'rm -f "$TMP"' EXIT
+
+podman exec confinia_ops-db_1 pg_dumpall -U confinia | gzip > "$TMP"
+
+# Three questions, because each has been answered wrongly by a file that
+# existed: is it intact, is it big enough to be real, and is it OUR dump?
+gzip -t "$TMP" || { echo "FAIL: $TMP is not a valid gzip" >&2; exit 1; }
+size=$(wc -c < "$TMP")
+[ "$size" -ge "$MIN_BYTES" ] || {
+	echo "FAIL: dump is $size bytes, below the $MIN_BYTES floor -- refusing to publish" >&2
+	exit 1; }
+# Read the header without a pipeline that `head` can cut short: under
+# `pipefail`, head exiting at 4096 bytes sends zcat a SIGPIPE and the pipeline
+# reports failure even when the pattern WAS found -- which failed this very
+# check on its first real run, on a perfectly good 6.6 MB dump.
+head_txt=$(zcat "$TMP" 2>/dev/null | head -c 4096 || true)
+case "$head_txt" in
+	*"PostgreSQL database cluster dump"*) ;;
+	*) echo "FAIL: $TMP does not look like a pg_dumpall cluster dump" >&2; exit 1 ;;
+esac
+
+mv "$TMP" "$OUT"
+trap - EXIT
+echo "OK: $OUT ($(du -h "$OUT" | cut -f1), verified)"
+
+# ONLY now, with a verified dump on disk, is it safe to age the old ones out.
+# The previous order pruned unconditionally, so eight failing nights were
+# quietly eating the last good backups.
+find "$DEST" -maxdepth 1 -name 'ops-*.sql.gz' -mtime +14 -delete
