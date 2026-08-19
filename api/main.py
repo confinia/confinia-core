@@ -1447,61 +1447,42 @@ def _rings_of_geojson(gj: str) -> list:
     return []
 
 
-_COUNTRY_OUTLINE: dict = {}
-
-
-def country_outline(cur, country: str) -> list:
-    """Simplified silhouette of a country, cached in-process.
-
-    A locator inset needs a coarse national outline, not detail -- union the
-    country's current units, simplify hard (0.05deg is plenty at inset scale),
-    and keep it, because a country border does not change between two reports
-    and the union is the one genuinely expensive query in a report.
-    """
-    if country in _COUNTRY_OUTLINE:
-        return _COUNTRY_OUTLINE[country]
-    # Prefer the single pre-computed national polygon (nuts0): ~16 ms. Unioning
-    # a country's communes at request time is what made the PDF time out --
-    # France is 35 000 geometries, and ST_Union over them takes far longer than
-    # a request may. The union survives only as the fallback for a country with
-    # no nuts0 (e.g. NZ, a few hundred units), where it is cheap.
-    cur.execute(
-        "SELECT ST_AsGeoJSON(ST_SimplifyPreserveTopology(geom_simple, 0.03), 4) "
-        "FROM commune_version "
-        "WHERE country = %s AND unit_type = 'nuts0' AND valid_to = %s "
-        "  AND geom_simple IS NOT NULL LIMIT 1",
-        (country, FAR_FUTURE))
-    row = cur.fetchone()
-    if not (row and row[0]):
-        cur.execute(
-            "SELECT ST_AsGeoJSON(ST_SimplifyPreserveTopology("
-            "  ST_Union(geom_simple), 0.05), 4) "
-            "FROM commune_version "
-            "WHERE country = %s AND valid_to = %s AND geom_simple IS NOT NULL",
-            (country, FAR_FUTURE))
-        row = cur.fetchone()
-    rings = _rings_of_geojson(row[0]) if row and row[0] else []
-    _COUNTRY_OUTLINE[country] = rings
-    return rings
-
-
 def _locator(cur, country: str, bbox) -> dict | None:
     """Where the commune sits in its country, for the report's situation inset.
 
-    Returns the national outline plus the commune's position within it -- a
-    point when the commune is small at national scale (it always is), taken
-    from the centre of its own bbox. None when we hold no national outline:
-    a locator that cannot place the unit is worse than none, so it declines
-    rather than draw a country with no marker (the #167 doctrine, once more).
+    Shows the LANDMASS the commune is actually on, not the whole national
+    territory. France's nuts0 spans the globe -- Guadeloupe at 63W to Reunion
+    at 56E -- so drawing all of it shrank metropolitan France to a speck with
+    the marker invisibly on top. So: dump the national polygon into its parts
+    and keep the one that CONTAINS the commune (metropolitan France for a
+    metropolitan commune, Guadeloupe for a Guadeloupe one), falling back to the
+    largest part when the point sits in none.
+
+    Returns the landmass outline plus the commune's position within it. None
+    when we hold no national polygon: a locator that cannot place the unit is
+    worse than none, so it declines rather than draw a country with no marker
+    (the #167 doctrine, once more).
     """
     if not bbox:
         return None
-    rings = country_outline(cur, country)
+    w, s_, e, n = bbox
+    mlon, mlat = (w + e) / 2, (s_ + n) / 2
+    cur.execute(
+        "WITH parts AS ("
+        "  SELECT (ST_Dump(geom_simple)).geom AS g FROM commune_version "
+        "  WHERE country = %s AND unit_type = 'nuts0' AND valid_to = %s "
+        "    AND geom_simple IS NOT NULL LIMIT 1) "
+        "SELECT ST_AsGeoJSON(ST_SimplifyPreserveTopology(g, 0.02), 4) FROM parts "
+        "ORDER BY ST_Contains(g, ST_SetSRID(ST_MakePoint(%s, %s), 4326)) DESC, "
+        "         ST_Area(g) DESC LIMIT 1",
+        (country, FAR_FUTURE, mlon, mlat))
+    row = cur.fetchone()
+    if not (row and row[0]):
+        return None
+    rings = _rings_of_geojson(row[0])
     if not rings:
         return None
-    w, s_, e, n = bbox
-    return {"country_rings": rings, "marker": ((w + e) / 2, (s_ + n) / 2),
-            "country": country}
+    return {"country_rings": rings, "marker": (mlon, mlat), "country": country}
 
 
 def _neighbour_rings(cur, code: str, country: str, at, bbox) -> list:
@@ -1775,11 +1756,11 @@ def _report_svg(d: dict) -> str:
             return " ".join("M " + " L ".join(
                 f"{px:.1f} {py:.1f}" for px, py in _ring_points(r, cbb, ix, iy, IW, IH)) + " Z"
                 for r in rings)
-        parts.append(f'<path d="{cpath(loc["country_rings"])}" fill="#eef2f7" '
-                     'stroke="#c3ccd9" stroke-width="0.8" fill-rule="evenodd"/>')
+        parts.append(f'<path d="{cpath(loc["country_rings"])}" fill="#ccd6e6" '
+                     'stroke="#7d8ca3" stroke-width="1" fill-rule="evenodd"/>')
         mx, my = _ring_points([loc["marker"]], cbb, ix, iy, IW, IH)[0]
-        parts.append(f'<circle cx="{mx:.1f}" cy="{my:.1f}" r="4" fill="#d1495b" '
-                     'stroke="#ffffff" stroke-width="1.2"/>')
+        parts.append(f'<circle cx="{mx:.1f}" cy="{my:.1f}" r="5" fill="#d1495b" '
+                     'stroke="#ffffff" stroke-width="1.6"/>')
         text(ix + IW / 2, iy + IH + 12, lab["situation"](d["country"]), 10,
              fill="#8a94a6", anchor="middle")
     text(PAD, y, lab["chronology"], 15, "bold"); y += 8
@@ -1958,7 +1939,7 @@ def _report_pdf(d: dict) -> bytes:
         pts = [pt for ring in loc["country_rings"] for pt in ring]
         cbb = (min(p[0] for p in pts), min(p[1] for p in pts),
                max(p[0] for p in pts), max(p[1] for p in pts))
-        c.setFillColorRGB(.93, .95, .97); c.setStrokeColorRGB(.76, .80, .85); c.setLineWidth(.6)
+        c.setFillColorRGB(.80, .84, .90); c.setStrokeColorRGB(.49, .55, .64); c.setLineWidth(.8)
         for ring in loc["country_rings"]:
             pp = _ring_points(ring, cbb, 0, 0, IW, IH)
             path = c.beginPath(); path.moveTo(ix + pp[0][0], itop - pp[0][1])
@@ -1966,8 +1947,8 @@ def _report_pdf(d: dict) -> bytes:
                 path.lineTo(ix + px, itop - py)
             path.close(); c.drawPath(path, stroke=1, fill=1)
         mx, my = _ring_points([loc["marker"]], cbb, 0, 0, IW, IH)[0]
-        c.setFillColorRGB(.82, .29, .36); c.setStrokeColorRGB(1, 1, 1); c.setLineWidth(1)
-        c.circle(ix + mx, itop - my, 3, stroke=1, fill=1)
+        c.setFillColorRGB(.82, .29, .36); c.setStrokeColorRGB(1, 1, 1); c.setLineWidth(1.3)
+        c.circle(ix + mx, itop - my, 4, stroke=1, fill=1)
         c.setFont("Helvetica", 7.5); c.setFillColorRGB(.54, .58, .65)
         c.drawCentredString(ix + IW / 2, itop - IH - 10, lab["situation"](d["country"]))
     y = H - 136
