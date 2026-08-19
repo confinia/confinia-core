@@ -22,6 +22,14 @@
 # Failure exits non-zero, which is what lets platform's tenant-unit-failed
 # alert see it -- it is blind to a job that lies about succeeding.
 set -euo pipefail
+# These dumps are not "ops state" in the harmless sense: pg_dumpall of this
+# instance carries public.api_key (keys that grant paid access), Keycloak's
+# public.credential (password hashes) and 27 real e-mail addresses. On a VM
+# shared with other products and other people, a 0644 file is readable by all
+# of them. The dumps were surviving on the mode of the home directory alone --
+# one bit between them and every account on the machine -- so make the files
+# defend themselves.
+umask 077
 DEST=~/backups/ops
 MIN_BYTES=${BACKUP_MIN_BYTES:-1000000}     # a real dump is megabytes; 20 bytes is the bug
 mkdir -p "$DEST"
@@ -50,6 +58,8 @@ case "$head_txt" in
 esac
 
 mv "$TMP" "$OUT"
+chmod 600 "$OUT"
+chmod 700 "$DEST"
 trap - EXIT
 echo "OK: $OUT ($(du -h "$OUT" | cut -f1), verified)"
 
