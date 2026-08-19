@@ -45,9 +45,10 @@ def test_the_silhouette_is_dark_enough_to_see():
 
 def test_both_renderers_draw_the_inset_and_the_marker():
     assert SRC.count('d.get("locator")') >= 2, "both renderers must read the locator"
-    assert 'loc["marker"]' in SRC
-    assert SRC.count('_ring_points([loc["marker"]]') == 2, \
-        "both renderers must project the marker the same way"
+    # The marker is projected inside the shared draw helper (one per format), so
+    # the country and district insets place their markers identically.
+    assert SRC.count("_ring_points([marker]") == 2, \
+        "each format's draw helper must project the marker the same way"
 
 
 def test_the_inset_is_country_agnostic():
