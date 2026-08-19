@@ -89,3 +89,23 @@ def test_a_rank_we_cannot_compute_is_a_rank_we_do_not_claim():
     fn = _fn("_facts")
     assert "statement_timeout" in fn
     assert "rank:timed-out" in fn
+
+
+def test_a_predecessor_cannot_outlive_the_commune_it_became():
+    """Measured 2026-08-19: 1169 such pairs over 714 communes, all French, the
+    parents uniformly 'ending' on the COG snapshot date and the children
+    'starting' at the 1943 nomenclature. Those are pipeline defaults, not facts.
+
+    Naming the predecessor stays true and useful; quoting a date we do not hold
+    does not (#167, #90)."""
+    fn = _fn("_facts")
+    assert "dates_unreliable" in fn
+    assert "trustworthy" in fn
+    assert "lineage-dates" in fn, "the reader is told why the dates are absent"
+
+
+def test_a_predecessor_without_trustworthy_dates_still_gets_named():
+    """Declining a date must not delete the fact that the commune existed."""
+    fn = _fn("fact_lines")
+    assert 'parts.append(x["nom"])' in fn, \
+        "the name is shown even when its dates are not"
