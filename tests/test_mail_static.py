@@ -169,7 +169,13 @@ def test_the_bounce_mailbox_is_checked_and_failure_to_read_is_not_success():
     assert "mailcheck.py" in sh, "the alert check must also look at what bounced"
 
     py = open(os.path.join(root, "deploy", "mailcheck.py"), encoding="utf-8").read()
-    assert "readonly=True" in py, "a monitoring read must never mutate the mailbox"
+    # A monitoring read must never mutate the mailbox. Since #223 the check can
+    # also purge the bounces the e2e journey inflicts on itself, so the guard is
+    # no longer "always read-only" but "read-only unless purging was ASKED for"
+    # -- assert that, not the old literal, which pinned wording rather than
+    # intent and went red on a change that kept the rule.
+    assert "readonly=not purge" in py, "the mailbox opens read-only unless purging"
+    assert '"--purge" in sys.argv' in py, "purging must be explicit, never implied"
     # Being unable to look is not the same as nothing being there -- the whole
     # point is that this failure mode is silent.
     assert "CANNOT READ" in py and "return 2" in py, \
