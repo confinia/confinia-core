@@ -75,3 +75,27 @@ def test_the_admin_url_default_followed_the_1pesi_move():
     """Keycloak left 8095 for 11070; the script's default had not."""
     assert "KC=${KC_SETUP_URL:-http://127.0.0.1:11070/auth}" in SH
     assert ":-http://127.0.0.1:8095" not in SH, "the stale default must be gone"
+
+
+def test_pinning_the_frontend_url_pins_the_token_issuer():
+    """Setting frontendUrl changes `iss` in every token Keycloak mints.
+
+    CI caught this: a freshly minted, valid token started returning 401 instead
+    of 503, because the realm now issued `https://www.confinia.io/auth/...`
+    while the API validated against `http://127.0.0.1:8180/auth/...`. Anywhere
+    the two are configured, they must be told the same thing -- silently
+    invalidating every token is not an acceptable side effect of fixing a link.
+    """
+    wf = open(os.path.join(os.path.dirname(__file__), "..", ".github",
+                           "workflows", "subscription-tests.yml"),
+              encoding="utf-8").read()
+    fe = re.search(r"KC_FRONTEND_URL:\s*(\S+)", wf)
+    iss = re.search(r"KC_ISSUER:\s*(\S+)", wf)
+    assert fe and iss, "both must be set where tokens are validated"
+    assert iss.group(1).startswith(fe.group(1)), \
+        f"issuer {iss.group(1)} must sit under frontendUrl {fe.group(1)}"
+
+
+def test_the_frontend_url_is_overridable_so_it_can_be_matched():
+    assert "${KC_FRONTEND_URL:-" in SH, \
+        "callers that validate the issuer must be able to pin it"

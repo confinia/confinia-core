@@ -173,7 +173,12 @@ jobs:
       KC_SETUP_ADMIN_USER: admin
       KC_SETUP_ADMIN_PASS: citest-admin
       TEST_KC_BASE: http://127.0.0.1:8180/auth
-      KC_SETUP_URL: http://127.0.0.1:8180/auth   # CI throwaway KC (on the VM it is 8095;
+      # Setting frontendUrl pins the token issuer (issue #132), and CI validates
+      # `iss` against KC_ISSUER below. The throwaway Keycloak here is its own
+      # public URL, so the two must be told the same thing -- otherwise every
+      # minted token is rejected, which is exactly how this was discovered.
+      KC_FRONTEND_URL: http://127.0.0.1:8180/auth
+      KC_SETUP_URL: http://127.0.0.1:8180/auth   # CI throwaway KC (on the VM it is 11070;
         # this comment used to say 8087, which belongs to MAPMAX. A wrong port in a
         # comment is how the wrong port gets bound -- see the BURNED table in PORTS.md.)
       PG_DSN: postgresql://confinia:citest@127.0.0.1:5432/confinia
