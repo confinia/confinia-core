@@ -1330,8 +1330,8 @@ REPORT_LABELS = {
         "f_density": lambda y: f"Density ({y})",
         "f_density_unit": "inhabitants/km²",
         "f_rank": "Rank by area",
-        "f_rank_val": lambda r, n, d: (f"largest of the {n} communes of {d}" if r == 1
-                                       else f"{r} of {n} in {d}"),
+        "f_rank_val": lambda r, n, d: (f"largest of {n} — {d}" if r == 1
+                                       else f"{r} of {n} — {d}"),
         "f_stable": lambda d: f"boundary unchanged since {d}",
         "f_never": "boundary never changed in our records",
         "f_declined": "Not stated, and why",
@@ -1374,8 +1374,8 @@ REPORT_LABELS = {
         "f_density": lambda y: f"Densité ({y})",
         "f_density_unit": "habitants/km²",
         "f_rank": "Rang par superficie",
-        "f_rank_val": lambda r, n, d: (f"la plus étendue des {n} communes de {d}" if r == 1
-                                       else f"{r}\u1d49 sur {n} dans {d}"),
+        "f_rank_val": lambda r, n, d: (f"la plus étendue des {n} — {d}" if r == 1
+                                       else f"{r}\u1d49 sur {n} — {d}"),
         "f_stable": lambda d: f"limites inchangées depuis le {d}",
         "f_never": "limites jamais modifiées dans nos données",
         "f_declined": "Non énoncé, et pourquoi",
@@ -1622,6 +1622,29 @@ DECLINE_PHRASES = {
 }
 
 
+def _wrap(value: str, width: int) -> list:
+    """Break a long fact across lines on separators, never mid-word.
+
+    Truncation cut "Le Petit-Abergement (1943-01-01 →" in half on a document a
+    professional signs. A fact that does not fit continues on the next line;
+    it does not stop mid-name.
+    """
+    if len(value) <= width:
+        return [value]
+    out, line = [], ""
+    for token in value.split(" "):
+        if line and len(line) + 1 + len(token) > width:
+            out.append(line)
+            line = token
+        else:
+            line = f"{line} {token}".strip()
+        if len(out) >= 3:            # three lines is already generous
+            break
+    if line and len(out) < 4:
+        out.append(line)
+    return out
+
+
 def fact_lines(d: dict, lab: dict) -> list:
     """The key-facts block as (label, value) pairs -- built ONCE, read by both
     renderers.
@@ -1731,13 +1754,20 @@ def _facts(cur, code: str, country: str, versions: list, pop: dict | None,
         km2, vintage, approx = areas[-1]
         prev = next(((a, ap) for a, _, ap in reversed(areas[:-1]) if a is not None),
                     None)
+        delta = (round((km2 - prev[0]) / prev[0] * 100, 1)
+                 if prev and prev[0] else None)
+        # A difference inside the noise threshold is a re-digitisation, not a
+        # change -- the same rule boundary_groups draws by. Reporting Bad
+        # Berneck's +0.1 % beside "boundary never changed" put two contradictory
+        # statements on one page.
+        if delta is not None and abs(delta) <= BOUNDARY_NOISE_PCT:
+            prev, delta = None, None
         out["area"] = {
             "km2": km2, "vintage": vintage.isoformat() if vintage else None,
             "approx": approx,
             "prev_km2": prev[0] if prev else None,
             "prev_approx": prev[1] if prev else None,
-            "delta_pct": (round((km2 - prev[0]) / prev[0] * 100, 1)
-                          if prev and prev[0] else None),
+            "delta_pct": delta,
         }
     else:
         out["declined"].append("area")
@@ -1745,7 +1775,11 @@ def _facts(cur, code: str, country: str, versions: list, pop: dict | None,
     # 2. The lineage in words. parents/children were stored and used only to
     #    draw shapes; a reader wants the names and each predecessor's own dates.
     for field, key in (("parents", "formed_from"), ("children", "became")):
-        codes = cur_v.get(field) or []
+        # A commune is not its own predecessor. The code survives a merger --
+        # Hotonnes kept 01187 and became Haut Valromey -- so it appears in its
+        # own parents array, and "formed from ... itself" is nonsense on a page
+        # a customer pays for.
+        codes = [c for c in (cur_v.get(field) or []) if c != code]
         if not codes:
             continue
         cur.execute(
@@ -2103,7 +2137,10 @@ def _report_svg(d: dict) -> str:
             if label:
                 text(PAD + 8, y, f"{label} :" if d.get("lang") == "fr"
                      else f"{label}:", 12, "bold", fill="#4a5262")
-                text(PAD + 168, y, value[:110], 12)
+                for i, part in enumerate(_wrap(value, 96)):
+                    if i:
+                        y += 15
+                    text(PAD + 168, y, part, 12)
             else:
                 text(PAD + 8, y, value[:150], 12, fill="#4a5262")
         y += 24
@@ -2322,7 +2359,10 @@ def _report_pdf(d: dict) -> bytes:
                 c.drawString(PAD + 6, y, (f"{label} :" if d.get("lang") == "fr"
                                           else f"{label}:")[:34])
                 c.setFont("Helvetica", 9.5); c.setFillColorRGB(.1, .14, .2)
-                c.drawString(PAD + 118, y, value[:96])
+                for i, part in enumerate(_wrap(value, 84)):
+                    if i:
+                        y -= 11
+                    c.drawString(PAD + 118, y, part)
             else:
                 c.setFont("Helvetica-Oblique", 9.5); c.setFillColorRGB(.29, .32, .38)
                 c.drawString(PAD + 6, y, value[:120])
