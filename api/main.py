@@ -1376,7 +1376,7 @@ REPORT_LABELS = {
         "f_rank": "Rang par superficie",
         "f_rank_val": lambda r, n, d: (f"la plus étendue des {n} — {d}" if r == 1
                                        else f"{r}\u1d49 sur {n} — {d}"),
-        "f_stable": lambda d: f"limites inchangées depuis le {d}",
+        "f_stable": lambda d: f"limites inchangées depuis {d}",
         "f_never": "limites jamais modifiées dans nos données",
         "f_declined": "Non énoncé, et pourquoi",
         "versions_svg": lambda n: f"{n} version(s) enregistrée(s) · générée par l'API Confinia v{APP_VERSION} · ",
@@ -1608,6 +1608,8 @@ DECLINE_PHRASES = {
             "géographie que celle mesurée ici",
         "density:no-area": "densité : superficie indisponible",
         "rank:timed-out": "rang : comparaison trop coûteuse pour être établie ici",
+        "lineage-dates": "filiation : les dates d'une commune d'origine au moins "
+                         "sont incohérentes avec la fusion, donc non affichées",
     },
     "en": {
         "area": "area: no geometry recorded for this version",
@@ -1618,6 +1620,8 @@ DECLINE_PHRASES = {
             "than the one measured here",
         "density:no-area": "density: no area available",
         "rank:timed-out": "rank: the comparison was too costly to establish here",
+        "lineage-dates": "lineage: at least one predecessor's dates contradict the "
+                         "merger, so they are not shown",
     },
 }
 
@@ -1672,8 +1676,13 @@ def fact_lines(d: dict, lab: dict) -> list:
         lines.append((lab["f_area"], n + (f" — {' · '.join(extra)}" if extra else "")))
 
     if f.get("formed_from"):
-        parts = [f"{x['nom']} ({x['from']}" + (f" → {x['to']})" if x["to"] else ")")
-                 for x in f["formed_from"]]
+        parts = []
+        for x in f["formed_from"]:
+            if x.get("from"):
+                parts.append(f"{x['nom']} ({x['from']}"
+                             + (f" → {x['to']})" if x["to"] else ")"))
+            else:
+                parts.append(x["nom"])
         lines.append((lab["f_formed"], " · ".join(parts)))
     if f.get("became"):
         lines.append((lab["f_became"],
@@ -1788,9 +1797,26 @@ def _facts(cur, code: str, country: str, versions: list, pop: dict | None,
             "WHERE country = %s AND code = ANY(%s) AND unit_type = ANY(%s) "
             "ORDER BY code, valid_from DESC",
             (country, list(codes), list(MUNICIPAL_TYPES)))
-        named = [{"code": c, "nom": n, "from": vf.isoformat(),
-                  "to": None if vt == FAR_FUTURE else vt.isoformat()}
-                 for c, n, vf, vt in cur.fetchall()]
+        # A predecessor cannot outlive the commune it wholly became. Where the
+        # stored dates say it does, they are pipeline defaults rather than
+        # facts -- measured 2026-08-19: 1169 such pairs over 714 communes, all
+        # French, the parents uniformly "ending" on the COG snapshot date and
+        # the children "starting" at the 1943 nomenclature. Naming the
+        # predecessor is still true and useful; quoting a date we do not hold
+        # is not (#167, #90).
+        born = cur_v["valid_from"]
+        named = []
+        for c, n, vf, vt in cur.fetchall():
+            trustworthy = key != "formed_from" or vt <= born or vt == FAR_FUTURE
+            named.append({
+                "code": c, "nom": n,
+                "from": vf.isoformat() if trustworthy else None,
+                "to": (None if vt == FAR_FUTURE else vt.isoformat())
+                      if trustworthy else None,
+                "dates_unreliable": not trustworthy,
+            })
+        if any(x["dates_unreliable"] for x in named):
+            out["declined"].append("lineage-dates")
         if named:
             out[key] = named
         if len(named) < len(codes):
