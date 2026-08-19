@@ -64,3 +64,16 @@ def test_the_unit_says_where_it_must_run():
     unit = open(os.path.join(os.path.dirname(__file__), "..", "deploy", "systemd",
                              "confinia-ops-backup.service"), encoding="utf-8").read()
     assert "confinia" in unit and "per-user" in unit
+
+
+def test_the_dumps_defend_themselves_and_not_only_the_home_directory():
+    """pg_dumpall of the ops instance carries public.api_key (keys that grant
+    paid access), Keycloak's public.credential (password hashes) and 27 real
+    e-mail addresses. On a VM shared with other products and other people, they
+    were surviving on the mode of ~ alone -- one bit between them and every
+    account on the machine. Measured 2026-08-19: the files were 0664 and the
+    directories 0775.
+    """
+    assert "umask 077" in CODE, "nothing this script creates may be group/world readable"
+    assert 'chmod 600 "$OUT"' in CODE, "the published dump, explicitly"
+    assert 'chmod 700 "$DEST"' in CODE, "and the directory holding it"
