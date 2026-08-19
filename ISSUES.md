@@ -7,7 +7,7 @@ the work is deployed, and "merged" has been mistaken for "live" here before.
 **Where can I try it** uses the four answers of RULES 12: **nowhere** ·
 **sandbox** · **staging** · **production**.
 
-Last updated: **2026-08-19**, `main` at `c3db0a9`.
+Last updated: **2026-08-19**, `main` at `7bfc593`.
 Active colour: **blue** on `:11120`/`:11130` (production) · passive: **green** on
 `:11220`/`:11230`.
 
@@ -29,6 +29,7 @@ founder-only.
 | `04ebe12` → `b78ca9f` | The report's **situation inset**: where the commune sits in its country. Landed broken twice and was fixed twice — it timed the PDF out by unioning 35 000 communes, then drew all of France's overseas territory (Guadeloupe 63°W to Réunion 56°E) in near-white, which is why the founder could not see it |
 | `a116ee1` `7feabf2` | The **district inset** below it — the `nuts3` region containing the commune (Ain for Haut Valromey), found by a 0.35 ms indexed point lookup, country-agnostic |
 | `c3db0a9` | The bounce detector fix (#223) |
+| `359783f` → `7bfc593` | **#193's first list**: area and how it changed, the lineage in words, named neighbours, density, rank within the district, and what did *not* change. Four defects surfaced only on rendering, and one data problem surfaced with them (#229) |
 
 Try before promoting:
 `staging.confinia.io/api/v1/communes/01187/report.svg?country=FR&lang=fr`
@@ -41,7 +42,8 @@ Ranked by what it costs us to leave undone, not by issue number.
 |---|---|---|---|---|
 | 1 | [#132](https://github.com/confinia/confinia-core/issues/132) | Transactional email | **one step from done.** Ops alerts delivered; registration mail sent from the sandbox realm. Remaining: see the *real* self-registration mail (what was tested was the admin-initiated template), then `VERIFY_EMAIL=1` on the production realm. Note #223's finding: the e2e journey's synthetic recipients bounce, so turning verification on more widely will produce more of them | **production** (alerts) · **sandbox** (registration) |
 | 2 | [#205](https://github.com/confinia/confinia-core/issues/205) | Commune report: make it a document an expert office would sign | **partly under way, not claimed done.** The two locator insets are the first instalment of *form*; the annex (#90) landed before them. What remains is typography, page furniture, and the overall impression a professional signs their name under | **staging** (the insets) |
-| 3 | [#193](https://github.com/confinia/confinia-core/issues/193) | The report is thin: what should it contain? | **not started.** Deliberately separate from #205: this one is *substance*, and no amount of typesetting fixes it. Blocked on nothing but a decision about which facts are worth adding | nowhere |
+| 3 | [#193](https://github.com/confinia/confinia-core/issues/193) | The report is thin: what should it contain? | **first list delivered**, all six items, verified on both acceptance communes — Bad Berneck is no longer "a page with a map on it": area, a stable boundary stated as evidence, rank among the 44 units of its Landkreis, 8 named neighbours. Left open for the second list, which needs data we do not hold (historical context, links out, Italy's population series) | **staging** |
+| 3= | [#229](https://github.com/confinia/confinia-core/issues/229) | 1169 lineage pairs where a predecessor outlives the commune it wholly became | **found by #193, mitigated not fixed.** 714 communes, all French; the parents uniformly "end" on the COG snapshot date and the children "start" at the 1943 nomenclature — pipeline defaults, not measurements. Invisible while lineage only drew shapes; now it would be a sentence a customer reads, so the report declines those dates and says why | **staging** (the mitigation) |
 | 4 | [#127](https://github.com/confinia/confinia-core/issues/127) | Report: colour what a boundary gained and lost — refuse to draw when the data cannot support it | **delivered for gained area**, orange/light-blue per the founder's instruction; the lineage-driven `_gained_rings` refuses to draw when the data cannot support it. Left open because the *lost* side is still the naive `ST_Difference` that measured 97 unusable pieces | **production** (partly) |
 | 5 | [#91](https://github.com/confinia/confinia-core/issues/91) | Italy: historical demography | **half delivered** — lineage merged (PR #120) and live; demography not started | **production** — 2 128 dead comuni route to a successor, 1865-2024 |
 | 6 | [#115](https://github.com/confinia/confinia-core/issues/115) | Adopt STACK_template.md: close the documented gaps | umbrella, tracking the others. Its migration gap bit for real on 2026-08-18: `CREATE TABLE IF NOT EXISTS` never adds a constraint to a pre-existing table, so a Creem webhook `ON CONFLICT (email, tier)` hit a unique index that exists in no environment | nowhere |
