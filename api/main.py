@@ -1325,6 +1325,7 @@ REPORT_LABELS = {
         "f_area_from": lambda a, d: f"up from {a} km² ({d:+.1f} %)",
         "f_area_down": lambda a, d: f"down from {a} km² ({d:+.1f} %)",
         "f_formed": "Formed from",
+        "f_absorbed": "Later absorbed",
         "f_became": "Became",
         "f_neighbours": lambda n: f"Neighbours ({n})",
         "f_density": lambda y: f"Density ({y})",
@@ -1369,6 +1370,7 @@ REPORT_LABELS = {
         "f_area_from": lambda a, d: f"contre {a} km² auparavant ({d:+.1f} %)".replace(".", ","),
         "f_area_down": lambda a, d: f"contre {a} km² auparavant ({d:+.1f} %)".replace(".", ","),
         "f_formed": "Issue de",
+        "f_absorbed": "A ensuite absorbé",
         "f_became": "Devenue",
         "f_neighbours": lambda n: f"Communes limitrophes ({n})",
         "f_density": lambda y: f"Densité ({y})",
@@ -1608,8 +1610,6 @@ DECLINE_PHRASES = {
             "géographie que celle mesurée ici",
         "density:no-area": "densité : superficie indisponible",
         "rank:timed-out": "rang : comparaison trop coûteuse pour être établie ici",
-        "lineage-dates": "filiation : les dates d'une commune d'origine au moins "
-                         "sont incohérentes avec la fusion, donc non affichées",
     },
     "en": {
         "area": "area: no geometry recorded for this version",
@@ -1620,8 +1620,6 @@ DECLINE_PHRASES = {
             "than the one measured here",
         "density:no-area": "density: no area available",
         "rank:timed-out": "rank: the comparison was too costly to establish here",
-        "lineage-dates": "lineage: at least one predecessor's dates contradict the "
-                         "merger, so they are not shown",
     },
 }
 
@@ -1676,14 +1674,14 @@ def fact_lines(d: dict, lab: dict) -> list:
         lines.append((lab["f_area"], n + (f" — {' · '.join(extra)}" if extra else "")))
 
     if f.get("formed_from"):
-        parts = []
-        for x in f["formed_from"]:
-            if x.get("from"):
-                parts.append(f"{x['nom']} ({x['from']}"
-                             + (f" → {x['to']})" if x["to"] else ")"))
-            else:
-                parts.append(x["nom"])
-        lines.append((lab["f_formed"], " · ".join(parts)))
+        lines.append((lab["f_formed"], " · ".join(
+            f"{x['nom']} ({x['from']}" + (f" → {x['to']})" if x["to"] else ")")
+            for x in f["formed_from"])))
+    if f.get("absorbed"):
+        # Stated by the date it happened: that is the fact, and it is a
+        # different one from how the commune was formed.
+        lines.append((lab["f_absorbed"], " · ".join(
+            f"{x['nom']} ({x['to']})" for x in f["absorbed"])))
     if f.get("became"):
         lines.append((lab["f_became"],
                       " · ".join(f"{x['nom']} ({x['code']})" for x in f["became"])))
@@ -1797,27 +1795,31 @@ def _facts(cur, code: str, country: str, versions: list, pop: dict | None,
             "WHERE country = %s AND code = ANY(%s) AND unit_type = ANY(%s) "
             "ORDER BY code, valid_from DESC",
             (country, list(codes), list(MUNICIPAL_TYPES)))
-        # A predecessor cannot outlive the commune it wholly became. Where the
-        # stored dates say it does, they are pipeline defaults rather than
-        # facts -- measured 2026-08-19: 1169 such pairs over 714 communes, all
-        # French, the parents uniformly "ending" on the COG snapshot date and
-        # the children "starting" at the 1943 nomenclature. Naming the
-        # predecessor is still true and useful; quoting a date we do not hold
-        # is not (#167, #90).
+        # Two different facts wore one label. A predecessor whose life ends
+        # exactly when this version starts helped FORM it; one that ends during
+        # this version's life was ABSORBED later -- the absorber's code and name
+        # do not change, so no new version is minted (the ingest models this
+        # deliberately: "Coupy -> Bellegarde in 1971, with no version end").
+        # Measured: 3396 links of the first kind, 1265 of the second. Calling
+        # them all "formed from" made Haut Valromey, created in 2016, claim it
+        # was formed from a commune that lived until 2025.
         born = cur_v["valid_from"]
         named = []
         for c, n, vf, vt in cur.fetchall():
-            trustworthy = key != "formed_from" or vt <= born or vt == FAR_FUTURE
+            later = key == "formed_from" and vt != FAR_FUTURE and vt > born
             named.append({
-                "code": c, "nom": n,
-                "from": vf.isoformat() if trustworthy else None,
-                "to": (None if vt == FAR_FUTURE else vt.isoformat())
-                      if trustworthy else None,
-                "dates_unreliable": not trustworthy,
+                "code": c, "nom": n, "from": vf.isoformat(),
+                "to": None if vt == FAR_FUTURE else vt.isoformat(),
+                "absorbed_later": later,
             })
-        if any(x["dates_unreliable"] for x in named):
-            out["declined"].append("lineage-dates")
-        if named:
+        if key == "formed_from":
+            out["formed_from"] = [x for x in named if not x["absorbed_later"]]
+            absorbed = [x for x in named if x["absorbed_later"]]
+            if absorbed:
+                out["absorbed"] = sorted(absorbed, key=lambda x: x["to"] or "")
+            if not out["formed_from"]:
+                out.pop("formed_from", None)
+        elif named:
             out[key] = named
         if len(named) < len(codes):
             out["declined"].append(f"{key}:{len(codes) - len(named)}-unnamed")

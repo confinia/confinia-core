@@ -91,21 +91,27 @@ def test_a_rank_we_cannot_compute_is_a_rank_we_do_not_claim():
     assert "rank:timed-out" in fn
 
 
-def test_a_predecessor_cannot_outlive_the_commune_it_became():
-    """Measured 2026-08-19: 1169 such pairs over 714 communes, all French, the
-    parents uniformly 'ending' on the COG snapshot date and the children
-    'starting' at the 1943 nomenclature. Those are pipeline defaults, not facts.
+def test_forming_a_commune_and_being_absorbed_by_it_are_two_facts():
+    """One label covered both, and it made Haut Valromey -- created in 2016 --
+    claim it was 'formed from' a commune that lived until 2025.
 
-    Naming the predecessor stays true and useful; quoting a date we do not hold
-    does not (#167, #90)."""
+    A predecessor whose life ends exactly when this version starts helped FORM
+    it. One that ends during this version's life was ABSORBED later: the
+    absorber's code and name do not change, so no new version is minted, which
+    the ingest models deliberately ("Coupy -> Bellegarde in 1971, with no
+    version end"). Measured: 3396 links of the first kind, 1265 of the second.
+    """
     fn = _fn("_facts")
-    assert "dates_unreliable" in fn
-    assert "trustworthy" in fn
-    assert "lineage-dates" in fn, "the reader is told why the dates are absent"
+    assert "absorbed_later" in fn
+    assert 'out["absorbed"]' in fn and 'out["formed_from"]' in fn
+    assert "f_absorbed" in SRC, "the second fact needs its own label"
 
 
-def test_a_predecessor_without_trustworthy_dates_still_gets_named():
-    """Declining a date must not delete the fact that the commune existed."""
+def test_the_dates_are_stated_because_they_are_real():
+    """They were briefly suppressed on a false reading of the data: 762 distinct
+    end dates exist, including mid-year ones like 1973-07-01, which no pipeline
+    default would produce. Nothing here may hide them again."""
+    assert "dates_unreliable" not in SRC
+    assert "lineage-dates" not in SRC
     fn = _fn("fact_lines")
-    assert 'parts.append(x["nom"])' in fn, \
-        "the name is shown even when its dates are not"
+    assert "x['from']" in fn and "x['to']" in fn
