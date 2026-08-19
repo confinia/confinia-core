@@ -7,7 +7,7 @@ set -eu
 cd "$(dirname "$0")/.."
 # CI override: KC_SETUP_URL / KC_SETUP_ADMIN_USER / KC_SETUP_ADMIN_PASS let
 # the exact same script run against a throwaway Keycloak (no secrets.env).
-KC=${KC_SETUP_URL:-http://127.0.0.1:8095/auth}
+KC=${KC_SETUP_URL:-http://127.0.0.1:11070/auth}   # 1PESI moved Keycloak off 8095
 # Which realm to configure. `confinia` is production; `confinia-sbx` is the
 # sandbox, and it is where anything touching e-mail is proven first -- a broken
 # SMTP with verifyEmail on makes registration fail for everyone (issue #132).
@@ -78,6 +78,81 @@ curl -sf -X PUT "$KC/admin/realms/$REALM" -H "$AUTH" \
   -H "Content-Type: application/json" \
   -d '{"internationalizationEnabled": true, "defaultLocale": "fr", "supportedLocales": ["fr","en"]}' \
   >/dev/null && echo "  French by default, English available"
+
+echo "== links that work, and last long enough to be used (issue #132)"
+# Two defects found by driving the REAL registration form and reading the mail
+# it sends -- neither was visible from the configuration alone.
+#
+#  1. frontendUrl was unset, so an action-token link is built from whatever host
+#     the request arrived on. Driven from the loopback it produced
+#     http://127.0.0.1:11070/... in a mail sent to a customer. Pinning the
+#     public URL makes the link correct however the request reached us.
+#  2. accessCodeLifespanUserAction was Keycloak's default 300 s. FIVE MINUTES to
+#     click a link in an e-mail. Anyone who reads their mail a quarter of an
+#     hour later cannot activate their account, and we would never hear about
+#     it -- they would simply be gone. 12 hours is the usual figure for e-mail
+#     confirmation, and it is still a short-lived token.
+case "$REALM" in
+	confinia-sbx) FRONTEND="${KC_FRONTEND_URL:-https://sandbox.confinia.io/auth}" ;;
+	*)            FRONTEND="${KC_FRONTEND_URL:-https://www.confinia.io/auth}" ;;
+esac
+curl -sf -X PUT "$KC/admin/realms/$REALM" -H "$AUTH" \
+  -H "Content-Type: application/json" -d '{
+    "displayName": "Confinia",
+    "accessCodeLifespanUserAction": 43200,
+    "attributes": {"frontendUrl": "'"$FRONTEND"'",
+                   "actionTokenGeneratedByUserLifespan.verify-email": "43200"}
+  }' >/dev/null \
+  && echo "  frontendUrl=$FRONTEND · verification link valid 12 h · displayName=Confinia"
+
+echo "== the words a stranger reads (issue #132)"
+# Realm-level message overrides rather than a packaged theme: this is data, so
+# it is idempotent, scriptable and needs no image rebuild. The default Keycloak
+# text says 'Quelqu'un vient de créer un compte "Confinia-sbx"' -- it leaks the
+# internal realm name to a customer and reads like a machine talking.
+# Two traps, both found by reading the mail that actually arrived:
+#
+#   {1} is NOT formatted here. Keycloak's packaged bundles render it as
+#   "12 hours" through a formatter that realm-level overrides do not go
+#   through, so it came out as the bare number 720. The duration is therefore
+#   written into the sentence, and it must be kept in step with
+#   accessCodeLifespanUserAction above (43200 s = 12 h).
+#
+#   An apostrophe is a QUOTING character in Java MessageFormat, so "n'êtes"
+#   silently arrived as "nêtes" and "l'origine" as "lorigine". Every literal
+#   apostrophe below is doubled, which is why the French reads oddly in source
+#   and correctly in the inbox.
+#
+# {0} link · {2} realm display name.
+kcmsg() {   # locale key value
+	curl -sf -X PUT "$KC/admin/realms/$REALM/localization/$1/$2" -H "$AUTH" \
+	  -H "Content-Type: text/plain" --data-binary "$3" >/dev/null || return 1
+}
+kcmsg fr emailVerificationSubject "Confirmez votre adresse — Confinia"
+kcmsg fr emailVerificationBody "Bonjour,
+
+Vous venez de créer un compte Confinia avec cette adresse. Confirmez-la en ouvrant ce lien :
+
+{0}
+
+Le lien reste valable 12 heures. Passé ce délai, demandez-en un nouveau depuis la page de connexion.
+
+Si vous n''êtes pas à l''origine de cette demande, ignorez ce message : aucun compte ne sera activé.
+
+— Confinia · https://www.confinia.io"
+kcmsg en emailVerificationSubject "Confirm your address — Confinia"
+kcmsg en emailVerificationBody "Hello,
+
+You have just created a Confinia account with this address. Confirm it by opening this link:
+
+{0}
+
+The link is valid for 12 hours. After that, request a new one from the sign-in page.
+
+If you did not ask for this, ignore this message: no account will be activated.
+
+— Confinia · https://www.confinia.io"
+echo "  registration mail rewritten, fr and en"
 
 echo "== e-mail verification"
 # DELIBERATELY NOT automatic. With verifyEmail true and SMTP broken, Keycloak
