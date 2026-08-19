@@ -1485,6 +1485,39 @@ def _locator(cur, country: str, bbox) -> dict | None:
     return {"country_rings": rings, "marker": (mlon, mlat), "country": country}
 
 
+def _district(cur, country: str, bbox) -> dict | None:
+    """The intermediate zoom: the district (nuts3) the commune sits in.
+
+    Between the country carton and the commune's own panels, a reader wants the
+    middle scale -- the departement in France, the Kreis in Germany, whatever
+    nuts3 means for the country. Found the same way as the landmass: the nuts3
+    polygon that CONTAINS the commune, by a 0.35 ms indexed point lookup. Its
+    own name (Ain, ...) labels the inset, richer than a country code.
+
+    None when no nuts3 contains the commune -- a district inset that cannot
+    place the unit is worse than none (the #167 doctrine).
+    """
+    if not bbox:
+        return None
+    w, s_, e, n = bbox
+    mlon, mlat = (w + e) / 2, (s_ + n) / 2
+    cur.execute(
+        "SELECT nom, ST_AsGeoJSON(ST_SimplifyPreserveTopology(geom_simple, 0.005), 5) "
+        "FROM commune_version "
+        "WHERE unit_type = 'nuts3' AND country = %s AND valid_to = %s "
+        "  AND geom_simple IS NOT NULL "
+        "  AND ST_Contains(geom_simple, ST_SetSRID(ST_MakePoint(%s, %s), 4326)) "
+        "LIMIT 1",
+        (country, FAR_FUTURE, mlon, mlat))
+    row = cur.fetchone()
+    if not (row and row[1]):
+        return None
+    rings = _rings_of_geojson(row[1])
+    if not rings:
+        return None
+    return {"rings": rings, "marker": (mlon, mlat), "name": row[0]}
+
+
 def _neighbour_rings(cur, code: str, country: str, at, bbox) -> list:
     """Rings of the units touching `code` AT THAT PERIOD's date, clipped to the
     frame. Taking today's neighbours for a 1950 outline would be a silent
@@ -1591,9 +1624,11 @@ def _report_data(code: str, country: str, lang: str = "en") -> dict:
         attributions = sorted(set(attributions) | {src_info[pop["source"]]})
     with cursor() as cur:
         locator = _locator(cur, country, bbox)
+        district = _district(cur, country, bbox)
     annotate_changes(feats)
     return {"code": code, "country": country, "lang": lang, "versions": versions,
             "locator": locator,
+            "district": district,
             "source_annex": build_source_annex(versions, pop, registry, lang),
             "events": derive_events(feats, lang),
             "bbox": bbox,
@@ -1745,24 +1780,32 @@ def _report_svg(d: dict) -> str:
                  + f"https://www.confinia.io/commune/{d['code']}", 11, fill="#5b6b85"); y += 24
     # Situation inset (top-right): where the commune sits in its country. A
     # professional document situates its subject; the report never did.
-    loc = d.get("locator")
-    if loc and loc.get("country_rings"):
-        IW, IH = 150, 150
-        ix, iy = W - PAD - IW, PAD + 6
-        pts = [pt for ring in loc["country_rings"] for pt in ring]
-        xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
-        cbb = (min(xs), min(ys), max(xs), max(ys))
-        def cpath(rings):
-            return " ".join("M " + " L ".join(
-                f"{px:.1f} {py:.1f}" for px, py in _ring_points(r, cbb, ix, iy, IW, IH)) + " Z"
-                for r in rings)
-        parts.append(f'<path d="{cpath(loc["country_rings"])}" fill="#ccd6e6" '
-                     'stroke="#7d8ca3" stroke-width="1" fill-rule="evenodd"/>')
-        mx, my = _ring_points([loc["marker"]], cbb, ix, iy, IW, IH)[0]
+    # Two locator insets, top-right, stacked: the country (where in the world)
+    # and the district (where in the country). Drawn by one helper so they
+    # cannot disagree about projection or style.
+    def draw_inset(rings, marker, label, iy, size=126):
+        ix = W - PAD - size
+        pts = [pt for ring in rings for pt in ring]
+        cbb = (min(p[0] for p in pts), min(p[1] for p in pts),
+               max(p[0] for p in pts), max(p[1] for p in pts))
+        d_ = " ".join("M " + " L ".join(
+            f"{px:.1f} {py:.1f}" for px, py in _ring_points(r, cbb, ix, iy, size, size)) + " Z"
+            for r in rings)
+        parts.append(f'<path d="{d_}" fill="#ccd6e6" stroke="#7d8ca3" '
+                     'stroke-width="1" fill-rule="evenodd"/>')
+        mx, my = _ring_points([marker], cbb, ix, iy, size, size)[0]
         parts.append(f'<circle cx="{mx:.1f}" cy="{my:.1f}" r="5" fill="#d1495b" '
                      'stroke="#ffffff" stroke-width="1.6"/>')
-        text(ix + IW / 2, iy + IH + 12, lab["situation"](d["country"]), 10,
-             fill="#8a94a6", anchor="middle")
+        text(ix + size / 2, iy + size + 12, label, 10, fill="#8a94a6", anchor="middle")
+        return iy + size + 24
+    loc = d.get("locator")
+    dist = d.get("district")
+    iy0 = PAD + 6
+    if loc and loc.get("country_rings"):
+        iy0 = draw_inset(loc["country_rings"], loc["marker"],
+                         lab["situation"](d["country"]), iy0)
+    if dist and dist.get("rings"):
+        draw_inset(dist["rings"], dist["marker"], dist["name"], iy0)
     text(PAD, y, lab["chronology"], 15, "bold"); y += 8
     for ev in d["events"][:60]:
         y += 17
@@ -1932,25 +1975,33 @@ def _report_pdf(d: dict) -> bytes:
     c.drawString(PAD, H - 104, lab["versions_pdf"](len(d['versions'])))
     # Situation inset, top-right of the first page: where the commune sits in
     # its country. draw_pdf_rings maps lon/lat into the box, y flipped.
-    loc = d.get("locator")
-    if loc and loc.get("country_rings"):
-        IW = IH = 118
-        ix, itop = W - PAD - IW, H - 48
-        pts = [pt for ring in loc["country_rings"] for pt in ring]
+    # Two stacked locator insets, top-right, by one helper (see the SVG).
+    def draw_inset_pdf(rings, marker, label, itop, sz=104):
+        ix = W - PAD - sz
+        pts = [pt for ring in rings for pt in ring]
         cbb = (min(p[0] for p in pts), min(p[1] for p in pts),
                max(p[0] for p in pts), max(p[1] for p in pts))
         c.setFillColorRGB(.80, .84, .90); c.setStrokeColorRGB(.49, .55, .64); c.setLineWidth(.8)
-        for ring in loc["country_rings"]:
-            pp = _ring_points(ring, cbb, 0, 0, IW, IH)
+        for ring in rings:
+            pp = _ring_points(ring, cbb, 0, 0, sz, sz)
             path = c.beginPath(); path.moveTo(ix + pp[0][0], itop - pp[0][1])
             for px, py in pp[1:]:
                 path.lineTo(ix + px, itop - py)
             path.close(); c.drawPath(path, stroke=1, fill=1)
-        mx, my = _ring_points([loc["marker"]], cbb, 0, 0, IW, IH)[0]
+        mx, my = _ring_points([marker], cbb, 0, 0, sz, sz)[0]
         c.setFillColorRGB(.82, .29, .36); c.setStrokeColorRGB(1, 1, 1); c.setLineWidth(1.3)
         c.circle(ix + mx, itop - my, 4, stroke=1, fill=1)
         c.setFont("Helvetica", 7.5); c.setFillColorRGB(.54, .58, .65)
-        c.drawCentredString(ix + IW / 2, itop - IH - 10, lab["situation"](d["country"]))
+        c.drawCentredString(ix + sz / 2, itop - sz - 10, label)
+        return itop - sz - 24
+    loc = d.get("locator")
+    dist = d.get("district")
+    itop = H - 48
+    if loc and loc.get("country_rings"):
+        itop = draw_inset_pdf(loc["country_rings"], loc["marker"],
+                              lab["situation"](d["country"]), itop)
+    if dist and dist.get("rings"):
+        draw_inset_pdf(dist["rings"], dist["marker"], dist["name"], itop)
     y = H - 136
     c.setFont("Helvetica-Bold", 13); c.setFillColorRGB(.1, .14, .2)
     c.drawString(PAD, y, lab["chronology"]); y -= 18

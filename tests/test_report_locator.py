@@ -59,3 +59,26 @@ def test_the_inset_is_country_agnostic():
 def test_the_locator_is_attached_to_the_report_data():
     assert '"locator": locator,' in SRC
     assert "_locator(cur, country, bbox)" in SRC
+
+
+def test_the_district_inset_is_the_containing_nuts3():
+    """The intermediate zoom -- departement in France, Kreis in Germany.
+
+    Found the same way as the landmass, by the nuts3 polygon that CONTAINS the
+    commune (a 0.35 ms indexed point lookup), labelled with its own name. Ain
+    for Haut Valromey, not a country code.
+    """
+    fn = SRC.split("def _district(")[1].split("\ndef ")[0]
+    assert "unit_type = 'nuts3'" in fn, "the district is the nuts3 level"
+    assert "ST_Contains" in fn, "the nuts3 CONTAINING the commune"
+    assert "nom" in fn, "the district's own name labels the inset"
+    assert "'FR'" not in fn and '"FR"' not in fn, "country-agnostic"
+    assert fn.count("return None") >= 2, "declines when it cannot place the unit"
+
+
+def test_both_renderers_draw_both_insets_via_one_helper():
+    """Country and district must not disagree about projection or style."""
+    assert 'd.get("district")' in SRC and SRC.count('d.get("district")') >= 2
+    assert "def draw_inset(" in SRC, "the SVG uses one helper for both insets"
+    assert "def draw_inset_pdf(" in SRC, "the PDF uses one helper for both insets"
+    assert '"district": district,' in SRC
