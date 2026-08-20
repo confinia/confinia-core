@@ -339,7 +339,17 @@ def _jwks():
         import urllib.request
         conf = json.loads(urllib.request.urlopen(
             f"{KC_DISCOVERY}/.well-known/openid-configuration", timeout=5).read())
-        keys = json.loads(urllib.request.urlopen(conf["jwks_uri"], timeout=5).read())
+        # Fetch the keys from where we reached the DISCOVERY document, not from
+        # the URL that document advertises. Keycloak builds jwks_uri from the
+        # realm's frontendUrl, so once that is pinned to the public host, the
+        # advertised URL is one the container cannot reach -- it goes out
+        # through the edge and back. Discovery succeeded, the key fetch then
+        # failed, and the whole thing looked like "Keycloak is unreachable"
+        # when in truth only the second hop was.
+        jwks_uri = conf["jwks_uri"]
+        if not jwks_uri.startswith(KC_DISCOVERY.rstrip("/")):
+            jwks_uri = KC_DISCOVERY.rstrip("/") + "/protocol/openid-connect/certs"
+        keys = json.loads(urllib.request.urlopen(jwks_uri, timeout=5).read())
         _JWKS = {k["kid"]: k for k in keys["keys"]}
     except Exception as e:
         # A configured identity that cannot fetch its keys rejects EVERY token,

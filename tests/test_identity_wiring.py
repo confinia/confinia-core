@@ -60,3 +60,22 @@ def test_a_broken_identity_is_reported_rather_than_silent():
         assert state in SRC, f"health must distinguish {state}"
     assert '"identity": identity_health()' in SRC, "and /healthz must say so"
     assert "_JWKS_ERROR" in SRC, "the reason is kept, not discarded"
+
+
+def test_the_keys_are_fetched_where_discovery_was_reached():
+    """Keycloak builds `jwks_uri` from the realm's frontendUrl.
+
+    Once that is pinned to the public host, the discovery document -- correctly
+    fetched over the internal network -- advertises a key URL the container
+    cannot reach, because it goes out through the edge and back. Discovery
+    succeeded and the SECOND hop failed, which presented as "Keycloak is
+    unreachable" and sent me looking at networks that were fine.
+
+    Measured: `jwks_uri` = https://sandbox.confinia.io/... , fetching it from
+    inside the container = Connection refused, while the discovery URL beside
+    it returned 200.
+    """
+    fn = SRC.split("def _jwks(")[1].split("\ndef ")[0]
+    assert "jwks_uri.startswith(KC_DISCOVERY" in fn, \
+        "an advertised URL off our discovery host must not be trusted"
+    assert "/protocol/openid-connect/certs" in fn, "we build the internal one instead"
