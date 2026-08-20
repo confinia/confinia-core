@@ -144,6 +144,15 @@
     letter-spacing: .02em; color: #9fb4d0; background: rgba(122,184,255,.12);
     border: 1px solid rgba(122,184,255,.28); border-radius: 999px;
     padding: .1rem .45rem; vertical-align: middle; white-space: nowrap; }
+  /* The full record is what this site is FOR, and it was rendered in .tip --
+     0.75em at 55% opacity, the same styling as the passive hint above it. The
+     one action worth taking looked like a footnote. */
+  #histo .record-cta { display: block; margin-top: .75rem; padding: .85rem .8rem;
+    background: #7ab8ff; color: #07101c; font-weight: 700; font-size: .95rem;
+    text-align: center; text-decoration: none; border-radius: 6px;
+    transition: background .15s ease; }
+  #histo .record-cta:hover, #histo .record-cta:focus-visible { background: #a3cdff; }
+  #histo .record-cta:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
   footer {
     position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
     padding: .3rem 1rem; font-size: .75rem; opacity: .75;
@@ -1141,8 +1150,8 @@ async function showHistory(code, country, currentName) {
       <h2><b>${currentName}</b> (${code}) · ${COUNTRY_NAMES[country] || country}</h2>
       ${rows}${evts}
       <div class="tip">${window.t("histo_click_period")}</div>
-      <div class="tip"><a href="${location.hostname==='confinia.github.io'?'https://www.confinia.io':location.origin}/commune/${code}?country=${country}&lang=${window.CONFINIA_LANG}"
-        target="_blank" rel="noopener" style="color:#7ab8ff">${window.t("histo_full_record")}</a></div>`;
+      <a class="record-cta" href="${location.hostname==='confinia.github.io'?'https://www.confinia.io':location.origin}/commune/${code}?country=${country}&lang=${window.CONFINIA_LANG}"
+        target="_blank" rel="noopener">${window.t("histo_full_record")}</a>`;
     el.querySelector(".close").onclick = () => { el.style.display = "none"; };
     el.querySelectorAll(".v").forEach(n =>
       n.addEventListener("click", () => jumpTo(n.dataset.vf)));
