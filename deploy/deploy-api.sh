@@ -65,6 +65,22 @@ stage() {
 	fi
 	echo "== the $P API (passive, $(port_of "$P")) switches to the new version; the public stays on $A"
 	port_is_ours "$(port_of "$P")" "confinia-${P}_api_1" || exit 1
+	# Install the unit BEFORE restarting it. deploy/quadlet/*.container was
+	# committed, edited, reviewed and merged -- and none of that reached the
+	# machine, because nothing ever copied it. The units had been installed by
+	# hand once, so the repo copies were documentation that silently drifted.
+	# Wiring identity landed KC_ISSUER in the file and production still reported
+	# `identity: off`: the image was new, the environment was not. Same shape as
+	# the Caddyfile that reached the mirror and stopped, and the edge that was
+	# never reloaded.
+	UNIT_SRC="deploy/quadlet/confinia-${P}-api.container"
+	UNIT_DST="$HOME/.config/containers/systemd/confinia-${P}-api.container"
+	if [ -r "$UNIT_SRC" ] && ! cmp -s "$UNIT_SRC" "$UNIT_DST"; then
+		mkdir -p "$(dirname "$UNIT_DST")"
+		cp "$UNIT_SRC" "$UNIT_DST"
+		systemctl --user daemon-reload
+		echo "   unit confinia-${P}-api updated from the repo (it had drifted)"
+	fi
 	if systemctl --user cat "confinia-${P}-api" >/dev/null 2>&1; then
 		# Quadlet path (issue #123). The container belongs to SYSTEMD, so it
 		# outlives the process that restarted it. A container created here

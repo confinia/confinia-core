@@ -79,3 +79,22 @@ def test_the_keys_are_fetched_where_discovery_was_reached():
     assert "jwks_uri.startswith(KC_DISCOVERY" in fn, \
         "an advertised URL off our discovery host must not be trusted"
     assert "/protocol/openid-connect/certs" in fn, "we build the internal one instead"
+
+
+def test_the_committed_unit_is_actually_installed_by_the_deploy():
+    """deploy/quadlet/*.container was committed, reviewed and merged -- and
+    reached nothing. The units had been installed by hand once, so the repo
+    copies were documentation that drifted.
+
+    Proven by this very change: KC_ISSUER landed in the file, the promotion
+    succeeded, and production still reported `identity: off` because the image
+    was new and the environment was not. Same shape as the Caddyfile that
+    reached the mirror and stopped there.
+    """
+    sh = open(os.path.join(ROOT, "deploy", "deploy-api.sh"), encoding="utf-8").read()
+    assert "deploy/quadlet/confinia-${P}-api.container" in sh, "read the committed unit"
+    assert "containers/systemd" in sh, "and write it where systemd reads"
+    assert "daemon-reload" in sh, "so the change is picked up"
+    i_install = sh.index("UNIT_DST")
+    i_restart = sh.index('systemctl --user restart "confinia-${P}-api"')
+    assert i_install < i_restart, "install before restart, or the restart uses the old file"
