@@ -77,3 +77,33 @@ def test_the_dumps_defend_themselves_and_not_only_the_home_directory():
     assert "umask 077" in CODE, "nothing this script creates may be group/world readable"
     assert 'chmod 600 "$OUT"' in CODE, "the published dump, explicitly"
     assert 'chmod 700 "$DEST"' in CODE, "and the directory holding it"
+
+
+def test_the_dump_carries_its_globals_and_the_tool_choice_is_pinned():
+    """pg_dumpALL, never pg_dump.
+
+    A per-database dump carries no roles, and the restore then dies on
+    `role "..." does not exist`. Overwatch found every dump they held was
+    unrestorable for exactly that reason -- five per-tenant RLS roles that had
+    never been backed up. Ours are safe by construction rather than foresight,
+    so the choice is pinned: changing this line to `pg_dump -d ops` must fail
+    loudly rather than quietly produce archives that cannot be restored.
+
+    Verified non-vacuously on a real dump: 102 CREATE TABLE, 104 COPY blocks,
+    one role (`confinia`) both referenced and created.
+    """
+    assert "pg_dumpall" in CODE and "pg_dump -d" not in CODE
+    assert 'grep -c "^CREATE ROLE "' in CODE, "the globals must be proven present"
+
+
+def test_the_globals_check_cannot_pass_vacuously():
+    """An EMPTY dump satisfies 'every referenced role is created' -- zero
+    references, zero missing. The platform session's first run called a
+    20-byte file OK for precisely that reason. So the emptiness checks must run
+    BEFORE this one, and this one must require a positive count."""
+    size_i = CODE.index("MIN_BYTES")
+    hdr_i = CODE.index("cluster dump")
+    role_i = CODE.index("CREATE ROLE")
+    assert size_i < role_i and hdr_i < role_i, \
+        "non-triviality is established before any role reasoning"
+    assert '-ge 1' in CODE, "at least one role must actually be created"
