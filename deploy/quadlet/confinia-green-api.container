@@ -27,6 +27,12 @@ Image=localhost/confinia-api:latest
 # Joining the colour network is what makes PG_DSN's `db` host resolve to THIS
 # colour's database -- `db` is a network alias, not a hostname we control.
 Network=confinia-green_default
+# Keycloak lives on confinia_default, so an API attached only to its own colour
+# network cannot fetch the signing keys -- every token is then rejected, and
+# silently: _jwks() swallowed the error. The sandbox worked only because it
+# happens to sit on both networks. Identity is not configured until the API can
+# actually reach the issuer.
+Network=confinia_default
 PublishPort=127.0.0.1:11220:8000
 # Telemetry. A Quadlet unit reads ONLY the EnvironmentFile, so everything the
 # compose file used to supply through `environment:` has to be repeated here.
@@ -35,6 +41,12 @@ PublishPort=127.0.0.1:11220:8000
 # misconfiguration the process complains about -- it is silence. Both colours
 # stopped reporting on 2026-08-16 and the dashboards simply stopped filling.
 Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://host.containers.internal:11060
+# Sign-in (issue #132 follow-up). URLs, not secrets, so they belong here rather
+# than in the 600 env file. KC_ISSUER is what tokens must claim; KC_DISCOVERY is
+# where WE fetch the keys -- the public URL goes through the edge and back,
+# which the container cannot do, so it reads Keycloak on the shared network.
+Environment=KC_ISSUER=https://www.confinia.io/auth/realms/confinia
+Environment=KC_DISCOVERY=http://confinia_keycloak_1:8180/auth/realms/confinia
 # PG_DSN, OPS_DSN and the rest live here; the file is gitignored and 600.
 EnvironmentFile=%h/projects/confinia/deploy/secrets.env
 

@@ -101,6 +101,9 @@ After=network-online.target
 ContainerName=$NAME
 Image=localhost/confinia-api:latest
 Network=$NET
+# And the shared network, where Keycloak is: without it the KC_DISCOVERY below
+# resolves to nothing and identity silently rejects every token.
+Network=confinia_default
 PublishPort=127.0.0.1:${PORT}:8000
 EnvironmentFile=%h/projects/confinia/deploy/secrets.env
 EnvironmentFile=%h/.config/containers/systemd/confinia-staging.env
@@ -109,6 +112,11 @@ EnvironmentFile=%h/.config/containers/systemd/confinia-staging.env
 # sandbox.confinia.io, staging must accept the same one: it previously expected
 # www.confinia.io and silently rejected every token the moment the pin landed.
 Environment=KC_ISSUER=https://sandbox.confinia.io/auth/realms/confinia-sbx
+# KC_DISCOVERY defaulted to KC_ISSUER, a public URL this container cannot
+# reach: _jwks() failed, returned {}, and staging rejected every token in
+# silence for as long as it has had identity configured. Fetch the keys on the
+# shared network instead, where Keycloak actually is.
+Environment=KC_DISCOVERY=http://confinia_keycloak_1:8180/auth/realms/confinia-sbx
 Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://host.containers.internal:11060
 Environment=POLAR_MODE=sandbox
 Environment=CONFINIA_ENV=staging
