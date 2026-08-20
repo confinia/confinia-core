@@ -38,6 +38,12 @@ TMP="$DEST/.ops-$STAMP.sql.gz.partial"
 OUT="$DEST/ops-$STAMP.sql.gz"
 trap 'rm -f "$TMP"' EXIT
 
+# pg_dumpALL, not pg_dump. A per-database dump carries no roles, and a restore
+# then dies on `role "..." does not exist`. Overwatch discovered exactly that
+# this week: every dump they held was unrestorable because five per-tenant RLS
+# roles had never been backed up. Ours survive that by construction rather than
+# by foresight, so the check below refuses any dump that lost the globals --
+# "optimising" this line to `pg_dump -d ops` must fail loudly, not silently.
 podman exec confinia_ops-db_1 pg_dumpall -U confinia | gzip > "$TMP"
 
 # Three questions, because each has been answered wrongly by a file that
@@ -56,6 +62,19 @@ case "$head_txt" in
 	*"PostgreSQL database cluster dump"*) ;;
 	*) echo "FAIL: $TMP does not look like a pg_dumpall cluster dump" >&2; exit 1 ;;
 esac
+
+# Fourth question: does it carry the globals, and does it create every role it
+# references? A restore is worth nothing without them.
+#
+# The trap, reported by the platform session after their own check called a
+# 20-byte file "OK": an EMPTY dump passes this VACUOUSLY, because zero
+# references means zero missing. Non-triviality is proven above, by the size
+# floor and the header check, before this runs at all -- order matters here.
+roles_created=$(zcat "$TMP" | grep -c "^CREATE ROLE " || true)
+[ "$roles_created" -ge 1 ] || {
+	echo "FAIL: no CREATE ROLE in the dump -- globals are missing, so this would" >&2
+	echo "      not restore. Is this still pg_dumpall and not pg_dump?" >&2
+	exit 1; }
 
 mv "$TMP" "$OUT"
 chmod 600 "$OUT"
