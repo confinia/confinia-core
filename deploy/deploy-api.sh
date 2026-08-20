@@ -23,6 +23,36 @@ other()  { if [ "$1" = blue ]; then echo green; else echo blue; fi; }
 # deploy-staging broke for an afternoon when green's 8402 was dropped.
 port_of() { if [ "$1" = blue ]; then echo 11120; else echo 11220; fi; }
 
+warm() {
+	# A passive colour serves nothing, so PostgreSQL's cache holds none of its
+	# pages. Measured 2026-08-20 on identical data (205 370 rows in both):
+	# /v1/export/ohm?unit_type=epci&limit=1 took 37 s cold on the passive colour
+	# and 0.015 s on the active one -- a factor of ~2400, and not statistics:
+	# ANALYZE changed nothing. It is simply that one colour's pages are hot and
+	# the other's are on disk.
+	#
+	# Two consequences, and the second is the one that matters. The smoke test
+	# times out at 30 s and failed the deploy. And a promotion would hand real
+	# users a cold colour: the first requests after every promotion have been
+	# paying that price, unnoticed, because nobody was watching the moment of
+	# the switch.
+	#
+	# So touch the heavy paths before anyone else does. Failures are ignored on
+	# purpose: this is a favour to the cache, never a gate.
+	local port="$1"
+	echo "== warming :$port (a passive colour's pages are all on disk)"
+	for path in \
+		"/v1/export/ohm?country=FR&unit_type=epci&limit=1" \
+		"/v1/export/ohm?country=FR&unit_type=commune&limit=1" \
+		"/v1/communes/01187/report.svg?country=FR&lang=fr" \
+		"/v1/communes/01187/history?geometry=true&neighbours=true" \
+		"/healthz"; do
+		t=$(curl -s -o /dev/null -w "%{time_total}" --max-time 120 \
+			"http://127.0.0.1:$port$path" 2>/dev/null || echo "-")
+		printf "   %6ss  %s\n" "$t" "${path%%\?*}"
+	done
+}
+
 wait_ok() {
 	for _ in $(seq 1 60); do
 		curl -sf "http://127.0.0.1:$1/healthz" >/dev/null && return 0
@@ -114,6 +144,7 @@ stage() {
 			--profile serve up -d --no-deps api >/dev/null 2>&1
 	fi
 	wait_ok "$(port_of "$P")"
+	warm "$(port_of "$P")"
 	echo "OK: validate on https://staging.api.confinia.io then ./deploy/deploy-api.sh promote"
 }
 
