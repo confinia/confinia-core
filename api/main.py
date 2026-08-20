@@ -327,6 +327,7 @@ KC_ISSUER = os.environ.get("KC_ISSUER", "")   # e.g. https://www.confinia.io/aut
 # blocked; point KC_DISCOVERY at the INTERNAL Keycloak realm base instead. The
 # token's `iss` is still validated against KC_ISSUER. Defaults to KC_ISSUER.
 KC_DISCOVERY = os.environ.get("KC_DISCOVERY", "") or KC_ISSUER
+_JWKS_ERROR: str | None = None   # why identity is not working, if it is not
 _JWKS: dict = {}
 
 
@@ -340,8 +341,16 @@ def _jwks():
             f"{KC_DISCOVERY}/.well-known/openid-configuration", timeout=5).read())
         keys = json.loads(urllib.request.urlopen(conf["jwks_uri"], timeout=5).read())
         _JWKS = {k["kid"]: k for k in keys["keys"]}
-    except Exception:
+    except Exception as e:
+        # A configured identity that cannot fetch its keys rejects EVERY token,
+        # and used to do so in total silence: staging carried KC_ISSUER for
+        # weeks while its container could not reach Keycloak at all, so
+        # `bearer_identity` returned None for everyone and nothing said why.
+        # Remember the reason so /healthz can report it.
         _JWKS = {}
+        globals()["_JWKS_ERROR"] = f"{type(e).__name__}: {str(e)[:120]}"
+    else:
+        globals()["_JWKS_ERROR"] = None
     return _JWKS
 
 
@@ -2794,6 +2803,25 @@ def passage(
             "note": note + " Method follows COGugaison (Kim Antunez)."}
 
 
+def identity_health() -> dict:
+    """Is sign-in actually working, not merely configured?
+
+    Three distinguishable states, because they need different actions:
+      off       -- KC_ISSUER unset; the API knowingly treats everyone as
+                   anonymous. A deliberate posture, not a fault.
+      unreachable -- configured, but the keys cannot be fetched, so every token
+                   is rejected. This is the state staging sat in unnoticed.
+      ok        -- keys held; a valid token will resolve.
+    """
+    if not KC_ISSUER:
+        return {"state": "off", "issuer": None}
+    keys = _jwks()
+    if not keys:
+        return {"state": "unreachable", "issuer": KC_ISSUER,
+                "discovery": KC_DISCOVERY, "error": _JWKS_ERROR}
+    return {"state": "ok", "issuer": KC_ISSUER, "keys": len(keys)}
+
+
 @app.get("/healthz")
 def healthz():
     with cursor() as cur:
@@ -2804,7 +2832,12 @@ def healthz():
                 # pointed at Polar sandbox -- and that is the dangerous
                 # direction: customers "paying" while no money is collected,
                 # with every page looking normal. Here it is also an ops signal.
-                "payment_mode": payment_mode()}
+                "payment_mode": payment_mode(),
+                # Identity, stated rather than assumed. "configured" is not
+                # "working": without reachable keys every token is rejected, and
+                # the only visible symptom is that signed-in callers look
+                # anonymous -- which is indistinguishable from nobody signing in.
+                "identity": identity_health()}
 
 
 # Événements UI de la démo. Hors /v1/ (jamais soumis à clé), fire-and-forget
