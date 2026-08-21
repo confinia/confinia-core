@@ -39,6 +39,19 @@ def test_every_migration_is_idempotent():
         assert "IF NOT EXISTS" in sql, f"{os.path.basename(f)} must survive re-running"
 
 
+def test_a_backfill_only_fills_what_is_empty():
+    """An UPDATE is allowed here -- filling a new column from data already
+    present is additive in effect -- but only where the column is unset, so
+    re-running cannot overwrite a value someone later corrected."""
+    import re as _re
+    for f in FILES:
+        sql = open(f, encoding="utf-8").read()
+        for m in _re.finditer(r"UPDATE\s+[\w.]+(.*?);", sql, _re.S | _re.I):
+            body = m.group(1)
+            assert "IS NULL" in body.upper(), \
+                f"{os.path.basename(f)}: an UPDATE must only fill empty cells"
+
+
 def test_no_migration_destroys_anything():
     """A deploy applies these to a colour that may be promoted minutes later,
     and to one that may be rolled back to."""
