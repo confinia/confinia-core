@@ -70,6 +70,15 @@ CREATE UNLOGGED TABLE IF NOT EXISTS public.visitor_daily (
 DELETE FROM public.visitor_daily WHERE day < CURRENT_DATE - 45;
 -- Intentions de paiement (page /pricing) : le pipeline commercial en
 -- self-service. Lu à la main (ou par le futur webhook MoR), jamais purgé.
+CREATE TABLE IF NOT EXISTS public.unit_uid (
+    uid         text PRIMARY KEY,
+    country     text NOT NULL,
+    code        text NOT NULL,
+    unit_type   text NOT NULL,
+    valid_from  date NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (country, code, unit_type, valid_from)
+);
 CREATE TABLE IF NOT EXISTS public.upgrade_intent (
     id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     created_at timestamptz NOT NULL DEFAULT now(),
@@ -1790,6 +1799,69 @@ def declined_lines(d: dict) -> list:
     return out
 
 
+UID_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"   # no l/i/o/0/1: it gets read aloud
+
+
+def unit_uid(country: str, code: str, unit_type: str, valid_from) -> str | None:
+    """The citable identifier of one version, assigned once and then remembered.
+
+    The founder chose an opaque identifier over a composed one, for the right
+    reason: a citable reference must never change, and `FR-01187-2016-01-01`
+    changes the day a start date is corrected.
+
+    But opacity alone does not deliver that, and the obvious implementations
+    quietly fail:
+
+      - Derived from the row id. Ingestion runs DELETE ... WHERE source = %s and
+        re-inserts, and `id` comes from a sequence, so every rebuild would mint
+        different identifiers for the same history. Worse than useless: stable
+        in appearance, unstable in fact.
+      - Hashed from the natural key. Reproducible across rebuilds, but it moves
+        exactly when a date is corrected -- the composed form's weakness, hidden
+        rather than fixed.
+
+    So it is ASSIGNED on first sight and stored in the ops database, which is
+    backed up and never rebuilt from source. If a natural key is ever corrected,
+    the identifier stays and its row is repointed deliberately, which is the
+    only way an identifier survives its own data being wrong.
+
+    Returns None rather than raising: a report must still render if the ops
+    database is unreachable. A missing identifier is a gap; a 500 is an outage.
+    """
+    try:
+        with ops_cursor() as cur:
+            cur.execute(
+                "SELECT uid FROM public.unit_uid "
+                "WHERE country=%s AND code=%s AND unit_type=%s AND valid_from=%s",
+                (country, code, unit_type, valid_from))
+            row = cur.fetchone()
+            if row:
+                return row[0]
+            import secrets as _secrets
+            for _ in range(6):                       # collisions are possible, not likely
+                uid = "".join(_secrets.choice(UID_ALPHABET) for _ in range(8))
+                cur.execute(
+                    "INSERT INTO public.unit_uid (uid, country, code, unit_type, valid_from) "
+                    "VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING RETURNING uid",
+                    (uid, country, code, unit_type, valid_from))
+                got = cur.fetchone()
+                if got:
+                    return got[0]
+                # Either the uid collided or another request just minted this
+                # version's identifier. Re-read before trying again: two reports
+                # of the same commune must not race into two identifiers.
+                cur.execute(
+                    "SELECT uid FROM public.unit_uid "
+                    "WHERE country=%s AND code=%s AND unit_type=%s AND valid_from=%s",
+                    (country, code, unit_type, valid_from))
+                row = cur.fetchone()
+                if row:
+                    return row[0]
+    except Exception:
+        return None
+    return None
+
+
 def report_contents(d: dict, lab: dict) -> list:
     """The sections this particular report actually contains.
 
@@ -1849,9 +1921,11 @@ def citation_block(d: dict, lab: dict) -> list:
     """
     cur = d["versions"][-1]["nom"] if d.get("versions") else d["code"]
     url = f"https://www.confinia.io/commune/{d['code']}?country={d['country']}"
+    uid = d.get("uid")
+    ref = f"cfn:v1:{uid} " if uid else ""
     return [
         (lab["cite_as"],
-         f"Confinia. {cur} ({d['code']}, {d['country']}) — "
+         f"{ref}Confinia. {cur} ({d['code']}, {d['country']}) — "
          f"{lab['record']}. API v{APP_VERSION}. {url}"),
     ]
 
@@ -2051,7 +2125,8 @@ def _report_data(code: str, country: str, lang: str = "en") -> dict:
     with cursor() as cur:
         cur.execute(
             "SELECT nom, valid_from, valid_to, parents, children, source, "
-            " geometry_vintage, geometry_approx, ST_AsGeoJSON(geom_simple, 5) "
+            " geometry_vintage, geometry_approx, ST_AsGeoJSON(geom_simple, 5), "
+            " unit_type "
             "FROM commune_version "
             "WHERE unit_type = ANY(%s) AND code = %s AND country = %s "
             "ORDER BY valid_from LIMIT %s",
@@ -2065,7 +2140,7 @@ def _report_data(code: str, country: str, lang: str = "en") -> dict:
                     for r in cur.fetchall()}
         src_info = {k: (v["attribution"], v["license"]) for k, v in registry.items()}
     versions = []
-    for nom, vf, vt, parents, children, src, vintage, approx, g in rows:
+    for nom, vf, vt, parents, children, src, vintage, approx, g, utype in rows:
         rings = []
         if g:
             gj = json.loads(g)
@@ -2076,6 +2151,7 @@ def _report_data(code: str, country: str, lang: str = "en") -> dict:
             "nom": nom, "valid_from": vf, "valid_to": vt,
             "parents": parents or [], "children": children or [],
             "source": src, "vintage": vintage, "approx": approx, "rings": rings,
+            "unit_type": utype,
         })
     feats = [{"type": "Feature", "properties": {
         "code": code, "nom": v["nom"],
@@ -2112,6 +2188,11 @@ def _report_data(code: str, country: str, lang: str = "en") -> dict:
             "locator": locator,
             "district": district,
             "facts": facts,
+            # The natural key includes unit_type: a `commune` and a `lau` can
+            # share a code, and two different things must never share one
+            # citable identifier.
+            "uid": (unit_uid(country, code, versions[-1]["unit_type"],
+                             versions[-1]["valid_from"]) if versions else None),
             "source_annex": build_source_annex(versions, pop, registry, lang),
             "events": derive_events(feats, lang),
             "bbox": bbox,
