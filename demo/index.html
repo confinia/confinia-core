@@ -135,6 +135,15 @@
   #histo .v .dates { font-variant-numeric: tabular-nums; opacity: .8; font-size: .85em; }
   #histo .v .links { font-size: .8em; opacity: .65; }
   #histo .tip { font-size: .75em; opacity: .55; margin-top: .4rem; }
+  /* The version was only at the very end of the footer, after the attribution
+     wall, where nobody reads it. It belongs beside the name of the thing it is
+     the version OF. Quieter than the brand, but not a footnote: on staging this
+     is the CANDIDATE version being validated, which is exactly when someone
+     needs to see it at a glance. */
+  .hver { margin-left: .5rem; font-size: .72rem; font-weight: 600;
+    letter-spacing: .02em; color: #9fb4d0; background: rgba(122,184,255,.12);
+    border: 1px solid rgba(122,184,255,.28); border-radius: 999px;
+    padding: .1rem .45rem; vertical-align: middle; white-space: nowrap; }
   footer {
     position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
     padding: .3rem 1rem; font-size: .75rem; opacity: .75;
@@ -148,7 +157,7 @@
 <body>
 <div id="map"></div>
 <header>
-  <h1><span>Confinia</span><span class="tagline"> · boundaries have a history</span></h1><span id="envbadge"></span>
+  <h1><span>Confinia</span><span class="tagline"> · boundaries have a history</span></h1><span id="hver" class="hver" title="Product version"></span><span id="envbadge"></span>
   <button id="langtoggle" class="langtoggle" type="button" title="Change language / changer de langue">FR · EN</button>
   <div class="authbtns" id="authbtns"></div>
   <div id="controls">
@@ -957,7 +966,9 @@ map.on("load", () => {
   // Version servie par l'API : visible au footer (et sur staging, c'est la
   // version CANDIDATE que l'on est en train de valider).
   fetch(`${API}/healthz`).then(r => r.json())
-    .then(d => { if (d.version) $("ver").textContent = `v${d.version}`; })
+    .then(d => { if (d.version) { const v = `v${d.version}`;
+            $("ver").textContent = v;
+            const h = $("hver"); if (h) h.textContent = v; } })
     .catch(() => {});
 
   const info = $("info");
