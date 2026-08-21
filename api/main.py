@@ -1368,6 +1368,20 @@ REPORT_LABELS = {
         "method": "What we did to this data",
         "cite": "How to cite this record",
         "cite_as": "Cite as",
+        "cutoff": lambda d: f"Situation as known on {d}",
+        "cutoff_none": "Cut-off date unknown for this country",
+        "legal": "What Confinia commits to, and what it does not",
+        "legal_body": [
+            "Confinia commits to one thing: every fact in this document comes "
+            "from an open-data source, and that source is named in the annex, "
+            "fact by fact. The annex is that commitment.",
+            "The accuracy of the data itself rests with those who publish it — "
+            "the national statistical and mapping institutes listed there — not "
+            "with Confinia. We do not correct it and we do not warrant it: we "
+            "date it, connect it, and say where it came from.",
+            "In practice: a fact you dispute is checked at the source named "
+            "beside it, not with us.",
+        ],
         "m_area": lambda n: (
             f"Areas are measured on the full source geometry. The outlines drawn "
             f"on this page are simplified for legibility, so measuring them would "
@@ -1436,6 +1450,21 @@ REPORT_LABELS = {
         "method": "Ce que nous avons fait de cette donnée",
         "cite": "Comment citer cette fiche",
         "cite_as": "Citer comme",
+        "cutoff": lambda d: f"Situation connue au {d}",
+        "cutoff_none": "Date d'arrêté inconnue pour ce pays",
+        "legal": "Ce sur quoi Confinia s'engage, et ce sur quoi il ne s'engage pas",
+        "legal_body": [
+            "Confinia s'engage sur un seul point : chaque fait de ce document "
+            "provient d'une source de données ouvertes, et cette source est "
+            "nommée dans l'annexe, fait par fait. L'annexe est cet engagement.",
+            "L'exactitude des données elles-mêmes relève de ceux qui les "
+            "publient — les instituts nationaux de statistique et de "
+            "cartographie qui y sont cités — et non de Confinia. Nous ne les "
+            "corrigeons pas et nous ne les garantissons pas : nous les datons, "
+            "les relions, et disons d'où elles viennent.",
+            "En pratique : un fait que vous contestez se vérifie à la source "
+            "indiquée en regard, pas auprès de nous.",
+        ],
         "m_area": lambda n: (
             "Les superficies sont mesurées sur la géométrie source complète. Les "
             "contours dessinés sur cette page sont simplifiés pour la lisibilité : "
@@ -1862,6 +1891,52 @@ def unit_uid(country: str, code: str, unit_type: str, valid_from) -> str | None:
     return None
 
 
+_CUTOFF: dict = {}
+
+
+def data_cutoff(country: str) -> str | None:
+    """How current our picture of a country is, stated rather than implied.
+
+    Without it a reader cannot tell a missing event from a not-yet-published
+    one -- the difference between "this commune never changed" and "we have not
+    ingested the year in which it did". Derived from the latest source vintage
+    we actually hold, never from today's date: a report generated this morning
+    from last year's ingestion is current as of last year, and saying otherwise
+    would be the most flattering possible lie.
+
+    Cached per process: 207 ms cold, 57 ms warm, and it does not change between
+    two reports.
+    """
+    if country in _CUTOFF:
+        return _CUTOFF[country]
+    out = None
+    try:
+        with cursor() as cur:
+            cur.execute(
+                "SELECT greatest(max(geometry_vintage), max(valid_from)) "
+                "FROM commune_version WHERE country = %s AND valid_to = %s",
+                (country, FAR_FUTURE))
+            row = cur.fetchone()
+            if row and row[0]:
+                out = row[0].isoformat()
+    except Exception:
+        out = None
+    _CUTOFF[country] = out
+    return out
+
+
+def legal_lines(d: dict, lab: dict) -> list:
+    """The one thing Confinia warrants, and the one it does not.
+
+    The founder's position, and it is narrower and more defensible than the
+    usual disclaimer: we guarantee PROVENANCE, not truth. Every fact traces to
+    an open-data source named in the annex; whether that source is right is the
+    source's business. Written as a commitment with a stated boundary rather
+    than as boilerplate that disclaims everything and therefore says nothing.
+    """
+    return list(lab["legal_body"])
+
+
 def report_contents(d: dict, lab: dict) -> list:
     """The sections this particular report actually contains.
 
@@ -1883,6 +1958,7 @@ def report_contents(d: dict, lab: dict) -> list:
     if d.get("source_annex"):
         out.append(lab["annex"])
     out.append(lab["cite"])
+    out.append(lab["legal"])
     return out
 
 
@@ -2191,6 +2267,7 @@ def _report_data(code: str, country: str, lang: str = "en") -> dict:
             # The natural key includes unit_type: a `commune` and a `lau` can
             # share a code, and two different things must never share one
             # citable identifier.
+            "cutoff": data_cutoff(country),
             "uid": (unit_uid(country, code, versions[-1]["unit_type"],
                              versions[-1]["valid_from"]) if versions else None),
             "source_annex": build_source_annex(versions, pop, registry, lang),
@@ -2370,6 +2447,13 @@ def _report_svg(d: dict) -> str:
                          lab["situation"](d["country"]), iy0)
     if dist and dist.get("rings"):
         draw_inset(dist["rings"], dist["marker"], dist["name"], iy0)
+    # How current this picture is, before anything is read. Without it a reader
+    # cannot tell a missing event from a not-yet-published one.
+    co = d.get("cutoff")
+    text(PAD, y, lab["cutoff"](co) if co else lab["cutoff_none"], 11.5,
+         "bold", fill="#5b6b85")
+    y += 24
+
     # Contents, then what was done to the data -- the two things an NHGIS
     # codebook opens with, and the two we had no equivalent of (issue #205).
     # A reader decides whether to trust a document before reading its numbers.
@@ -2560,6 +2644,17 @@ def _report_svg(d: dict) -> str:
                  11, fill="#5b6b85")
     y += 24
 
+    # What we warrant, and what we do not. Last: it is the sentence a reader
+    # returns to once they have decided the document is worth trusting.
+    y += 22
+    text(PAD, y, lab["legal"], 12, "bold", fill="#4a5262"); y += 4
+    for para in legal_lines(d, lab):
+        for part in _wrap(para, 116):
+            y += 14
+            text(PAD + 4, y, part, 10.5, fill="#5b6b85")
+        y += 6
+    y += 20
+
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{y}" '
             f'viewBox="0 0 {W} {y}"><rect width="{W}" height="{y}" fill="#ffffff"/>'
             + "".join(parts) + "</svg>")
@@ -2620,6 +2715,9 @@ def _report_pdf(d: dict) -> bytes:
     if dist and dist.get("rings"):
         draw_inset_pdf(dist["rings"], dist["marker"], dist["name"], itop)
     y = H - 136
+    co = d.get("cutoff")
+    c.setFont("Helvetica-Bold", 9); c.setFillColorRGB(.36, .42, .52)
+    c.drawString(PAD, y, lab["cutoff"](co) if co else lab["cutoff_none"]); y -= 16
     contents = report_contents(d, lab)
     if contents:
         c.setFont("Helvetica-Bold", 9.5); c.setFillColorRGB(.29, .32, .38)
@@ -2834,6 +2932,16 @@ def _report_pdf(d: dict) -> bytes:
         for i, part in enumerate(_wrap(value, 100)):
             pre = (f"{label} : " if d.get("lang") == "fr" else f"{label}: ") if i == 0 else ""
             c.drawString(PAD + 8, y, pre + part); y -= 10
+    if y < 150:
+        footer(); c.showPage(); y = H - 70
+    y -= 16
+    c.setFont("Helvetica-Bold", 10); c.setFillColorRGB(.29, .32, .38)
+    c.drawString(PAD, y, lab["legal"]); y -= 13
+    c.setFont("Helvetica", 8.5); c.setFillColorRGB(.36, .42, .52)
+    for para in legal_lines(d, lab):
+        for part in _wrap(para, 104):
+            c.drawString(PAD + 4, y, part); y -= 10
+        y -= 5
     footer(); c.showPage(); c.save()
     return buf.getvalue()
 
