@@ -400,6 +400,12 @@ CREATE INDEX idx_cv_type_country  ON commune_version (unit_type, country);
 CREATE INDEX idx_cv_validity      ON commune_version (valid_from, valid_to);
 -- API contract index: "this code at a given date" (TODO Step 2)
 CREATE INDEX idx_cv_code_validity ON commune_version (code, valid_from, valid_to);
+-- Filter AND order in one index, for /v1/export/ohm. Without it PostgreSQL uses
+-- the ordering index above and discards rows one at a time: measured on a
+-- limit=1 export, 73 582 rows removed by filter and 53 076 buffer pages read to
+-- return 2 rows -- 3.1 s warm and 71 s cold, which timed out the deploy smoke.
+-- With it the filter becomes an index condition: 5 pages.
+CREATE INDEX idx_cv_country_type_code_vf ON commune_version (country, unit_type, code, valid_from);
 -- Spatial indexes: "which commune contains this point"
 CREATE INDEX idx_cv_geom          ON commune_version USING gist (geom);
 CREATE INDEX idx_cv_geom_simple   ON commune_version USING gist (geom_simple);
