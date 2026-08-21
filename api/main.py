@@ -1370,6 +1370,32 @@ REPORT_LABELS = {
         "cite_as": "Cite as",
         "cutoff": lambda d: f"Situation as known on {d}",
         "cutoff_none": "Cut-off date unknown for this country",
+        "summary": "In short",
+        "glossary": "Terms used here",
+        "page_n": lambda n, t: f"page {n} / {t}",
+        "s_current": lambda nom: f"{nom} exists today.",
+        "s_gone": lambda nom, d: f"{nom} ceased to exist on {d}.",
+        "s_formed": lambda n, d: (f"It was formed on {d} by the merger of "
+                                  f"{n} commune(s)."),
+        "s_absorbed": lambda n, d: f"It later absorbed {n} more, the last on {d}.",
+        "s_stable": lambda d: f"Its boundary has not moved since {d}.",
+        "s_never": "Its boundary has never moved in our records.",
+        "s_area": lambda a: f"It covers {a} km².",
+        "s_versions": lambda n, d: (f"We hold {n} recorded version(s), the "
+                                    f"earliest beginning {d}."),
+        "g_terms": [
+            ("Version", "One period during which a unit kept the same code and "
+                        "name. A new version begins at a dated event."),
+            ("Predecessor / successor", "Units the source's own register links "
+                                        "to this one at a dated change — not our "
+                                        "inference."),
+            ("commune nouvelle", "A French commune created by merging existing "
+                                 "ones, which keeps one of their codes."),
+            ("LAU / NUTS", "European statistical unit levels: LAU is the "
+                           "municipal level, NUTS 3 the district above it."),
+            ("Harmonised", "A past figure recomputed for today's territory, so "
+                           "a series can be compared across boundary changes."),
+        ],
         "legal": "What Confinia commits to, and what it does not",
         "legal_body": [
             "Confinia commits to one thing: every fact in this document comes "
@@ -1452,6 +1478,35 @@ REPORT_LABELS = {
         "cite_as": "Citer comme",
         "cutoff": lambda d: f"Situation connue au {d}",
         "cutoff_none": "Date d'arrêté inconnue pour ce pays",
+        "summary": "En bref",
+        "glossary": "Termes employés ici",
+        "page_n": lambda n, t: f"page {n} / {t}",
+        "s_current": lambda nom: f"{nom} existe aujourd'hui.",
+        "s_gone": lambda nom, d: f"{nom} a cessé d'exister le {d}.",
+        "s_formed": lambda n, d: (f"Elle est née le {d} de la fusion de "
+                                  f"{n} commune(s)."),
+        "s_absorbed": lambda n, d: f"Elle en a absorbé {n} depuis, la dernière le {d}.",
+        "s_stable": lambda d: f"Ses limites n'ont pas bougé depuis le {d}.",
+        "s_never": "Ses limites n'ont jamais bougé dans nos données.",
+        "s_area": lambda a: f"Elle couvre {a} km².",
+        "s_versions": lambda n, d: (f"Nous détenons {n} version(s) enregistrée(s), "
+                                    f"la plus ancienne débutant le {d}."),
+        "g_terms": [
+            ("Version", "Une période pendant laquelle une unité a gardé le même "
+                        "code et le même nom. Une nouvelle version commence à un "
+                        "événement daté."),
+            ("Commune d'origine / successeur", "Unités que le registre de la "
+                                               "source relie elle-même à celle-ci "
+                                               "lors d'un changement daté — ce "
+                                               "n'est pas notre déduction."),
+            ("Commune nouvelle", "Commune française créée par fusion de communes "
+                                 "existantes, qui conserve l'un de leurs codes."),
+            ("LAU / NUTS", "Niveaux d'unités statistiques européens : LAU est le "
+                           "niveau communal, NUTS 3 l'échelon au-dessus."),
+            ("Harmonisé", "Un chiffre passé recalculé pour le territoire actuel, "
+                          "afin qu'une série reste comparable malgré les "
+                          "changements de limites."),
+        ],
         "legal": "Ce sur quoi Confinia s'engage, et ce sur quoi il ne s'engage pas",
         "legal_body": [
             "Confinia s'engage sur un seul point : chaque fait de ce document "
@@ -1937,6 +1992,76 @@ def legal_lines(d: dict, lab: dict) -> list:
     return list(lab["legal_body"])
 
 
+def summary_of_findings(d: dict, lab: dict) -> list:
+    """The answer, in plain sentences, before any table (issue #205).
+
+    A professional reading a report decides on page one whether it is worth the
+    next ten minutes. Ours opened on a contents list and a method note -- both
+    necessary, neither an answer. This says what happened to this commune, in
+    the order someone would ask: does it still exist, how did it come about,
+    has its border moved, how big is it, how far back do we go.
+
+    Assembled from facts already computed, so it cannot drift from the tables
+    below it: every sentence here is a restatement, never a second calculation.
+    """
+    f = d.get("facts") or {}
+    vs = d.get("versions") or []
+    if not vs:
+        return []
+    cur, first = vs[-1], vs[0]
+    fr = d.get("lang") == "fr"
+    out = []
+
+    if cur["valid_to"] == FAR_FUTURE:
+        out.append(lab["s_current"](cur["nom"]))
+    else:
+        out.append(lab["s_gone"](cur["nom"], cur["valid_to"].isoformat()))
+
+    if f.get("formed_from"):
+        out.append(lab["s_formed"](len(f["formed_from"]),
+                                   cur["valid_from"].isoformat()))
+    if f.get("absorbed"):
+        last = max(x["to"] for x in f["absorbed"] if x.get("to"))
+        out.append(lab["s_absorbed"](len(f["absorbed"]), last))
+
+    st = f.get("stability")
+    if st:
+        out.append(lab["s_never"] if st.get("never_changed")
+                   else lab["s_stable"](st["since"]))
+
+    a = f.get("area")
+    if a:
+        km = f"{a['km2']:.2f}".replace(".", ",") if fr else f"{a['km2']:.2f}"
+        out.append(lab["s_area"](km))
+
+    out.append(lab["s_versions"](len(vs), first["valid_from"].isoformat()))
+    return out
+
+
+def glossary_lines(d: dict, lab: dict) -> list:
+    """Only the terms this report actually uses.
+
+    A glossary that defines `fusione` for a German commune teaches the reader
+    that the section is padding, and they stop reading the one definition they
+    needed.
+    """
+    text = " ".join([
+        " ".join(str(x) for x in fact_lines(d, lab)),
+        " ".join(summary_of_findings(d, lab)),
+        " ".join(declined_lines(d)),
+    ]).lower()
+    keep = []
+    for term, definition in lab["g_terms"]:
+        head = term.split(" /")[0].split(" (")[0].lower()
+        if head in text or head.rstrip("s") in text or term.lower() in text:
+            keep.append((term, definition))
+    # Version and the lineage terms are structural: this document is built out
+    # of them whether or not the words happen to appear in a rendered sentence.
+    if not any(t.lower().startswith(("version",)) for t, _ in keep):
+        keep.insert(0, lab["g_terms"][0])
+    return keep
+
+
 def report_contents(d: dict, lab: dict) -> list:
     """The sections this particular report actually contains.
 
@@ -1946,7 +2071,7 @@ def report_contents(d: dict, lab: dict) -> list:
     they read any of it. Built from what is present, never from a fixed list --
     a contents entry pointing at an absent section is worse than none.
     """
-    out = [lab["method"]]
+    out = [lab["summary"], lab["method"]]
     if fact_lines(d, lab):
         out.append(lab["facts"])
     if declined_lines(d):
@@ -1957,6 +2082,8 @@ def report_contents(d: dict, lab: dict) -> list:
         out.append(lab["boundaries"])
     if d.get("source_annex"):
         out.append(lab["annex"])
+    if glossary_lines(d, lab):
+        out.append(lab["glossary"])
     out.append(lab["cite"])
     out.append(lab["legal"])
     return out
@@ -2454,9 +2581,31 @@ def _report_svg(d: dict) -> str:
          "bold", fill="#5b6b85")
     y += 24
 
+    # The answer, before anything else. A professional decides on page one
+    # whether a document is worth the next ten minutes, and a contents list is
+    # not an answer.
+    summ = summary_of_findings(d, lab)
+    if summ:
+        text(PAD, y, lab["summary"], 14, "bold"); y += 8
+        for line in summ:
+            for part in _wrap(line, 112):
+                y += 16
+                text(PAD + 6, y, part, 12.5, fill="#1a2333")
+        y += 26
+
     # Contents, then what was done to the data -- the two things an NHGIS
     # codebook opens with, and the two we had no equivalent of (issue #205).
     # A reader decides whether to trust a document before reading its numbers.
+    summ = summary_of_findings(d, lab)
+    if summ:
+        c.setFont("Helvetica-Bold", 12); c.setFillColorRGB(.1, .14, .2)
+        c.drawString(PAD, y, lab["summary"]); y -= 15
+        c.setFont("Helvetica", 10); c.setFillColorRGB(.1, .14, .2)
+        for line in summ:
+            for part in _wrap(line, 96):
+                c.drawString(PAD + 4, y, part); y -= 12
+        y -= 12
+
     contents = report_contents(d, lab)
     if contents:
         text(PAD, y, lab["contents"], 13, "bold", fill="#4a5262"); y += 6
@@ -2644,6 +2793,19 @@ def _report_svg(d: dict) -> str:
                  11, fill="#5b6b85")
     y += 24
 
+    gl = glossary_lines(d, lab)
+    if gl:
+        y += 22
+        text(PAD, y, lab["glossary"], 12, "bold", fill="#4a5262"); y += 4
+        for term, definition in gl:
+            y += 15
+            text(PAD + 4, y, term, 10.5, "bold", fill="#4a5262")
+            for i, part in enumerate(_wrap(definition, 92)):
+                if i:
+                    y += 13
+                text(PAD + 150, y, part, 10.5, fill="#5b6b85")
+        y += 10
+
     # What we warrant, and what we do not. Last: it is the sentence a reader
     # returns to once they have decided the document is worth trusting.
     y += 22
@@ -2668,7 +2830,36 @@ def _report_pdf(d: dict) -> bytes:
     W, H = A4
     PAD = 50
     buf = io.BytesIO()
-    c = pdf_canvas.Canvas(buf, pagesize=A4)
+    class _Numbered(pdf_canvas.Canvas):
+        """page n / N, which needs N -- and N is only known at the end.
+
+        reportlab draws forward and cannot go back, so each page is held as a
+        saved state and the number is stamped when the total is finally known.
+        Without the total, `page 3` tells a reader nothing about whether they
+        are holding all of it, which is the whole point of numbering a document
+        that will be printed and passed around.
+        """
+
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self._pages = []
+
+        def showPage(self):
+            self._pages.append(dict(self.__dict__))
+            self._startPage()
+
+        def save(self):
+            total = len(self._pages)
+            for state in self._pages:
+                self.__dict__.update(state)
+                self.setFont("Helvetica", 7)
+                self.setFillColorRGB(.45, .5, .58)
+                self.drawRightString(W - PAD, 14,
+                                     lab["page_n"](self._pageNumber, total))
+                super().showPage()
+            super().save()
+
+    c = _Numbered(buf, pagesize=A4)
     c.setTitle(f"Confinia — {d['versions'][-1]['nom']} ({d['code']})")
     def footer():
         c.setFont("Helvetica", 7)
@@ -2932,6 +3123,23 @@ def _report_pdf(d: dict) -> bytes:
         for i, part in enumerate(_wrap(value, 100)):
             pre = (f"{label} : " if d.get("lang") == "fr" else f"{label}: ") if i == 0 else ""
             c.drawString(PAD + 8, y, pre + part); y -= 10
+    gl = glossary_lines(d, lab)
+    if gl:
+        if y < 150:
+            footer(); c.showPage(); y = H - 70
+        y -= 14
+        c.setFont("Helvetica-Bold", 10); c.setFillColorRGB(.29, .32, .38)
+        c.drawString(PAD, y, lab["glossary"]); y -= 13
+        for term, definition in gl:
+            c.setFont("Helvetica-Bold", 8.5); c.setFillColorRGB(.29, .32, .38)
+            c.drawString(PAD + 4, y, term[:34])
+            c.setFont("Helvetica", 8.5); c.setFillColorRGB(.36, .42, .52)
+            for i, part in enumerate(_wrap(definition, 74)):
+                if i:
+                    y -= 10
+                c.drawString(PAD + 150, y, part)
+            y -= 12
+
     if y < 150:
         footer(); c.showPage(); y = H - 70
     y -= 16
