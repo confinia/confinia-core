@@ -64,3 +64,29 @@ def test_pages_are_numbered_out_of_a_known_total():
 def test_both_renderers_read_the_same_builders():
     for fn in ("summary_of_findings(d, lab)", "glossary_lines(d, lab)"):
         assert SRC.count(fn) >= 2
+
+
+def test_neither_renderer_contains_the_other_s_drawing_calls():
+    """A block meant for the PDF landed in the SVG and produced a 500 on every
+    report: `UnboundLocalError: cannot access local variable 'c'`.
+
+    Cause: the anchor used to place it -- `contents = report_contents(d, lab)` --
+    exists in BOTH renderers, and a single replacement took the first. The two
+    functions read the same builders on purpose, so their code looks alike, and
+    that is exactly what makes a misplacement easy and invisible.
+    """
+    svg = SRC[SRC.index("def _report_svg"):SRC.index("def _report_pdf")]
+    pdf = SRC[SRC.index("def _report_pdf"):SRC.index('@app.get("/v1/communes/{code}/report.svg")')]
+    assert "c.setFont" not in svg and "c.drawString" not in svg, \
+        "the SVG has no canvas; a canvas call there is a 500 on every report"
+    assert "text(PAD" not in pdf, "the PDF has no text() helper"
+
+
+def test_each_section_is_rendered_once_per_renderer():
+    """Twice in one renderer is a duplicated section; zero is a silent loss."""
+    svg = SRC[SRC.index("def _report_svg"):SRC.index("def _report_pdf")]
+    pdf = SRC[SRC.index("def _report_pdf"):SRC.index('@app.get("/v1/communes/{code}/report.svg")')]
+    for builder in ("summary_of_findings", "glossary_lines", "legal_lines",
+                    "report_contents", "data_description", "citation_block"):
+        assert svg.count(builder) == 1, f"{builder} appears {svg.count(builder)}x in the SVG"
+        assert pdf.count(builder) == 1, f"{builder} appears {pdf.count(builder)}x in the PDF"
