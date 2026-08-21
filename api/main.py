@@ -1431,10 +1431,13 @@ REPORT_LABELS = {
             "Les superficies sont mesurées sur la géométrie source complète. Les "
             "contours dessinés sur cette page sont simplifiés pour la lisibilité : "
             "les mesurer donnerait un chiffre légèrement différent."),
+        # The decimal separator is handled by the CALLER, which passes "0,5"
+        # already. A .replace(".", ",", 1) here ate the sentence's full stop
+        # instead -- the first "." in the string is the one that ends it.
         "m_noise": lambda pct: (
             f"Un écart de limites inférieur ou égal à {pct} % entre deux versions "
             f"est tenu pour une redigitalisation de la même frontière, non pour un "
-            f"changement, et aucun contour distinct n'est tracé.").replace(".", ",", 1),
+            f"changement, et aucun contour distinct n'est tracé."),
         "m_pop": lambda dt: (
             f"Les effectifs sont harmonisés sur la géographie du {dt} : chaque "
             f"chiffre indique combien de personnes vivaient dans le territoire "

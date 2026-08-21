@@ -76,3 +76,12 @@ def test_both_languages_carry_every_new_label():
     for key in ("contents", "method", "cite", "cite_as", "m_area", "m_noise",
                 "m_pop", "m_lineage", "m_approx"):
         assert SRC.count(f'"{key}":') >= 2, f"{key} missing from a language table"
+
+
+def test_the_french_decimal_hack_does_not_eat_the_full_stop():
+    """`.replace(".", ",", 1)` on the whole sentence replaced the FIRST period,
+    which is the one that ends it: the rendered line read "...n'est trace,".
+    The decimal separator is the caller's job, and it already passes "0,5"."""
+    fr = SRC.split('"m_noise": lambda pct:')[1].split("),")[0]
+    assert '.replace(".", ","' not in fr, "no blanket period replacement in the sentence"
+    assert "n'est tracé." in SRC, "the sentence ends with a full stop"
