@@ -24,7 +24,14 @@ services:
       - ./deploy/sites:/etc/caddy/sites:ro
       # Public confinia.io page (pitch, quickstart, attributions)
       - ./deploy/site:/srv/site:ro
+      # The demo used to be served straight from the checkout, so merging a
+      # change to demo/index.html put it in front of visitors the moment the
+      # pipeline pulled -- no promotion, no review, bypassing the very gate the
+      # founder put on the API. Now it has a per-colour root, filled when a
+      # colour is STAGED and switched when it is PROMOTED, exactly like the API.
       - ./demo:/srv/demo:ro
+      - ${HOME}/demo-blue:/srv/demo-blue:ro
+      - ${HOME}/demo-green:/srv/demo-green:ro
       # ONE copy of the front-end libraries for every product on the VM
       # (issue #185). Outside the repo mirror on purpose: shared state, like
       # confinia-edge-state, and a `git reset --hard` must not take another
