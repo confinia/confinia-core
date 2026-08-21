@@ -26,7 +26,13 @@ def _read(*parts):
 
 OPS_TABLES = {"api_key", "api_usage", "visitor_daily", "premium_seen",
               "premium_usage", "premium_usage_daily", "polar_subscription",
-              "upgrade_intent"}
+              "upgrade_intent",
+              # Citable identifiers per commune-version. Operational on purpose:
+              # they are ASSIGNED rather than derived, so they must live where
+              # the data is backed up and never rebuilt from source -- the geo
+              # database is a build artefact whose row ids move on every
+              # re-ingestion.
+              "unit_uid"}
 
 
 def test_the_api_only_writes_to_operational_tables():
