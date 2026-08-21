@@ -1420,6 +1420,13 @@ REPORT_LABELS = {
             f"Population counts are harmonised on the {dt} geography: each figure "
             f"is how many people lived inside today's territory at that census, "
             f"not the count published at the time."),
+        "m_pop_epoch": "Counts are given at the boundaries of each census: they "
+                       "describe the commune as it then stood, not today's "
+                       "territory. A step in the curve at a merger is territory, "
+                       "not people.",
+        "m_pop_unknown": "We do not know which geography these counts are on; "
+                         "they are shown without a claim about what they "
+                         "describe.",
         "m_lineage": "Predecessors and successors come from the national register's "
                      "own record of changes, with their dates. Where a date "
                      "contradicts the event it describes, it is shown as recorded "
@@ -1535,6 +1542,13 @@ REPORT_LABELS = {
             f"Les effectifs sont harmonisés sur la géographie du {dt} : chaque "
             f"chiffre indique combien de personnes vivaient dans le territoire "
             f"actuel à ce recensement, et non le chiffre publié à l'époque."),
+        "m_pop_epoch": "Les effectifs sont donnés aux limites de chaque "
+                       "recensement : ils décrivent la commune telle qu'elle "
+                       "était alors, et non le territoire actuel. Un saut de la "
+                       "courbe à une fusion est du territoire, non des habitants.",
+        "m_pop_unknown": "Nous ignorons sur quelle géographie ces effectifs sont "
+                         "comptés ; ils sont affichés sans affirmation sur ce "
+                         "qu'ils décrivent.",
         "m_lineage": "Les communes d'origine et les successeurs proviennent du "
                      "registre national des changements, avec leurs dates. Lorsqu'une "
                      "date contredit l'événement qu'elle décrit, elle est affichée "
@@ -1770,6 +1784,12 @@ DECLINE_PHRASES = {
             "densité : la série de population est harmonisée sur une autre "
             "géographie que celle mesurée ici",
         "density:no-area": "densité : superficie indisponible",
+        "density:population-at-historical-boundaries":
+            "densité : les effectifs sont comptés aux limites de leur époque, "
+            "les diviser par la superficie actuelle mêlerait deux territoires",
+        "density:population-basis-unknown":
+            "densité : nous ignorons sur quelle géographie ces effectifs sont "
+            "comptés",
         "rank:timed-out": "rang : comparaison trop coûteuse pour être établie ici",
     },
     "en": {
@@ -1780,6 +1800,11 @@ DECLINE_PHRASES = {
             "density: the population series is harmonised on a geography other "
             "than the one measured here",
         "density:no-area": "density: no area available",
+        "density:population-at-historical-boundaries":
+            "density: the counts are taken at the boundaries of their own time; "
+            "dividing them by today's area would mix two territories",
+        "density:population-basis-unknown":
+            "density: we do not know which geography these counts are on",
         "rank:timed-out": "rank: the comparison was too costly to establish here",
     },
 }
@@ -2103,8 +2128,12 @@ def data_description(d: dict, lab: dict) -> list:
            lab["m_noise"](str(BOUNDARY_NOISE_PCT).replace(".", ","
                               if d.get("lang") == "fr" else "."))]
     pop = d.get("population") or {}
-    if pop.get("harmonised_on"):
+    if pop.get("geography_basis") == "harmonised" and pop.get("harmonised_on"):
         out.append(lab["m_pop"](pop["harmonised_on"]))
+    elif pop.get("geography_basis") == "as_at_the_time":
+        out.append(lab["m_pop_epoch"])
+    elif pop.get("series"):
+        out.append(lab["m_pop_unknown"])
     f = d.get("facts") or {}
     if f.get("formed_from") or f.get("absorbed") or f.get("became"):
         out.append(lab["m_lineage"])
@@ -2261,8 +2290,16 @@ def _facts(cur, code: str, country: str, versions: list, pop: dict | None,
             h and cur_v["valid_from"].isoformat() <= h
             and (cur_v["valid_to"] == FAR_FUTURE
                  or h < cur_v["valid_to"].isoformat()))
+        basis = pop.get("geography_basis")
         if area["approx"]:
             out["declined"].append("density:area-approximate")
+        elif basis == "as_at_the_time":
+            # Not "harmonised elsewhere" -- not harmonised at all. Dividing a
+            # historical count by today's area mixes two different territories,
+            # and the wrong reason on the page is its own small untruth.
+            out["declined"].append("density:population-at-historical-boundaries")
+        elif basis == "unknown":
+            out["declined"].append("density:population-basis-unknown")
         elif not same_territory:
             out["declined"].append("density:population-harmonised-elsewhere")
         elif area["km2"] <= 0:
@@ -3831,15 +3868,39 @@ def commune_at(
 # consequences we must never hide: `harmonised_on` travels with the series, and
 # a code that has died is ABSENT from the source — we then follow our own
 # lineage to its living successor and say so (`via_successor`).
+# What a population figure MEANS, which differs by source and is not a detail.
+# INSEE harmonises onto one reference geography; ISTAT publishes "ai confini
+# dell'epoca", the commune as it stood at each census. The two are opposite
+# claims, and until #91's spike nobody had noticed that this text asserted the
+# French one over any series we might hold -- naming INSEE while doing it.
 POP_NOTE = {
-    "en": ("Figures are harmonised by INSEE on the geography of {d}: they describe "
-           "the territory of the commune as it exists at that date, summed back "
-           "through time — not the population of the historical commune. "
-           "Censuses from 2006 on should only be compared at 5-year intervals."),
-    "fr": ("Chiffres harmonisés par l'INSEE sur la géographie du {d} : ils décrivent "
-           "le territoire de la commune telle qu'elle existe à cette date, sommé "
-           "rétrospectivement — et non la population de la commune historique. "
-           "Les recensements depuis 2006 ne se comparent qu'à 5 ans d'intervalle."),
+    "harmonised": {
+        "en": ("Figures are harmonised on the geography of {d}: they describe the "
+               "territory of the commune as it exists at that date, summed back "
+               "through time — not the population of the historical commune. "
+               "Censuses from 2006 on should only be compared at 5-year intervals."),
+        "fr": ("Chiffres harmonisés sur la géographie du {d} : ils décrivent le "
+               "territoire de la commune telle qu'elle existe à cette date, sommé "
+               "rétrospectivement — et non la population de la commune historique. "
+               "Les recensements depuis 2006 ne se comparent qu'à 5 ans d'intervalle."),
+    },
+    "as_at_the_time": {
+        "en": ("Figures are given at the boundaries of each census: they are the "
+               "population of the commune as it then stood. So a step in this "
+               "curve at a merger is territory changing hands, not people "
+               "arriving, and two points either side of one are not comparable."),
+        "fr": ("Chiffres donnés aux limites de chaque recensement : ils sont la "
+               "population de la commune telle qu'elle était alors. Un saut de "
+               "cette courbe à une fusion est donc du territoire qui change de "
+               "main, non des habitants qui arrivent, et deux points de part et "
+               "d'autre ne se comparent pas."),
+    },
+    "unknown": {
+        "en": ("We do not know which geography these figures are counted on, so "
+               "they are shown without a claim about what they describe."),
+        "fr": ("Nous ignorons sur quelle géographie ces chiffres sont comptés : "
+               "ils sont donc affichés sans affirmation sur ce qu'ils décrivent."),
+    },
 }
 
 
@@ -3873,7 +3934,7 @@ def population_series(code: str, country: str = "FR", lang: str = "en") -> dict 
     def fetch(c):
         with cursor() as cur:
             cur.execute(
-                "SELECT census_year, population, harmonised_on, source "
+                "SELECT census_year, population, harmonised_on, source, geography_basis "
                 "FROM commune_population WHERE country = %s AND code = %s "
                 "ORDER BY census_year", (country, c))
             return cur.fetchall()
@@ -3888,12 +3949,20 @@ def population_series(code: str, country: str = "FR", lang: str = "en") -> dict 
     if not rows:
         return None
     harmonised_on = rows[0][2]
+    stored_basis = rows[0][4]
+    basis = (stored_basis if stored_basis in POP_NOTE
+             else ("harmonised" if harmonised_on else "unknown"))
     out = {
         "code": served_for,
         "harmonised_on": harmonised_on.isoformat() if harmonised_on else None,
         "source": rows[0][3],
-        "series": [{"year": y, "population": p} for y, p, _, _ in rows],
-        "note": POP_NOTE.get(lang, POP_NOTE["en"]).format(
+        "series": [{"year": y, "population": p} for y, p, _, _, _ in rows],
+        # Which geography these figures are on, taken from the data rather than
+        # assumed. A stored basis wins; otherwise a harmonisation date implies
+        # "harmonised" and its absence means we do not know -- never "at the
+        # boundaries of the time", which is a claim, not a default.
+        "geography_basis": basis,
+        "note": POP_NOTE[basis].get(lang, POP_NOTE[basis]["en"]).format(
             d=harmonised_on.isoformat() if harmonised_on else "?"),
     }
     if via_successor:
