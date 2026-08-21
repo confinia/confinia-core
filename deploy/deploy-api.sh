@@ -23,6 +23,32 @@ other()  { if [ "$1" = blue ]; then echo green; else echo blue; fi; }
 # deploy-staging broke for an afternoon when green's 8402 was dropped.
 port_of() { if [ "$1" = blue ]; then echo 11120; else echo 11220; fi; }
 
+migrate() {
+	# Additive, idempotent geo-schema changes, applied to the colour being
+	# staged. ingest_cog.py owns the schema but runs at INGESTION, so an index
+	# added there reaches a live colour never -- idx_cv_country_type_code_vf was
+	# merged and applied to nothing, leaving the active colour on a plan that
+	# read 53 076 pages to return 2 rows.
+	#
+	# Run against the colour's own database, never by the API: PG_DSN is
+	# read-only at runtime and the staging isolation guard rests on that.
+	local colour="$1" f
+	[ -d deploy/migrations ] || return 0
+	echo "== geo migrations on $colour"
+	for f in deploy/migrations/*.sql; do
+		[ -r "$f" ] || continue
+		# CONCURRENTLY cannot run inside a transaction, hence no single -c wrap.
+		if podman exec -i "confinia-${colour}_db_1" \
+			psql -U confinia -d confinia -v ON_ERROR_STOP=1 -q < "$f" 2>/dev/null; then
+			echo "   applied $(basename "$f")"
+		else
+			# A migration that will not apply must be seen, but it must not
+			# strand a colour half-deployed: the smoke below is the real gate.
+			echo "   [!] FAILED $(basename "$f") -- see the smoke result" >&2
+		fi
+	done
+}
+
 warm() {
 	# A passive colour serves nothing, so PostgreSQL's cache holds none of its
 	# pages. Measured 2026-08-20 on identical data (205 370 rows in both):
@@ -143,6 +169,7 @@ stage() {
 		podman-compose -p "confinia-$P" -f "$PWD/deploy/stack/docker-compose-$P.yml" \
 			--profile serve up -d --no-deps api >/dev/null 2>&1
 	fi
+	migrate "$P"
 	wait_ok "$(port_of "$P")"
 	warm "$(port_of "$P")"
 	echo "OK: validate on https://staging.api.confinia.io then ./deploy/deploy-api.sh promote"
