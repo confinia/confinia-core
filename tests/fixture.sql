@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS commune_population (
     population    int  NOT NULL,
     source        text NOT NULL,
     harmonised_on date,
+    geography_basis text,
     PRIMARY KEY (country, code, census_year)
 );
 INSERT INTO commune_population (country, code, census_year, population, source, harmonised_on)

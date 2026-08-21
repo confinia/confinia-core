@@ -105,6 +105,11 @@ def main() -> int:
                 population    int  NOT NULL,
                 source        text NOT NULL,
                 harmonised_on date,
+                -- Which geography the counts are on: 'harmonised' (INSEE, one
+                -- reference year) or 'as_at_the_time' (ISTAT, ai confini
+                -- dell'epoca). NULL means we do not know, never "as at the
+                -- time" -- that is a claim, not an absence.
+                geography_basis text,
                 PRIMARY KEY (country, code, census_year)
             );
             CREATE INDEX IF NOT EXISTS idx_pop_code ON commune_population (country, code);
