@@ -169,6 +169,14 @@ stage() {
 		podman-compose -p "confinia-$P" -f "$PWD/deploy/stack/docker-compose-$P.yml" \
 			--profile serve up -d --no-deps api >/dev/null 2>&1
 	fi
+	# The demo of the colour being staged. Copied rather than symlinked: the
+	# caddy container mounts these paths, and a symlink resolves at mount time,
+	# so flipping one would change nothing until caddy were recreated.
+	if [ -d demo ]; then
+		mkdir -p "$HOME/demo-$P"
+		rsync -a --delete demo/ "$HOME/demo-$P/"
+		echo "== demo staged into ~/demo-$P ($(find demo -type f | wc -l | tr -d ' ') files)"
+	fi
 	migrate "$P"
 	wait_ok "$(port_of "$P")"
 	warm "$(port_of "$P")"
