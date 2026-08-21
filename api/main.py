@@ -2596,16 +2596,6 @@ def _report_svg(d: dict) -> str:
     # Contents, then what was done to the data -- the two things an NHGIS
     # codebook opens with, and the two we had no equivalent of (issue #205).
     # A reader decides whether to trust a document before reading its numbers.
-    summ = summary_of_findings(d, lab)
-    if summ:
-        c.setFont("Helvetica-Bold", 12); c.setFillColorRGB(.1, .14, .2)
-        c.drawString(PAD, y, lab["summary"]); y -= 15
-        c.setFont("Helvetica", 10); c.setFillColorRGB(.1, .14, .2)
-        for line in summ:
-            for part in _wrap(line, 96):
-                c.drawString(PAD + 4, y, part); y -= 12
-        y -= 12
-
     contents = report_contents(d, lab)
     if contents:
         text(PAD, y, lab["contents"], 13, "bold", fill="#4a5262"); y += 6
@@ -2909,6 +2899,16 @@ def _report_pdf(d: dict) -> bytes:
     co = d.get("cutoff")
     c.setFont("Helvetica-Bold", 9); c.setFillColorRGB(.36, .42, .52)
     c.drawString(PAD, y, lab["cutoff"](co) if co else lab["cutoff_none"]); y -= 16
+    summ = summary_of_findings(d, lab)
+    if summ:
+        c.setFont("Helvetica-Bold", 12); c.setFillColorRGB(.1, .14, .2)
+        c.drawString(PAD, y, lab["summary"]); y -= 15
+        c.setFont("Helvetica", 10); c.setFillColorRGB(.1, .14, .2)
+        for line in summ:
+            for part in _wrap(line, 96):
+                c.drawString(PAD + 4, y, part); y -= 12
+        y -= 12
+
     contents = report_contents(d, lab)
     if contents:
         c.setFont("Helvetica-Bold", 9.5); c.setFillColorRGB(.29, .32, .38)
