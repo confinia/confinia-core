@@ -50,3 +50,19 @@ deploy/creem.env
 .mcp.json
 
 tests/e2e/.env
+
+# --- Secrets by SHAPE, not by name -------------------------------------------
+# Everything above names one file each. That is an allowlist by enumeration, and
+# it fails the way allowlists do: on 2026-08-22 the VM's working copy held
+# `mail.env` at the repo root and two `secrets.env.bak.*` from the DSN
+# rotations, none of them ignored, each carrying live credentials. Any
+# `git add -A` -- which is how most of this repo's commits are staged -- would
+# have put them in a public repository.
+#
+# So: match the shape. The two committed templates are excepted explicitly, and
+# a test asserts they stay excepted.
+*.env
+!*.env.example
+*.bak
+*.bak.*
+
