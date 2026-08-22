@@ -1,0 +1,9 @@
+[Unit]
+Description=Confinia — daily ISTAT availability check (issue #91, temporary)
+[Timer]
+# Daily is right for an outage on someone else's server: more often would not
+# make it come back sooner, and would put us in their logs for no reason.
+OnCalendar=*-*-* 07:40:00
+Persistent=true
+[Install]
+WantedBy=timers.target

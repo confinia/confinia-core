@@ -1,0 +1,14 @@
+# TEMPORARY (issue #91). Delete this unit, its timer, and deploy/watch-istat.sh
+# the day the Italian population ingestion lands. A watcher outliving its reason
+# is noise people learn to ignore, which is exactly how the bounce mailbox
+# stopped being read for eight days.
+#
+# Install as the `confinia` user:
+#   cp deploy/systemd/confinia-watch-istat.* ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now confinia-watch-istat.timer
+[Unit]
+Description=Confinia — is the ISTAT Serie Storiche population page back? (issue #91)
+[Service]
+Type=oneshot
+ExecStart=/bin/bash %h/projects/confinia/deploy/watch-istat.sh
