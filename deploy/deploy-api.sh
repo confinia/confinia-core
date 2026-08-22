@@ -32,20 +32,39 @@ migrate() {
 	#
 	# Run against the colour's own database, never by the API: PG_DSN is
 	# read-only at runtime and the staging isolation guard rests on that.
-	local colour="$1" f
+	local f c
 	[ -d deploy/migrations ] || return 0
-	echo "== geo migrations on $colour"
-	for f in deploy/migrations/*.sql; do
-		[ -r "$f" ] || continue
-		# CONCURRENTLY cannot run inside a transaction, hence no single -c wrap.
-		if podman exec -i "confinia-${colour}_db_1" \
-			psql -U confinia -d confinia -v ON_ERROR_STOP=1 -q < "$f" 2>/dev/null; then
-			echo "   applied $(basename "$f")"
-		else
-			# A migration that will not apply must be seen, but it must not
-			# strand a colour half-deployed: the smoke below is the real gate.
-			echo "   [!] FAILED $(basename "$f") -- see the smoke result" >&2
-		fi
+	# BOTH colours, not only the one being staged.
+	#
+	# Applying to the staged colour alone leaves the other unable to serve the
+	# code that is about to go live -- and caddy keeps that other colour as the
+	# health-checked fallback. So a failover would answer with a database that
+	# lacks the column the new code selects: 500 on every report, from a
+	# fallback everyone believes is there. A broken fallback is worse than no
+	# fallback, because it is trusted.
+	#
+	# Found on 2026-08-21 with geography_basis, applied to the passive colour by
+	# the pipeline and to the active one by hand. Doing it by hand every time is
+	# not a plan.
+	#
+	# Safe on the live colour because of what a migration is allowed to be here:
+	# additive, idempotent, and indexes built CONCURRENTLY. The 1.28 M-row
+	# backfill ran on production in 95 s with /healthz answering throughout.
+	for c in blue green; do
+		podman container exists "confinia-${c}_db_1" 2>/dev/null || continue
+		echo "== geo migrations on $c"
+		for f in deploy/migrations/*.sql; do
+			[ -r "$f" ] || continue
+			# CONCURRENTLY cannot run inside a transaction, hence no single -c wrap.
+			if podman exec -i "confinia-${c}_db_1" \
+				psql -U confinia -d confinia -v ON_ERROR_STOP=1 -q < "$f" 2>/dev/null; then
+				echo "   applied $(basename "$f")"
+			else
+				# A migration that will not apply must be seen, but it must not
+				# strand a colour half-deployed: the smoke below is the real gate.
+				echo "   [!] FAILED $(basename "$f") on $c -- see the smoke result" >&2
+			fi
+		done
 	done
 }
 
@@ -177,7 +196,7 @@ stage() {
 		rsync -a --delete demo/ "$HOME/demo-$P/"
 		echo "== demo staged into ~/demo-$P ($(find demo -type f | wc -l | tr -d ' ') files)"
 	fi
-	migrate "$P"
+	migrate
 	wait_ok "$(port_of "$P")"
 	warm "$(port_of "$P")"
 	echo "OK: validate on https://staging.api.confinia.io then ./deploy/deploy-api.sh promote"
