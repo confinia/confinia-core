@@ -1446,6 +1446,8 @@ REPORT_LABELS = {
         "annex_nov": "edition not recorded",
         "gained": "absorbed (light blue)",
         "gained_partial": lambda who: f"no polygon held for {who} — absorbed, not drawn",
+        "lost": "detached in this period",
+        "lost_partial": lambda who: f"no polygon held for {who} — detached, not drawn",
         "no_geometry": "no geometry",
         "no_geometry_period": "no geometry for this period "
                               "(pre-1943 nomenclature without communal polygons)",
@@ -1568,6 +1570,8 @@ REPORT_LABELS = {
         "annex_nov": "édition non enregistrée",
         "gained": "absorbé (bleu clair)",
         "gained_partial": lambda who: f"aucun polygone pour {who} — absorbée(s), non dessinée(s)",
+        "lost": "détachée(s) sur cette période",
+        "lost_partial": lambda who: f"aucun polygone pour {who} — détachée(s), non dessinée(s)",
         "no_geometry": "aucune géométrie",
         "no_geometry_period": "aucune géométrie pour cette période "
                               "(nomenclature antérieure à 1943, sans polygone communal)",
@@ -1725,6 +1729,47 @@ def _district(cur, country: str, bbox) -> dict | None:
     if not rings:
         return None
     return {"rings": rings, "marker": (mlon, mlat), "name": row[0]}
+
+
+def _lost_rings(cur, children: list, code: str, country: str, at, bbox) -> dict:
+    """What a version LOST, drawn from each departed unit's own polygon.
+
+    The mirror of _gained_rings, and it has to be a mirror rather than a
+    difference for the same measured reason: differencing two vintages of the
+    same commune returned 97 slivers on Haut Valromey, of which one mattered.
+    Colour turns that noise into an assertion that the border moved everywhere.
+
+    So the lineage says what left -- `children` names the units detached from
+    this one -- and each one's own polygon is what gets coloured.
+
+    Like its twin, it reports what it could NOT draw. A commune that lost three
+    parcels of which we hold one polygon must not be shown losing one: on a
+    document sold for per-fact provenance, drawing a subset without saying so is
+    the failure mode, not the missing geometry.
+    """
+    others = [c for c in (children or []) if c != code]
+    if not others or not bbox:
+        return {"rings": [], "undrawable": others}
+    w, s_, e, n = bbox
+    cur.execute(
+        "SELECT code, ST_AsGeoJSON(ST_Intersection(geom_simple, "
+        "         ST_MakeEnvelope(%s,%s,%s,%s,4326)), 5) "
+        "FROM commune_version "
+        "WHERE country = %s AND code = ANY(%s) AND geom_simple IS NOT NULL "
+        # The successor's perimeter AT or AFTER separation -- its FIRST version
+        # once detached, not its latest. A unit that left in 1973 and merged
+        # again in 2019 would otherwise be drawn with a shape it never had while
+        # it belonged here. `valid_from >= at`, ascending, first row per code.
+        "  AND valid_from >= %s "
+        "ORDER BY code, valid_from ASC",
+        (w, s_, e, n, country, others, at))
+    rings, drawn = [], set()
+    for c, gj in cur.fetchall():
+        if c in drawn or not gj:
+            continue
+        drawn.add(c)
+        rings.extend(_rings_of_geojson(gj))
+    return {"rings": rings, "undrawable": sorted(set(others) - drawn)}
 
 
 def _neighbour_rings(cur, code: str, country: str, at, bbox) -> list:
@@ -2413,6 +2458,11 @@ def _report_data(code: str, country: str, lang: str = "en") -> dict:
                                    v["valid_from"], bbox) if v["rings"] else {}
             v["gained"] = gained.get("rings", [])
             v["gained_undrawable"] = gained.get("undrawable", [])
+            # What this version lost, from the lineage (issue #127, second half).
+            lost = _lost_rings(cur, v.get("children"), code, country,
+                               v["valid_to"], bbox) if v["rings"] else {}
+            v["lost"] = lost.get("rings", [])
+            v["lost_undrawable"] = lost.get("undrawable", [])
     attributions = sorted({src_info[v["source"]] for v in versions
                            if v["source"] in src_info})
     pop = population_series(code, country, lang)
@@ -2753,6 +2803,12 @@ def _report_svg(d: dict) -> str:
             # differencing two vintages of the same commune returns slivers --
             # 97 of them on this very example -- and colour turns noise into an
             # assertion.
+            # Lost FIRST, under the gained: where a unit left and another
+            # arrived in the same period, the reader should see the outline they
+            # keep on top rather than a colour fighting for the same pixels.
+            if v.get("lost"):
+                parts.append(f'<path d="{draw(v["lost"])}" fill="#f2c49b" '
+                             'stroke="#d4813f" stroke-width="0.8" fill-rule="evenodd"/>')
             if v.get("gained"):
                 parts.append(f'<path d="{draw(v["gained"])}" fill="#a8d5f2" '
                              'stroke="#5a9fd4" stroke-width="0.8" fill-rule="evenodd"/>')
@@ -2775,6 +2831,15 @@ def _report_svg(d: dict) -> str:
             # "gained Ruffieu" and imply "and nothing else".
             text(ox + CELL_W / 2, row_y + DRAW_H + 76,
                  lab["gained_partial"](", ".join(v["gained_undrawable"]))[:80], 9,
+                 fill="#a05a2c", anchor="middle")
+        if v.get("lost"):
+            text(ox + CELL_W / 2, row_y + DRAW_H + 88, lab["lost"], 9,
+                 fill="#d4813f", anchor="middle")
+        if v.get("lost_undrawable"):
+            # Same rule as its twin: drawing a subset of what left, silently, is
+            # the failure this whole function exists to avoid.
+            text(ox + CELL_W / 2, row_y + DRAW_H + 100,
+                 lab["lost_partial"](", ".join(v["lost_undrawable"]))[:80], 9,
                  fill="#a05a2c", anchor="middle")
     # Groups, not versions: sizing on the version count leaves a blank half-page
     # for every panel the grouping removed.
@@ -3093,6 +3158,14 @@ def _report_pdf(d: dict) -> bytes:
             # drawn from each parent's own polygon rather than a difference: two
             # vintages of the same commune differ by slivers, 97 of them here,
             # and colour would turn that noise into an assertion.
+            if v.get("lost"):
+                # Lost first, under the gained: where a unit left and another
+                # arrived in the same period, the kept outline stays readable
+                # rather than two colours fighting for the same pixels.
+                c.setFillColorRGB(.95, .77, .61); c.setStrokeColorRGB(.83, .51, .25)
+                c.setLineWidth(.6)
+                for ring in v["lost"]:
+                    c.drawPath(ring_path(ring), stroke=1, fill=1)
             if v.get("gained"):
                 c.setFillColorRGB(.66, .84, .95); c.setStrokeColorRGB(.35, .62, .83)
                 c.setLineWidth(.6)
@@ -3111,6 +3184,10 @@ def _report_pdf(d: dict) -> bytes:
                 # Naming them is the point: colouring only what we hold would
                 # show "gained Ruffieu" and imply "and nothing else".
                 legend.append(lab["gained_partial"](", ".join(v["gained_undrawable"])))
+            if v.get("lost"):
+                legend.append(lab["lost"])
+            if v.get("lost_undrawable"):
+                legend.append(lab["lost_partial"](", ".join(v["lost_undrawable"])))
             if legend:
                 c.setFont("Helvetica", 7.5); c.setFillColorRGB(.35, .45, .58)
                 c.drawString(PAD, top - 26, " · ".join(legend)[:150])
