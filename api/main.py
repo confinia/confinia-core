@@ -1358,6 +1358,7 @@ REPORT_LABELS = {
         "f_neighbours": lambda n: f"Neighbours ({n})",
         "f_density": lambda y: f"Density ({y})",
         "f_density_unit": "inhabitants/km²",
+        "f_density_on": lambda d: f" — on the {d} geography",
         "f_rank": "Rank by area",
         "f_rank_val": lambda r, n, d: (f"largest of {n} — {d}" if r == 1
                                        else f"{r} of {n} — {d}"),
@@ -1427,6 +1428,8 @@ REPORT_LABELS = {
         "m_pop_unknown": "We do not know which geography these counts are on; "
                          "they are shown without a claim about what they "
                          "describe.",
+        "m_dates": "All dates are ISO 8601 (YYYY-MM-DD) and refer to the day a "
+                   "change took civil effect, not the day it was published.",
         "m_lineage": "Predecessors and successors come from the national register's "
                      "own record of changes, with their dates. Where a date "
                      "contradicts the event it describes, it is shown as recorded "
@@ -1473,6 +1476,7 @@ REPORT_LABELS = {
         "f_neighbours": lambda n: f"Communes limitrophes ({n})",
         "f_density": lambda y: f"Densité ({y})",
         "f_density_unit": "habitants/km²",
+        "f_density_on": lambda d: f" — sur la géographie du {d}",
         "f_rank": "Rang par superficie",
         "f_rank_val": lambda r, n, d: (f"la plus étendue des {n} — {d}" if r == 1
                                        else f"{r}\u1d49 sur {n} — {d}"),
@@ -1549,6 +1553,9 @@ REPORT_LABELS = {
         "m_pop_unknown": "Nous ignorons sur quelle géographie ces effectifs sont "
                          "comptés ; ils sont affichés sans affirmation sur ce "
                          "qu'ils décrivent.",
+        "m_dates": "Toutes les dates sont au format ISO 8601 (AAAA-MM-JJ) et "
+                   "désignent le jour où un changement a pris effet civil, non "
+                   "celui de sa publication.",
         "m_lineage": "Les communes d'origine et les successeurs proviennent du "
                      "registre national des changements, avec leurs dates. Lorsqu'une "
                      "date contredit l'événement qu'elle décrit, elle est affichée "
@@ -1880,7 +1887,14 @@ def fact_lines(d: dict, lab: dict) -> list:
     dn = f.get("density")
     if dn:
         v = (f"{dn['per_km2']:.1f}".replace(".", ",") if fr else f"{dn['per_km2']:.1f}")
-        lines.append((lab["f_density"](dn["year"]), f"{v} {lab['f_density_unit']}"))
+        # The reference geography belongs BESIDE the number, not in a note three
+        # sections away. A density is meaningless without knowing which
+        # territory it divides by, and a reader who copies the figure into their
+        # own file copies the line, not the document.
+        basis = (lab["f_density_on"](dn["harmonised_on"])
+                 if dn.get("harmonised_on") else "")
+        lines.append((lab["f_density"](dn["year"]),
+                      f"{v} {lab['f_density_unit']}{basis}"))
 
     rk = f.get("rank")
     if rk and rk.get("district"):
@@ -2087,14 +2101,14 @@ def glossary_lines(d: dict, lab: dict) -> list:
     return keep
 
 
-def report_contents(d: dict, lab: dict) -> list:
-    """The sections this particular report actually contains.
+def report_sections(d: dict, lab: dict) -> list:
+    """The sections this report contains, in order, ONCE.
 
-    NHGIS opens every codebook with one (Data Description, Data Summary, Data
-    Dictionary, Suppression, Citation and Use), and it is the cheapest thing on
-    that document: six lines that tell a reader what they are holding before
-    they read any of it. Built from what is present, never from a fixed list --
-    a contents entry pointing at an absent section is worse than none.
+    The contents list and the headings above each section used to be built
+    separately from the same conditions. Numbering them meant either computing
+    the numbers twice -- and one day disagreeing, which is worse than no
+    numbers -- or building the order once and having both read it. This is the
+    second.
     """
     out = [lab["summary"], lab["method"]]
     if fact_lines(d, lab):
@@ -2114,6 +2128,28 @@ def report_contents(d: dict, lab: dict) -> list:
     return out
 
 
+def numbered(d: dict, lab: dict, title: str) -> str:
+    """`Annexe — provenance` -> `6. Annexe — provenance`.
+
+    So a reader can cite "section 6" rather than "the bit about sources", which
+    is what a professional needs in order to refer to this document in writing.
+    A section absent from this report gets no number rather than a wrong one.
+    """
+    order = report_sections(d, lab)
+    return f"{order.index(title) + 1}. {title}" if title in order else title
+
+
+def report_contents(d: dict, lab: dict) -> list:
+    """The sections this particular report actually contains, numbered.
+
+    NHGIS opens every codebook with one, and it is the cheapest thing on that
+    document: a few lines that tell a reader what they hold before they read any
+    of it. Built from what is present, never from a fixed list -- a contents
+    entry pointing at an absent section is worse than none.
+    """
+    return [f"{i + 1}. {t}" for i, t in enumerate(report_sections(d, lab))]
+
+
 def data_description(d: dict, lab: dict) -> list:
     """What was done to this data, in sentences, before any number is read.
 
@@ -2124,7 +2160,8 @@ def data_description(d: dict, lab: dict) -> list:
     rather than a re-digitisation, and what "harmonised" means for a population
     figure. Each line is only emitted when it applies to THIS report.
     """
-    out = [lab["m_area"](None),
+    out = [lab["m_dates"],
+           lab["m_area"](None),
            lab["m_noise"](str(BOUNDARY_NOISE_PCT).replace(".", ","
                               if d.get("lang") == "fr" else "."))]
     pop = d.get("population") or {}
@@ -2623,7 +2660,7 @@ def _report_svg(d: dict) -> str:
     # not an answer.
     summ = summary_of_findings(d, lab)
     if summ:
-        text(PAD, y, lab["summary"], 14, "bold"); y += 8
+        text(PAD, y, numbered(d, lab, lab["summary"]), 14, "bold"); y += 8
         for line in summ:
             for part in _wrap(line, 112):
                 y += 16
@@ -2651,7 +2688,7 @@ def _report_svg(d: dict) -> str:
     # to know WHAT this commune is before being told what happened to it.
     flines = fact_lines(d, lab)
     if flines:
-        text(PAD, y, lab["facts"], 15, "bold"); y += 8
+        text(PAD, y, numbered(d, lab, lab["facts"]), 15, "bold"); y += 8
         for label, value in flines:
             y += 17
             if label:
@@ -2672,7 +2709,7 @@ def _report_svg(d: dict) -> str:
             y += 15
             text(PAD + 16, y, "— " + t[:140], 10.5, fill="#8a94a6")
         y += 26
-    text(PAD, y, lab["chronology"], 15, "bold"); y += 8
+    text(PAD, y, numbered(d, lab, lab["chronology"]), 15, "bold"); y += 8
     for ev in d["events"][:60]:
         y += 17
         pre = f"{ev['date']} · " if ev.get("date") else ""
@@ -2784,7 +2821,7 @@ def _report_svg(d: dict) -> str:
     # what this product sells; a reader must be able to take any statement here
     # and go verify it upstream without taking our word for anything.
     y += 10
-    text(PAD, y, lab["annex"], 13, "bold"); y += 16
+    text(PAD, y, numbered(d, lab, lab["annex"]), 13, "bold"); y += 16
     text(PAD, y, lab["annex_lead"], 10, fill="#5b6b85"); y += 14
     text(PAD, y, lab["annex_cols"], 9, fill="#8a94a6"); y += 6
     for row in d.get("source_annex", []):
@@ -2811,7 +2848,7 @@ def _report_svg(d: dict) -> str:
     y += 30
     # How to cite. Last, because it is what a reader copies once convinced.
     y += 26
-    text(PAD, y, lab["cite"], 13, "bold", fill="#4a5262"); y += 6
+    text(PAD, y, numbered(d, lab, lab["cite"]), 13, "bold", fill="#4a5262"); y += 6
     for label, value in citation_block(d, lab):
         for i, part in enumerate(_wrap(value, 110)):
             y += 15
@@ -2823,7 +2860,7 @@ def _report_svg(d: dict) -> str:
     gl = glossary_lines(d, lab)
     if gl:
         y += 22
-        text(PAD, y, lab["glossary"], 12, "bold", fill="#4a5262"); y += 4
+        text(PAD, y, numbered(d, lab, lab["glossary"]), 12, "bold", fill="#4a5262"); y += 4
         for term, definition in gl:
             y += 15
             text(PAD + 4, y, term, 10.5, "bold", fill="#4a5262")
@@ -2836,7 +2873,7 @@ def _report_svg(d: dict) -> str:
     # What we warrant, and what we do not. Last: it is the sentence a reader
     # returns to once they have decided the document is worth trusting.
     y += 22
-    text(PAD, y, lab["legal"], 12, "bold", fill="#4a5262"); y += 4
+    text(PAD, y, numbered(d, lab, lab["legal"]), 12, "bold", fill="#4a5262"); y += 4
     for para in legal_lines(d, lab):
         for part in _wrap(para, 116):
             y += 14
@@ -2939,7 +2976,7 @@ def _report_pdf(d: dict) -> bytes:
     summ = summary_of_findings(d, lab)
     if summ:
         c.setFont("Helvetica-Bold", 12); c.setFillColorRGB(.1, .14, .2)
-        c.drawString(PAD, y, lab["summary"]); y -= 15
+        c.drawString(PAD, y, numbered(d, lab, lab["summary"])); y -= 15
         c.setFont("Helvetica", 10); c.setFillColorRGB(.1, .14, .2)
         for line in summ:
             for part in _wrap(line, 96):
@@ -2964,7 +3001,7 @@ def _report_pdf(d: dict) -> bytes:
     flines = fact_lines(d, lab)
     if flines:
         c.setFont("Helvetica-Bold", 13); c.setFillColorRGB(.1, .14, .2)
-        c.drawString(PAD, y, lab["facts"]); y -= 16
+        c.drawString(PAD, y, numbered(d, lab, lab["facts"])); y -= 16
         for label, value in flines:
             if label:
                 c.setFont("Helvetica-Bold", 9); c.setFillColorRGB(.29, .32, .38)
@@ -2991,7 +3028,7 @@ def _report_pdf(d: dict) -> bytes:
             c.drawString(PAD + 14, y, "- " + t[:118]); y -= 10
         y -= 10
     c.setFont("Helvetica-Bold", 13); c.setFillColorRGB(.1, .14, .2)
-    c.drawString(PAD, y, lab["chronology"]); y -= 18
+    c.drawString(PAD, y, numbered(d, lab, lab["chronology"])); y -= 18
     c.setFont("Helvetica", 9.5)
     for ev in d["events"]:
         if y < 70:
@@ -3128,7 +3165,7 @@ def _report_pdf(d: dict) -> bytes:
         footer(); c.showPage()
         y = H - 70
         c.setFont("Helvetica-Bold", 14); c.setFillColorRGB(.1, .14, .2)
-        c.drawString(PAD, y, lab["annex"]); y -= 18
+        c.drawString(PAD, y, numbered(d, lab, lab["annex"])); y -= 18
         c.setFont("Helvetica", 9); c.setFillColorRGB(.36, .42, .52)
         c.drawString(PAD, y, lab["annex_lead"][:120]); y -= 12
         c.setFont("Helvetica", 8); c.setFillColorRGB(.55, .6, .68)
@@ -3154,7 +3191,7 @@ def _report_pdf(d: dict) -> bytes:
         footer(); c.showPage(); y = H - 70
     y -= 14
     c.setFont("Helvetica-Bold", 10); c.setFillColorRGB(.29, .32, .38)
-    c.drawString(PAD, y, lab["cite"]); y -= 13
+    c.drawString(PAD, y, numbered(d, lab, lab["cite"])); y -= 13
     c.setFont("Helvetica", 8.5); c.setFillColorRGB(.36, .42, .52)
     for label, value in citation_block(d, lab):
         for i, part in enumerate(_wrap(value, 100)):
@@ -3166,7 +3203,7 @@ def _report_pdf(d: dict) -> bytes:
             footer(); c.showPage(); y = H - 70
         y -= 14
         c.setFont("Helvetica-Bold", 10); c.setFillColorRGB(.29, .32, .38)
-        c.drawString(PAD, y, lab["glossary"]); y -= 13
+        c.drawString(PAD, y, numbered(d, lab, lab["glossary"])); y -= 13
         for term, definition in gl:
             c.setFont("Helvetica-Bold", 8.5); c.setFillColorRGB(.29, .32, .38)
             c.drawString(PAD + 4, y, term[:34])
@@ -3181,7 +3218,7 @@ def _report_pdf(d: dict) -> bytes:
         footer(); c.showPage(); y = H - 70
     y -= 16
     c.setFont("Helvetica-Bold", 10); c.setFillColorRGB(.29, .32, .38)
-    c.drawString(PAD, y, lab["legal"]); y -= 13
+    c.drawString(PAD, y, numbered(d, lab, lab["legal"])); y -= 13
     c.setFont("Helvetica", 8.5); c.setFillColorRGB(.36, .42, .52)
     for para in legal_lines(d, lab):
         for part in _wrap(para, 104):
