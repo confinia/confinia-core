@@ -23,13 +23,29 @@ FILES = sorted(glob.glob(os.path.join(ROOT, "deploy", "migrations", "*.sql")))
 
 def test_the_deploy_applies_them():
     assert "migrate() {" in CODE
-    assert 'migrate "$P"' in CODE, "and actually calls it"
+    assert "\n\tmigrate\n" in SH, "and actually calls it"
+
+
+def test_they_reach_both_colours_not_only_the_staged_one():
+    """caddy keeps the other colour as a health-checked fallback. Migrating only
+    the staged one leaves that fallback unable to serve the code about to go
+    live: a failover would answer 500 on every report, from a fallback everyone
+    believes is there. A broken fallback is worse than none, because it is
+    trusted.
+
+    Found 2026-08-21 with geography_basis: the pipeline gave it to the passive
+    colour and the active one needed it applied by hand.
+    """
+    fn = SH.split("migrate() {")[1].split("\nwarm()")[0]
+    assert "for c in blue green" in fn, "both colours"
+    assert '"$1"' not in fn, "it no longer takes a colour argument"
+    assert 'podman container exists' in fn, "a colour that is not there is skipped"
 
 
 def test_they_run_before_the_colour_is_warmed_or_smoked():
     """Warming a colour whose index is missing measures the wrong thing, and
     the smoke would then fail on a problem the deploy had already fixed."""
-    assert CODE.index('migrate "$P"') < CODE.index('warm "$(port_of "$P")"')
+    assert SH.index("\n\tmigrate\n") < SH.index('warm "$(port_of "$P")"')
 
 
 def test_every_migration_is_idempotent():
