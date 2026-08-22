@@ -35,7 +35,11 @@ def _fn(name):
 
 def test_the_contents_list_describes_this_report_and_not_a_template():
     """A contents entry pointing at an absent section is worse than none."""
-    fn = _fn("report_contents")
+    # The contents list stopped deciding for itself when the sections were
+    # numbered (#205): it and the headings now read one order, which is the
+    # only way the two cannot disagree. So the conditions live there.
+    assert "report_sections(d, lab)" in _fn("report_contents")
+    fn = _fn("report_sections")
     assert "fact_lines(d, lab)" in fn and "declined_lines(d)" in fn
     assert 'd.get("events")' in fn and 'd.get("source_annex")' in fn
     assert "if " in fn, "entries are conditional on the section existing"
@@ -52,7 +56,10 @@ def test_the_method_note_only_says_what_applies_here():
     """Boilerplate that mentions harmonisation for a commune with no population
     series teaches the reader to skip the section."""
     fn = _fn("data_description")
-    assert 'if pop.get("harmonised_on")' in fn
+    # Not anchored on the exact condition: a population series now also
+    # declares the geography it was counted on (#252), so the test states what
+    # must be true -- the line is conditional on this report having one.
+    assert 'pop.get("harmonised_on")' in fn and "if " in fn
     assert 'f.get("formed_from") or f.get("absorbed")' in fn
 
 

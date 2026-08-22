@@ -32,6 +32,18 @@ def _fn(name: str) -> str:
     return body
 
 
+def _renderers():
+    """The two renderer bodies, separately.
+
+    Counting an identifier across the whole file was the old way, and it broke
+    the moment a third caller appeared -- `report_sections` naming a heading,
+    `report_digest` reading a fact. What the test always meant is narrower and
+    survives that: EACH renderer reads the shared builder.
+    """
+    svg = SRC[SRC.index("def _report_svg"):SRC.index("def _report_pdf")]
+    return svg, SRC[SRC.index("def _report_pdf"):]
+
+
 def test_a_commune_is_never_its_own_predecessor():
     fn = _fn("_facts")
     assert "if c != code" in fn, \
@@ -74,15 +86,17 @@ def test_density_is_refused_unless_population_and_area_share_a_territory():
 
 def test_a_declined_fact_is_explained_in_the_readers_language():
     assert "DECLINE_PHRASES" in SRC
+    block = SRC.split("DECLINE_PHRASES", 1)[1].split("\n}", 1)[0]
     for lang in ("fr", "en"):
-        assert f'"{lang}": {{' in SRC.split("DECLINE_PHRASES")[1][:900]
+        assert f'"{lang}": {{' in block, f"{lang} has no declined phrases"
 
 
 def test_both_renderers_read_one_builder():
     """When the boundary panels were annotated per renderer, the SVG and the PDF
     disagreed and the PDF kept drawing a panel per version."""
-    assert SRC.count("fact_lines(d, lab)") == 2
-    assert SRC.count("declined_lines(d)") == 2
+    for part, name in zip(_renderers(), ("SVG", "PDF")):
+        assert "fact_lines(d, lab)" in part, f"{name} builds its own key facts"
+        assert "declined_lines(d)" in part, f"{name} builds its own declines"
 
 
 def test_a_rank_we_cannot_compute_is_a_rank_we_do_not_claim():
