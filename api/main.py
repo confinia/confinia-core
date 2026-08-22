@@ -1371,6 +1371,14 @@ REPORT_LABELS = {
         "cite_as": "Cite as",
         "cutoff": lambda d: f"Situation as known on {d}",
         "cutoff_none": "Cut-off date unknown for this country",
+        "doc_line": lambda ref, issued: f"Reference {ref} \u00b7 issued {issued}",
+        "doc_ref": "Document reference",
+        "doc_verify": "Re-obtain this document",
+        "doc_note": ("computed from the facts stated above and from the data "
+                     "cut-off, never from the day it was printed. Re-request "
+                     "the report and compare: a different reference means the "
+                     "data changed or this copy was altered. It covers the "
+                     "facts stated here, not the typesetting."),
         "summary": "In short",
         "glossary": "Terms used here",
         "page_n": lambda n, t: f"page {n} / {t}",
@@ -1489,6 +1497,15 @@ REPORT_LABELS = {
         "cite_as": "Citer comme",
         "cutoff": lambda d: f"Situation connue au {d}",
         "cutoff_none": "Date d'arrêté inconnue pour ce pays",
+        "doc_line": lambda ref, issued: f"Référence {ref} \u00b7 établi le {issued}",
+        "doc_ref": "Référence du document",
+        "doc_verify": "Réobtenir ce document",
+        "doc_note": ("calculée à partir des faits énoncés ci-dessus et de la "
+                     "date d'arrêté des données, jamais du jour d'impression. "
+                     "Redemandez le rapport et comparez : une référence "
+                     "différente signifie que la donnée a changé ou que cet "
+                     "exemplaire a été modifié. Elle porte sur les faits "
+                     "énoncés ici, non sur la mise en page."),
         "summary": "En bref",
         "glossary": "Termes employés ici",
         "page_n": lambda n, t: f"page {n} / {t}",
@@ -2180,6 +2197,89 @@ def data_description(d: dict, lab: dict) -> list:
     return out
 
 
+DIGEST_VERSION = "confinia/report-digest/1"
+
+
+def report_digest(d: dict, lab: dict) -> str:
+    """A fingerprint of the facts this report states, so an altered copy stops
+    matching the genuine one.
+
+    Issue #205 asks for a handle that lets a third party "re-obtain the same
+    report and check it was not altered". A URL alone delivers the first half:
+    it returns today's report, and a reader holding a printout from March has
+    nothing to compare it against.
+
+    Taken over the FACTS -- the summary, the key figures, the versions, what we
+    declined to state, the sources and the vintages we read -- and never over
+    the rendering. That boundary is deliberate, and it is printed beside the
+    reference rather than left for the reader to assume: re-typesetting the
+    same facts leaves the digest unchanged, and altering one figure changes it.
+    Claiming it covered the bytes would be a claim we cannot keep, since the
+    document carries the digest inside itself and cannot hash its own output.
+
+    Nothing dated "now" enters it. Two people asking for this commune on
+    different days, against the same ingestion, must obtain the same digest --
+    otherwise comparing two copies proves nothing, which is the entire point.
+    """
+    pop = d.get("population") or {}
+    material = {
+        "v": DIGEST_VERSION,
+        "unit": [d["country"], d["code"], d.get("uid")],
+        "lang": d.get("lang"),
+        "cutoff": d.get("cutoff"),
+        "versions": [[v["valid_from"], v["valid_to"], v["nom"], v.get("source"),
+                      v.get("vintage")] for v in d.get("versions") or []],
+        "summary": summary_of_findings(d, lab),
+        "facts": [list(x) for x in fact_lines(d, lab)],
+        "declined": declined_lines(d),
+        "events": [[e.get("date"), e.get("type"), e.get("detail")]
+                   for e in d.get("events") or []],
+        "sources": [[r.get("source"), r.get("license"), r.get("vintages")]
+                    for r in d.get("source_annex") or []],
+        "population": [pop.get("geography_basis"), pop.get("harmonised_on"),
+                       pop.get("series")],
+    }
+    blob = json.dumps(material, sort_keys=True, default=str, ensure_ascii=False)
+    h = hashlib.sha256(blob.encode("utf-8")).hexdigest().upper()
+    return f"{h[0:4]}-{h[4:8]}-{h[8:12]}"
+
+
+def document_ref(d: dict, lab: dict) -> dict:
+    """The identity of the DOCUMENT, which is not the identity of the record.
+
+    `cfn:v1:<uid>` names a commune version and is meant to outlive everything
+    around it. A professional attaching this PDF to a file needs the other
+    thing: a number for the paper in their hand, so a letter can say "our
+    report CFN-... " and mean one document rather than one commune.
+
+    Three segments, each doing work the reader can check:
+
+      the subject -- the record identifier, so two reports on two communes can
+        never collide;
+      the edition -- the data cut-off, so the vintage is legible without
+        reading the page: the same commune from two ingestions is visibly two
+        documents rather than two copies of one;
+      the digest  -- the facts, so an altered copy stops matching.
+
+    The issue date is printed beside it and deliberately kept OUT of it. The
+    same facts asked for on two days are the same document; a reference that
+    moved daily would make comparing two copies meaningless, which is the one
+    thing this reference exists to allow.
+
+    Falls back to country+code when the identifier register is unreachable --
+    `unit_uid` already degrades to a gap rather than a 500, and a document with
+    no reference at all is the outcome that helps nobody. The digest still
+    makes the reference unique; what is lost is only its survival of a
+    correction to a start date, and that is the rarer event.
+    """
+    subject = d.get("uid") or f"{d['country']}{d['code']}".lower()
+    edition = (d.get("cutoff") or "").replace("-", "")
+    ref = "-".join(x for x in ("CFN", subject, edition, report_digest(d, lab)) if x)
+    url = (f"https://api.confinia.io/v1/communes/{d['code']}/report.pdf"
+           f"?country={d['country']}&lang={d.get('lang') or 'en'}")
+    return {"ref": ref, "issued": date.today().isoformat(), "verify": url}
+
+
 def citation_block(d: dict, lab: dict) -> list:
     """How to cite this record, and the identifiers that make it citable.
 
@@ -2192,10 +2292,16 @@ def citation_block(d: dict, lab: dict) -> list:
     url = f"https://www.confinia.io/commune/{d['code']}?country={d['country']}"
     uid = d.get("uid")
     ref = f"cfn:v1:{uid} " if uid else ""
+    doc = document_ref(d, lab)
     return [
         (lab["cite_as"],
          f"{ref}Confinia. {cur} ({d['code']}, {d['country']}) — "
          f"{lab['record']}. API v{APP_VERSION}. {url}"),
+        # What the reference is and what it is not, on the same line as the
+        # reference itself: a reader who copies one without the other would be
+        # left believing the digest covers the layout.
+        (lab["doc_ref"], f"{doc['ref']} — {lab['doc_note']}"),
+        (lab["doc_verify"], doc["verify"]),
     ]
 
 
@@ -2653,6 +2759,13 @@ def _report_svg(d: dict) -> str:
     co = d.get("cutoff")
     text(PAD, y, lab["cutoff"](co) if co else lab["cutoff_none"], 11.5,
          "bold", fill="#5b6b85")
+    y += 18
+    # The document's own identity, directly under how current it is: a number
+    # for this piece of paper and the day it was issued. A file clerk cites the
+    # first, a reader checks the second against the cut-off above it, and the
+    # two being different dates is the point (issue #205).
+    doc = document_ref(d, lab)
+    text(PAD, y, lab["doc_line"](doc["ref"], doc["issued"]), 10, fill="#8a94a6")
     y += 24
 
     # The answer, before anything else. A professional decides on page one
@@ -2972,7 +3085,12 @@ def _report_pdf(d: dict) -> bytes:
     y = H - 136
     co = d.get("cutoff")
     c.setFont("Helvetica-Bold", 9); c.setFillColorRGB(.36, .42, .52)
-    c.drawString(PAD, y, lab["cutoff"](co) if co else lab["cutoff_none"]); y -= 16
+    c.drawString(PAD, y, lab["cutoff"](co) if co else lab["cutoff_none"]); y -= 12
+    # Same block as the SVG, same order: how current the data is, then which
+    # document this is. Printed small -- a reference is looked up, not read.
+    doc = document_ref(d, lab)
+    c.setFont("Helvetica", 7.5); c.setFillColorRGB(.54, .58, .65)
+    c.drawString(PAD, y, lab["doc_line"](doc["ref"], doc["issued"])); y -= 18
     summ = summary_of_findings(d, lab)
     if summ:
         c.setFont("Helvetica-Bold", 12); c.setFillColorRGB(.1, .14, .2)
