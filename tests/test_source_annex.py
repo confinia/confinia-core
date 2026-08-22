@@ -86,9 +86,12 @@ def test_the_population_source_is_included():
 def test_both_renderers_print_the_annex():
     """SVG and PDF must not disagree about what the report proves."""
     _, src = _load()
-    assert src.count('lab["annex"]') == 2, "both renderers must print the annex heading"
-    assert src.count('row["vintages"]') >= 2, "both must print the edition read"
-    assert src.count('row.get("gap")') >= 2, "both must print an explicit gap"
+    svg = src[src.index("def _report_svg"):src.index("def _report_pdf")]
+    pdf = src[src.index("def _report_pdf"):]
+    for part, name in ((svg, "SVG"), (pdf, "PDF")):
+        assert 'lab["annex"]' in part, f"{name} must print the annex heading"
+        assert 'row["vintages"]' in part, f"{name} must print the edition read"
+        assert 'row.get("gap")' in part, f"{name} must print an explicit gap"
     assert '"source_annex": build_source_annex(' in src, "the report must carry it"
 
 

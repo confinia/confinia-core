@@ -34,6 +34,18 @@ def _fn(name):
     return body
 
 
+def _renderers():
+    """The two renderer bodies, separately.
+
+    Counting an identifier across the whole file was the old way, and it broke
+    the moment a third caller appeared -- `report_sections` naming a heading,
+    `report_digest` reading a fact. What the test always meant is narrower and
+    survives that: EACH renderer reads the shared builder.
+    """
+    svg = SRC[SRC.index("def _report_svg"):SRC.index("def _report_pdf")]
+    return svg, SRC[SRC.index("def _report_pdf"):]
+
+
 def test_the_notice_states_a_commitment_not_only_a_disclaimer():
     """Boilerplate that disclaims everything says nothing and is trusted less."""
     for lang, phrase in (("fr", "s'engage sur un seul point"),
@@ -82,5 +94,6 @@ def test_the_cutoff_is_cached_per_process():
 
 
 def test_both_renderers_read_one_builder():
-    assert SRC.count("legal_lines(d, lab)") == 2
-    assert SRC.count('d.get("cutoff")') == 2
+    for part, name in zip(_renderers(), ("SVG", "PDF")):
+        assert "legal_lines(d, lab)" in part, f"{name} prints what we warrant"
+        assert 'd.get("cutoff")' in part, f"{name} prints how current the data is"
