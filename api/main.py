@@ -1365,6 +1365,25 @@ REPORT_LABELS = {
         "f_stable": lambda d: f"boundary unchanged since {d}",
         "f_never": "boundary never changed in our records",
         "f_declined": "Not stated, and why",
+        "limits": "What this report cannot tell you",
+        "l_approx": lambda period, vintage: (
+            f"The outline shown for {period} is approximated from the {vintage} "
+            "edition. Its area is indicative, and no boundary change is "
+            "measured against it."),
+        "l_nogeom": lambda n, m: (
+            f"{n} of {m} periods have no boundary in our sources. Those "
+            "outlines are absent, not empty."),
+        "l_undrawable": lambda n: (
+            f"{n} predecessor(s) have no boundary at the date they were "
+            "absorbed, so the territory they brought is named but not drawn."),
+        "l_harmonised": lambda d: (
+            f"Population figures are recomputed for the {d} territory. That "
+            "makes them comparable across boundary changes, and means they are "
+            "not what was counted at the time."),
+        "l_cutoff": lambda d: (
+            f"Our picture ends on {d}. A change published after that date is "
+            "not here, and its absence is not evidence that it did not "
+            "happen."),
         "contents": "Contents",
         "method": "What we did to this data",
         "cite": "How to cite this record",
@@ -1493,6 +1512,26 @@ REPORT_LABELS = {
         "f_stable": lambda d: f"limites inchangées depuis {d}",
         "f_never": "limites jamais modifiées dans nos données",
         "f_declined": "Non énoncé, et pourquoi",
+        "limits": "Ce que ce rapport ne peut pas vous dire",
+        "l_approx": lambda period, vintage: (
+            f"Le contour présenté pour {period} est approximé à partir de "
+            f"l'édition {vintage}. Sa superficie est indicative, et aucune "
+            "modification de limite n'est mesurée contre lui."),
+        "l_nogeom": lambda n, m: (
+            f"{n} période(s) sur {m} n'ont aucune limite dans nos sources. Ces "
+            "contours sont absents, non vides."),
+        "l_undrawable": lambda n: (
+            f"{n} commune(s) absorbée(s) n'ont aucune limite à la date de leur "
+            "absorption : le territoire qu'elles ont apporté est nommé, non "
+            "dessiné."),
+        "l_harmonised": lambda d: (
+            f"Les effectifs sont recalculés sur le territoire du {d}. Ils sont "
+            "donc comparables d'une modification de limites à l'autre, et ne "
+            "sont pas ce qui a été compté à l'époque."),
+        "l_cutoff": lambda d: (
+            f"Notre image s'arrête au {d}. Une modification publiée après "
+            "cette date n'y figure pas, et son absence ne prouve pas qu'elle "
+            "n'a pas eu lieu."),
         "contents": "Sommaire",
         "method": "Ce que nous avons fait de cette donnée",
         "cite": "Comment citer cette fiche",
@@ -2163,6 +2202,48 @@ def glossary_lines(d: dict, lab: dict) -> list:
     return keep
 
 
+def limitation_lines(d: dict, lab: dict) -> list:
+    """What a reader must not conclude from what IS shown (issue #205).
+
+    Different from "Not stated, and why", which lists facts we withheld. This
+    lists the ones we DID state and the boundary of what they support -- the
+    section a professional looks for before attaching a document to a file, and
+    the one whose absence makes a confident report less trustworthy rather than
+    more.
+
+    Every line is COUNTED from this report. Nothing here is inferred: #205 also
+    asks for January-1st fallback dates, and our schema carries no date
+    precision, so claiming to know which dates are conventions would be the
+    exact failure this section exists to prevent. That one waits for a
+    `temporal_model` on `data_source`.
+    """
+    out = []
+    vs = d.get("versions") or []
+
+    for v in vs:
+        if v.get("approx") and v.get("vintage"):
+            out.append(lab["l_approx"](_period_str(v, d.get("lang", "en")),
+                                       v["vintage"].isoformat()))
+    blind = [v for v in vs if not v.get("rings")]
+    if blind and vs:
+        out.append(lab["l_nogeom"](len(blind), len(vs)))
+
+    undrawable = sum(len(v.get("gained_undrawable") or []) for v in vs)
+    if undrawable:
+        out.append(lab["l_undrawable"](undrawable))
+
+    pop = d.get("population") or {}
+    if pop.get("geography_basis") == "harmonised" and pop.get("harmonised_on"):
+        out.append(lab["l_harmonised"](pop["harmonised_on"]))
+
+    # Last, because it applies to every fact above it: a report is only as
+    # current as the ingestion behind it, and silence about that reads as
+    # completeness.
+    if d.get("cutoff"):
+        out.append(lab["l_cutoff"](d["cutoff"]))
+    return out
+
+
 def report_sections(d: dict, lab: dict) -> list:
     """The sections this report contains, in order, ONCE.
 
@@ -2177,6 +2258,8 @@ def report_sections(d: dict, lab: dict) -> list:
         out.append(lab["facts"])
     if declined_lines(d):
         out.append(lab["f_declined"])
+    if limitation_lines(d, lab):
+        out.append(lab["limits"])
     if d.get("events"):
         out.append(lab["chronology"])
     if any(v.get("rings") for v in d.get("versions", [])):
@@ -2277,6 +2360,7 @@ def report_digest(d: dict, lab: dict) -> str:
         "summary": summary_of_findings(d, lab),
         "facts": [list(x) for x in fact_lines(d, lab)],
         "declined": declined_lines(d),
+        "limits": limitation_lines(d, lab),
         "events": [[e.get("date"), e.get("type"), e.get("detail")]
                    for e in d.get("events") or []],
         "sources": [[r.get("source"), r.get("license"), r.get("vintages")]
@@ -2883,6 +2967,15 @@ def _report_svg(d: dict) -> str:
             y += 15
             text(PAD + 16, y, "— " + t[:140], 10.5, fill="#8a94a6")
         y += 26
+    lims = limitation_lines(d, lab)
+    if lims:
+        text(PAD, y, numbered(d, lab, lab["limits"]), 14, "bold"); y += 8
+        for t in lims:
+            for i, part in enumerate(_wrap(t, 108)):
+                y += 15
+                text(PAD + (6 if i == 0 else 16), y,
+                     ("— " if i == 0 else "") + part, 11, fill="#5b6b85")
+        y += 26
     text(PAD, y, numbered(d, lab, lab["chronology"]), 15, "bold"); y += 8
     for ev in d["events"][:60]:
         y += 17
@@ -3221,6 +3314,19 @@ def _report_pdf(d: dict) -> bytes:
         for t in dlines:
             c.drawString(PAD + 14, y, "- " + t[:118]); y -= 10
         y -= 10
+    lims = limitation_lines(d, lab)
+    if lims:
+        if y < 140:
+            footer(); c.showPage(); y = H - 70
+        c.setFont("Helvetica-Bold", 10); c.setFillColorRGB(.29, .32, .38)
+        c.drawString(PAD, y, numbered(d, lab, lab["limits"])); y -= 13
+        c.setFont("Helvetica", 8.5); c.setFillColorRGB(.36, .42, .52)
+        for t in lims:
+            for i, part in enumerate(_wrap(t, 104)):
+                c.drawString(PAD + (4 if i == 0 else 12), y,
+                             ("- " if i == 0 else "") + part); y -= 10
+            y -= 3
+        y -= 8
     c.setFont("Helvetica-Bold", 13); c.setFillColorRGB(.1, .14, .2)
     c.drawString(PAD, y, numbered(d, lab, lab["chronology"])); y -= 18
     c.setFont("Helvetica", 9.5)
