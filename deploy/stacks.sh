@@ -73,6 +73,15 @@ write-upstreams|promote)
 		health_timeout 3s
 	}
 }
+# Which colour is serving production, for the platform dashboard. Emitted at
+# the PROXY rather than by the app, so it still appears on a 302, a 401 or a
+# 500 -- the moments you most want to know which colour answered. Written from
+# the same \$c as the ports above and in the same heredoc: a header that says
+# blue while green serves is worse than none, it makes the dashboard a
+# confident liar.
+(active_colour) {
+	header X-Active-Colour "$c"
+}
 (staging_upstreams) {
 	reverse_proxy 127.0.0.1:11320 127.0.0.1:$PAS {
 		lb_policy first
