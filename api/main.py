@@ -2508,7 +2508,16 @@ def _facts(cur, code: str, country: str, versions: list, pop: dict | None,
     #    from doing to this what the first locator did to the PDF.
     if district and district.get("rings") and area:
         try:
-            cur.execute("SET LOCAL statement_timeout = '3s'")
+            # 30 s, not 3. The rank USED to be decided by the clock: at 3 s a
+            # cold page cache lost a race the same query wins warm in ~295 ms,
+            # so an identical request stated the rank or declined it depending
+            # on server load -- and since the document's reference is computed
+            # from the facts it states (#205), two honest copies of one commune
+            # disagreed. A fact that appears and vanishes with load is a
+            # problem for the reader before it is one for the digest. This
+            # remains a guard against a pathological district, not a race: it
+            # is far above the warm cost and far above the cold one.
+            cur.execute("SET LOCAL statement_timeout = '30s'")
             cur.execute(
                 "WITH d AS ("
                 "  SELECT geom_simple g FROM commune_version "
@@ -2531,7 +2540,9 @@ def _facts(cur, code: str, country: str, versions: list, pop: dict | None,
                 out["rank"] = {"district": district.get("name"),
                                "peers": int(row[0]), "by_area": int(row[1])}
         except Exception:
-            # A rank we could not compute is a rank we do not claim.
+            # A rank we could not compute is a rank we do not claim. Reaching
+            # here should now mean the district is genuinely pathological or
+            # the database is unwell -- not that this request was unlucky.
             out["declined"].append("rank:timed-out")
 
     # 6. What did NOT change. A boundary stable for eighty years is evidence,
