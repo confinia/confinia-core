@@ -8,6 +8,16 @@
 set -eu
 cd "$(dirname "$0")/.."
 
+# The snippets this Caddyfile imports live in the GENERATED state file, and a
+# snippet added to the generator cannot be imported until a promotion rewrites
+# it -- so a Caddyfile and its generator, merged together, would fail validation
+# until the next promotion. Regenerate from the CURRENT colour first: same
+# colour in, same file out, a no-op except when the generator has grown a
+# snippet, which is exactly when the validation below would otherwise fail.
+COLOUR=$(cat "$HOME/confinia-edge-state/ACTIVE_COLOR" 2>/dev/null || echo blue)
+echo "== regenerating the edge state for the active colour ($COLOUR)"
+./deploy/stacks.sh write-upstreams "$COLOUR" >/dev/null
+
 echo "== validation (ephemeral container, real files, same env as prod)"
 podman run --rm \
 	--env-file deploy/secrets.env \
