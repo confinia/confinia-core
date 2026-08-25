@@ -560,6 +560,7 @@ EVENT_PHRASES = {
     "en": {
         "today": "today",
         "absorbed": lambda who, a, b: f"absorbed {who} between {a} and {b}",
+        "absorbed_on": lambda who, d: f"absorbed {who} on {d}",
         "formed_from": lambda who: f"formed from {who}",
         "reestablished": lambda nom: f"re-established as {nom}",
         "split": lambda who: f"split into {who}",
@@ -569,6 +570,7 @@ EVENT_PHRASES = {
     "fr": {
         "today": "aujourd'hui",
         "absorbed": lambda who, a, b: f"a absorbé {who} entre {a} et {b}",
+        "absorbed_on": lambda who, d: f"a absorbé {who} le {d}",
         "formed_from": lambda who: f"issu de {who}",
         "reestablished": lambda nom: f"rétabli sous le nom de {nom}",
         "split": lambda who: f"scindé en {who}",
@@ -874,20 +876,23 @@ def derive_events(versions: list[dict], lang: str = "en") -> list[dict]:
                            "name_delta": nd, "boundary_delta": bd,
                            "change_note": change_note(nd, lang, bd)})
             if other_parents:
-                events.append({"date": None, "type": "absorbed",
-                               "detail": ph["absorbed"](', '.join(other_parents),
-                                                        p['valid_from'],
-                                                        p['valid_to'] or ph["today"])})
+                # DATED, and at the version's own start. `parents` belongs to
+                # the version beginning that day, so the absorption happened
+                # then -- the previous "between 2019-01-01 and today" hedged
+                # about a date this same service already published in
+                # /history, and an undated event sorts and cites like a rumour.
+                events.append({"date": p["valid_from"], "type": "absorbed",
+                               "detail": ph["absorbed_on"](', '.join(other_parents),
+                                                           p['valid_from'])})
         elif other_parents and p["valid_from"] != "1943-01-01":
             events.append({"date": p["valid_from"],
                            "type": "merger" if code in (p["parents"] or []) or len(other_parents) > 1
                                    else "created",
                            "detail": ph["formed_from"](', '.join(sorted(set(p['parents']))))})
         elif other_parents:
-            events.append({"date": None, "type": "absorbed",
-                           "detail": ph["absorbed"](', '.join(other_parents),
-                                                    p['valid_from'],
-                                                    p['valid_to'] or ph["today"])})
+            events.append({"date": p["valid_from"], "type": "absorbed",
+                           "detail": ph["absorbed_on"](', '.join(other_parents),
+                                                       p['valid_from'])})
         elif not contiguous and i > 0:
             events.append({"date": p["valid_from"], "type": "reestablished",
                            "detail": ph["reestablished"](p['nom'])})
@@ -1387,6 +1392,28 @@ REPORT_MAX_VERSIONS = 60
 
 # Report chrome (issue #79): one localized label set per language. Reports drop
 # the former "English / French" dual strings for a single label in the chosen tongue.
+def _n_en(n: int, one: str, many: str) -> str:
+    """English agreement: only exactly one takes the singular. Zero is plural.
+
+    "1 période(s) sur 2 n'ont aucune limite" is not a typography problem. A
+    reader who meets it stops believing the sentences, and this document's whole
+    claim is that its sentences were written on purpose.
+    """
+    return one if n == 1 else many
+
+
+def _n_fr(n: int, one: str, many: str) -> str:
+    """French agreement: zero AND one take the singular -- "0 commune", "1
+    commune", "2 communes".
+
+    A separate function rather than a flag, because this is exactly where the
+    two languages part company and a shared helper would have to be read twice
+    to be believed. None of these strings is emitted at zero today; that is a
+    property of the callers, not something to lean on here.
+    """
+    return one if abs(n) <= 1 else many
+
+
 REPORT_LABELS = {
     "en": {
         "record": "Confinia · commune record",
@@ -1415,11 +1442,13 @@ REPORT_LABELS = {
             "edition. Its area is indicative, and no boundary change is "
             "measured against it."),
         "l_nogeom": lambda n, m: (
-            f"{n} of {m} periods have no boundary in our sources. Those "
-            "outlines are absent, not empty."),
+            f"{n} of {m} periods {_n_en(n, 'has', 'have')} no boundary in our "
+            f"sources. {_n_en(n, 'That outline is', 'Those outlines are')} absent, "
+            "not empty."),
         "l_undrawable": lambda n: (
-            f"{n} predecessor(s) have no boundary at the date they were "
-            "absorbed, so the territory they brought is named but not drawn."),
+            f"{n} {_n_en(n, 'predecessor has', 'predecessors have')} no boundary "
+            "at the date they were absorbed, so the territory they brought is "
+            "named but not drawn."),
         "l_harmonised": lambda d: (
             f"Population figures are recomputed for the {d} territory. That "
             "makes them comparable across boundary changes, and means they are "
@@ -1448,12 +1477,13 @@ REPORT_LABELS = {
         "s_current": lambda nom: f"{nom} exists today.",
         "s_gone": lambda nom, d: f"{nom} ceased to exist on {d}.",
         "s_formed": lambda n, d: (f"It was formed on {d} by the merger of "
-                                  f"{n} commune(s)."),
+                                  f"{n} {_n_en(n, 'commune', 'communes')}."),
         "s_absorbed": lambda n, d: f"It later absorbed {n} more, the last on {d}.",
         "s_stable": lambda d: f"Its boundary has not moved since {d}.",
         "s_never": "Its boundary has never moved in our records.",
         "s_area": lambda a: f"It covers {a} km².",
-        "s_versions": lambda n, d: (f"We hold {n} recorded version(s), the "
+        "s_versions": lambda n, d: (f"We hold {n} recorded "
+                                    f"{_n_en(n, 'version', 'versions')}, the "
                                     f"earliest beginning {d}."),
         "g_terms": [
             ("Version", "One period during which a unit kept the same code and "
@@ -1508,8 +1538,10 @@ REPORT_LABELS = {
         "m_approx": "At least one version of this commune carries a boundary the "
                     "source marks as approximate; figures derived from it are "
                     "flagged where they appear.",
-        "versions_svg": lambda n: f"{n} recorded version(s) · generated by Confinia API v{APP_VERSION} · ",
-        "versions_pdf": lambda n: f"{n} recorded version(s) · full lineage with per-fact provenance",
+        "versions_svg": lambda n: (f"{n} recorded {_n_en(n, 'version', 'versions')}"
+                                   f" · generated by Confinia API v{APP_VERSION} · "),
+        "versions_pdf": lambda n: (f"{n} recorded {_n_en(n, 'version', 'versions')}"
+                                   " · full lineage with per-fact provenance"),
         "chronology": "Chronology",
         "boundaries": "Boundaries by period (same scale)",
         "sources": "Sources:",
@@ -1519,9 +1551,11 @@ REPORT_LABELS = {
         "annex_gap": "gap: ",
         "annex_nov": "edition not recorded",
         "gained": "absorbed (light blue)",
-        "gained_partial": lambda who: f"no polygon held for {who} — absorbed, not drawn",
+        "gained_partial": lambda who, n=2: (f"no polygon held for {who} — "
+                                            f"{_n_en(n, 'absorbed', 'absorbed')}, not drawn"),
         "lost": "detached in this period",
-        "lost_partial": lambda who: f"no polygon held for {who} — detached, not drawn",
+        "lost_partial": lambda who, n=2: (f"no polygon held for {who} — "
+                                          f"{_n_en(n, 'detached', 'detached')}, not drawn"),
         "no_geometry": "no geometry",
         "no_geometry_period": "no geometry for this period "
                               "(pre-1943 nomenclature without communal polygons)",
@@ -1562,12 +1596,15 @@ REPORT_LABELS = {
             f"l'édition {vintage}. Sa superficie est indicative, et aucune "
             "modification de limite n'est mesurée contre lui."),
         "l_nogeom": lambda n, m: (
-            f"{n} période(s) sur {m} n'ont aucune limite dans nos sources. Ces "
-            "contours sont absents, non vides."),
+            f"{n} {_n_fr(n, 'période', 'périodes')} sur {m} "
+            f"{_n_fr(n, "n'a", "n'ont")} aucune limite dans nos sources. "
+            f"{_n_fr(n, 'Ce contour est absent', 'Ces contours sont absents')}, "
+            "non vide" + ("" if abs(n) <= 1 else "s") + "."),
         "l_undrawable": lambda n: (
-            f"{n} commune(s) absorbée(s) n'ont aucune limite à la date de leur "
-            "absorption : le territoire qu'elles ont apporté est nommé, non "
-            "dessiné."),
+            f"{n} {_n_fr(n, 'commune absorbée', 'communes absorbées')} "
+            f"{_n_fr(n, "n'a", "n'ont")} aucune limite à la date de leur "
+            f"absorption : le territoire {_n_fr(n, "qu'elle a", "qu'elles ont")} "
+            "apporté est nommé, non dessiné."),
         "l_harmonised": lambda d: (
             f"Les effectifs sont recalculés sur le territoire du {d}. Ils sont "
             "donc comparables d'une modification de limites à l'autre, et ne "
@@ -1597,12 +1634,13 @@ REPORT_LABELS = {
         "s_current": lambda nom: f"{nom} existe aujourd'hui.",
         "s_gone": lambda nom, d: f"{nom} a cessé d'exister le {d}.",
         "s_formed": lambda n, d: (f"Elle est née le {d} de la fusion de "
-                                  f"{n} commune(s)."),
+                                  f"{n} {_n_fr(n, 'commune', 'communes')}."),
         "s_absorbed": lambda n, d: f"Elle en a absorbé {n} depuis, la dernière le {d}.",
         "s_stable": lambda d: f"Ses limites n'ont pas bougé depuis le {d}.",
         "s_never": "Ses limites n'ont jamais bougé dans nos données.",
         "s_area": lambda a: f"Elle couvre {a} km².",
-        "s_versions": lambda n, d: (f"Nous détenons {n} version(s) enregistrée(s), "
+        "s_versions": lambda n, d: (f"Nous détenons {n} "
+                                    f"{_n_fr(n, 'version enregistrée', 'versions enregistrées')}, "
                                     f"la plus ancienne débutant le {d}."),
         "g_terms": [
             ("Version", "Une période pendant laquelle une unité a gardé le même "
@@ -1665,8 +1703,10 @@ REPORT_LABELS = {
         "m_approx": "Au moins une version de cette commune porte un contour que la "
                     "source déclare approximatif ; les chiffres qui en dérivent sont "
                     "signalés là où ils apparaissent.",
-        "versions_svg": lambda n: f"{n} version(s) enregistrée(s) · générée par l'API Confinia v{APP_VERSION} · ",
-        "versions_pdf": lambda n: f"{n} version(s) enregistrée(s) · filiation complète avec provenance par fait",
+        "versions_svg": lambda n: (f"{n} {_n_fr(n, 'version enregistrée', 'versions enregistrées')}"
+                                   f" · générée par l'API Confinia v{APP_VERSION} · "),
+        "versions_pdf": lambda n: (f"{n} {_n_fr(n, 'version enregistrée', 'versions enregistrées')}"
+                                   " · filiation complète avec provenance par fait"),
         "chronology": "Chronologie",
         "boundaries": "Contours par période (même échelle)",
         "sources": "Sources :",
@@ -1676,9 +1716,13 @@ REPORT_LABELS = {
         "annex_gap": "manque : ",
         "annex_nov": "édition non enregistrée",
         "gained": "absorbé (bleu clair)",
-        "gained_partial": lambda who: f"aucun polygone pour {who} — absorbée(s), non dessinée(s)",
-        "lost": "détachée(s) sur cette période",
-        "lost_partial": lambda who: f"aucun polygone pour {who} — détachée(s), non dessinée(s)",
+        "gained_partial": lambda who, n=2: (f"aucun polygone pour {who} — "
+                                            f"{_n_fr(n, 'absorbée', 'absorbées')}, "
+                                            f"non {_n_fr(n, 'dessinée', 'dessinées')}"),
+        "lost": "détachées sur cette période",
+        "lost_partial": lambda who, n=2: (f"aucun polygone pour {who} — "
+                                          f"{_n_fr(n, 'détachée', 'détachées')}, "
+                                          f"non {_n_fr(n, 'dessinée', 'dessinées')}"),
         "no_geometry": "aucune géométrie",
         "no_geometry_period": "aucune géométrie pour cette période "
                               "(nomenclature antérieure à 1943, sans polygone communal)",
@@ -2206,7 +2250,13 @@ def summary_of_findings(d: dict, lab: dict) -> list:
         out.append(lab["s_gone"](cur["nom"], cur["valid_to"].isoformat()))
 
     if f.get("formed_from"):
-        out.append(lab["s_formed"](len(f["formed_from"]),
+        # `formed_from` deliberately excludes this commune: it is not its own
+        # predecessor. But a MERGER counts it -- Saint-Béat and Lez became
+        # Saint-Béat-Lez, two communes merging, one of whose codes survived.
+        # Counting only the others produced "née de la fusion de 1 commune",
+        # a contradiction sitting beside a lineage that named two.
+        kept_its_code = d["code"] in (cur.get("parents") or [])
+        out.append(lab["s_formed"](len(f["formed_from"]) + (1 if kept_its_code else 0),
                                    cur["valid_from"].isoformat()))
     if f.get("absorbed"):
         last = max(x["to"] for x in f["absorbed"] if x.get("to"))
@@ -3148,7 +3198,7 @@ def _report_svg(d: dict) -> str:
             # Naming them is the point: colouring only what we hold would show
             # "gained Ruffieu" and imply "and nothing else".
             text(ox + CELL_W / 2, row_y + DRAW_H + 76,
-                 lab["gained_partial"](", ".join(v["gained_undrawable"]))[:80], 9,
+                 lab["gained_partial"](", ".join(v["gained_undrawable"]), len(v["gained_undrawable"]))[:80], 9,
                  fill="#a05a2c", anchor="middle")
         if v.get("lost"):
             text(ox + CELL_W / 2, row_y + DRAW_H + 88, lab["lost"], 9,
@@ -3157,7 +3207,7 @@ def _report_svg(d: dict) -> str:
             # Same rule as its twin: drawing a subset of what left, silently, is
             # the failure this whole function exists to avoid.
             text(ox + CELL_W / 2, row_y + DRAW_H + 100,
-                 lab["lost_partial"](", ".join(v["lost_undrawable"]))[:80], 9,
+                 lab["lost_partial"](", ".join(v["lost_undrawable"]), len(v["lost_undrawable"]))[:80], 9,
                  fill="#a05a2c", anchor="middle")
     # Groups, not versions: sizing on the version count leaves a blank half-page
     # for every panel the grouping removed.
@@ -3519,11 +3569,11 @@ def _report_pdf(d: dict) -> bytes:
             if v.get("gained_undrawable"):
                 # Naming them is the point: colouring only what we hold would
                 # show "gained Ruffieu" and imply "and nothing else".
-                legend.append(lab["gained_partial"](", ".join(v["gained_undrawable"])))
+                legend.append(lab["gained_partial"](", ".join(v["gained_undrawable"]), len(v["gained_undrawable"])))
             if v.get("lost"):
                 legend.append(lab["lost"])
             if v.get("lost_undrawable"):
-                legend.append(lab["lost_partial"](", ".join(v["lost_undrawable"])))
+                legend.append(lab["lost_partial"](", ".join(v["lost_undrawable"]), len(v["lost_undrawable"])))
             if legend:
                 c.setFont("Helvetica", 7.5); c.setFillColorRGB(.35, .45, .58)
                 c.drawString(PAD, top - 26, " · ".join(legend)[:150])
