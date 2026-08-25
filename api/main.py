@@ -3602,6 +3602,82 @@ def commune_report_pdf(request: Request, code: str, country: str = "FR",
         "X-Premium-Remaining": str(quota.get("remaining"))})
 
 
+@app.get("/v1/communes/{code}/facts")
+def commune_facts(request: Request, code: str, country: str = "FR",
+                  lang: str | None = Query(None,
+                      description="Language of the human-readable strings (fr/en)")):
+    """PREMIUM — the same facts as the report, as JSON, each with its provenance.
+
+    Built for a consumer that composes its OWN document (EcoBuilding) and must
+    keep the sources intact while doing it. The report RENDERS these facts; this
+    RETURNS them, and both read one bundle -- two paths computing facts
+    separately would eventually disagree, and the disagreement would surface as
+    a building report contradicting the commune record it quotes.
+
+    Three properties are the point, and they are why this is not merely the
+    report without the pixels:
+
+      `declined` is a LIST, not an absence. A consumer receiving no `rank`
+        cannot tell "we never compute rank" from "this rank could not be
+        established", and that difference is the product. Each entry carries a
+        stable machine key AND the sentence in the reader's language, so a
+        caller may re-word it or print it unchanged.
+      `limitations` travels WITH the facts. A building report that repeats our
+        numbers without our caveats states more than we do.
+      `sources` names the vintage we READ, never "latest": a caller verifying
+        next year must land on what we read, not on what replaced it.
+
+    Geometry is deliberately absent -- heavy, already served by /v1/communes,
+    and a consumer wanting an outline wants it in a map, not in a facts payload.
+    """
+    country = country.upper()
+    quota = premium_gate(request, f"{country}/{code}")   # distinct-town (issue #83)
+    lang = resolve_lang(lang, country)
+    d = _report_data(code, country, lang)
+    lab = REPORT_LABELS.get(lang, REPORT_LABELS["en"])
+    facts = dict(d.get("facts") or {})
+    reasons = facts.pop("declined", [])
+    phrases = DECLINE_PHRASES.get(lang, DECLINE_PHRASES["en"])
+    cur = d["versions"][-1]
+    pop = d.get("population") or {}
+    return {
+        "unit": {
+            "code": d["code"], "country": d["country"], "name": cur["nom"],
+            "unit_type": cur["unit_type"],
+            "valid_from": cur["valid_from"],
+            "valid_to": None if cur["valid_to"] == FAR_FUTURE else cur["valid_to"],
+            # The citable identifier of this VERSION, assigned once and then
+            # remembered, so a consumer that stores it can still resolve this
+            # record after a start date is corrected.
+            "uid": d.get("uid"),
+            "reference": f"cfn:v1:{d['uid']}" if d.get("uid") else None,
+        },
+        "as_known_on": d.get("cutoff"),
+        "language": lang,
+        "summary": summary_of_findings(d, lab),
+        "facts": facts,
+        "declined": [{"reason": r, "text": phrases.get(r)} for r in reasons],
+        "limitations": limitation_lines(d, lab),
+        "versions": [{
+            "name": v["nom"], "valid_from": v["valid_from"],
+            "valid_to": None if v["valid_to"] == FAR_FUTURE else v["valid_to"],
+            "parents": v["parents"], "children": v["children"],
+            "source": v["source"], "geometry_vintage": v["vintage"],
+            "geometry_approx": v["approx"],
+            "has_geometry": bool(v["rings"]),
+        } for v in d["versions"]],
+        "events": [{"date": e.get("date"), "type": e.get("type"),
+                    "detail": e.get("detail")} for e in d.get("events") or []],
+        "population": {k: pop.get(k) for k in
+                       ("year", "population", "series", "source",
+                        "geography_basis", "harmonised_on", "note")} if pop else None,
+        "sources": d.get("source_annex"),
+        "attribution": [{"attribution": a, "license": l}
+                        for a, l in d.get("attributions") or []],
+        "api_version": APP_VERSION,
+    }
+
+
 @app.get("/v1/pricing")
 def pricing_config():
     """The offer, as the deployment is actually configured (RULES 19).
