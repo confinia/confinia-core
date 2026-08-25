@@ -1133,8 +1133,9 @@ EPOCH = date(1970, 1, 1)   # the free tier's lifetime bucket (period sentinel)
 
 def _premium_caller(request: Request) -> tuple:
     """Resolve (tier, limit, period, caller) for the premium quota. Caller = a
-    valid API key (enterprise unlimited → limit None; pro monthly) else a STABLE
-    irreversible IP hash (never the IP). Free = lifetime bucket."""
+    valid API key (enterprise unlimited AND unmetered; partner unlimited but
+    recorded; pro monthly) else a STABLE irreversible IP hash (never the IP).
+    Free = lifetime bucket."""
     key = request.headers.get("x-api-key") or request.query_params.get("api_key")
     if key:
         with ops_cursor() as cur:
@@ -1149,6 +1150,18 @@ def _premium_caller(request: Request) -> tuple:
                 # period, the record-never-refuse path.
                 return (row[1], CREEM_TIER_REPORTS[row[1]],
                         date.today().replace(day=1), f"key:{key}")
+            if row[1] == "partner":
+                # Unlimited, and RECORDED. Founder's decision, 2026-08-25: while
+                # Confinia's value to another product is unproven, a partner
+                # application must never be refused -- and its usage is the only
+                # evidence that will prove or disprove that value, so it has to
+                # keep being counted.
+                #
+                # NOT `enterprise`, which is unlimited AND unmetered: that would
+                # have thrown the evidence away to save a row per town. limit
+                # None WITH a period is the record-never-refuse path that
+                # metered pro already uses.
+                return ("partner", None, date.today().replace(day=1), f"key:{key}")
             if row[1] == "pro":
                 # Metered: no monthly ceiling on USE -- the ceiling is on the
                 # CHARGE. limit=None with a period means "record, never refuse".
