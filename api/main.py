@@ -559,8 +559,9 @@ def resolve_lang(lang: str | None, country: str) -> str:
 EVENT_PHRASES = {
     "en": {
         "today": "today",
-        "absorbed": lambda who, a, b: f"absorbed {who} between {a} and {b}",
-        "absorbed_on": lambda who, d: f"absorbed {who} on {d}",
+        "absorbed": lambda who, a, b: (f"absorbed {who} between {_d_en(a)} "
+                                       f"and {_d_en(b)}"),
+        "absorbed_on": lambda who, d: f"absorbed {who} on {_d_en(d)}",
         "formed_from": lambda who: f"formed from {who}",
         "reestablished": lambda nom: f"re-established as {nom}",
         "split": lambda who: f"split into {who}",
@@ -569,8 +570,9 @@ EVENT_PHRASES = {
     },
     "fr": {
         "today": "aujourd'hui",
-        "absorbed": lambda who, a, b: f"a absorbé {who} entre {a} et {b}",
-        "absorbed_on": lambda who, d: f"a absorbé {who} le {d}",
+        "absorbed": lambda who, a, b: (f"a absorbé {who} entre le {_d_fr(a)} "
+                                       f"et le {_d_fr(b)}"),
+        "absorbed_on": lambda who, d: f"a absorbé {who} le {_d_fr(d)}",
         "formed_from": lambda who: f"issu de {who}",
         "reestablished": lambda nom: f"rétabli sous le nom de {nom}",
         "split": lambda who: f"scindé en {who}",
@@ -1392,6 +1394,52 @@ REPORT_MAX_VERSIONS = 60
 
 # Report chrome (issue #79): one localized label set per language. Reports drop
 # the former "English / French" dual strings for a single label in the chosen tongue.
+_MONTHS_FR = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet",
+              "août", "septembre", "octobre", "novembre", "décembre")
+_MONTHS_EN = ("January", "February", "March", "April", "May", "June", "July",
+              "August", "September", "October", "November", "December")
+
+
+def _spell_date(value, lang: str) -> str:
+    """An ISO date written out, for SENTENCES only.
+
+    Founder's decision, 2026-08-25, after EcoBuilding read a real record: "Elle
+    est née le 2019-01-01" is not French, and #205's whole ambition is a
+    document an expert office would sign -- a notaire's file is prose, and an
+    ISO date inside a sentence reads as machine output.
+
+    Fields, tables, the annex, the chronology's date column and the document
+    reference keep ISO 8601. That split is the point rather than a compromise:
+    a reader who copies a date copies it from a FIELD, not from a sentence, so
+    the unambiguous form stays exactly where copying happens. The methodology
+    section declares both.
+
+    Anything that is not an ISO date -- "aujourd'hui", "today", an empty value --
+    is returned untouched. This formats dates; it does not police them.
+    """
+    if value is None:
+        return ""
+    text = value.isoformat() if hasattr(value, "isoformat") else str(value)
+    parts = text.split("-")
+    if len(parts) != 3 or not all(x.isdigit() for x in parts):
+        return text
+    y, m, d = (int(x) for x in parts)
+    if not (1 <= m <= 12):
+        return text
+    if lang == "fr":
+        day = "1ᵉʳ" if d == 1 else str(d)
+        return f"{day} {_MONTHS_FR[m - 1]} {y}"
+    return f"{d} {_MONTHS_EN[m - 1]} {y}"
+
+
+def _d_fr(value) -> str:
+    return _spell_date(value, "fr")
+
+
+def _d_en(value) -> str:
+    return _spell_date(value, "en")
+
+
 def _n_en(n: int, one: str, many: str) -> str:
     """English agreement: only exactly one takes the singular. Zero is plural.
 
@@ -1433,13 +1481,13 @@ REPORT_LABELS = {
         "f_rank": "Rank by area",
         "f_rank_val": lambda r, n, d: (f"largest of {n} — {d}" if r == 1
                                        else f"{r} of {n} — {d}"),
-        "f_stable": lambda d: f"boundary unchanged since {d}",
+        "f_stable": lambda d: f"boundary unchanged since {_d_en(d)}",
         "f_never": "boundary never changed in our records",
         "f_declined": "Not stated, and why",
         "limits": "What this report cannot tell you",
         "l_approx": lambda period, vintage: (
-            f"The outline shown for {period} is approximated from the {vintage} "
-            "edition. Its area is indicative, and no boundary change is "
+            f"The outline shown for {period} is approximated from the "
+            f"{_d_en(vintage)} edition. Its area is indicative, and no boundary change is "
             "measured against it."),
         "l_nogeom": lambda n, m: (
             f"{n} of {m} periods {_n_en(n, 'has', 'have')} no boundary in our "
@@ -1450,20 +1498,20 @@ REPORT_LABELS = {
             "at the date they were absorbed, so the territory they brought is "
             "named but not drawn."),
         "l_harmonised": lambda d: (
-            f"Population figures are recomputed for the {d} territory. That "
+            f"Population figures are recomputed for the {_d_en(d)} territory. That "
             "makes them comparable across boundary changes, and means they are "
             "not what was counted at the time."),
         "l_cutoff": lambda d: (
-            f"Our picture ends on {d}. A change published after that date is "
+            f"Our picture ends on {_d_en(d)}. A change published after that date is "
             "not here, and its absence is not evidence that it did not "
             "happen."),
         "contents": "Contents",
         "method": "What we did to this data",
         "cite": "How to cite this record",
         "cite_as": "Cite as",
-        "cutoff": lambda d: f"Situation as known on {d}",
+        "cutoff": lambda d: f"Situation as known on {_d_en(d)}",
         "cutoff_none": "Cut-off date unknown for this country",
-        "doc_line": lambda ref, issued: f"Reference {ref} \u00b7 issued {issued}",
+        "doc_line": lambda ref, issued: f"Reference {ref} \u00b7 issued {_d_en(issued)}",
         "doc_ref": "Document reference",
         "doc_verify": "Re-obtain this document",
         "doc_note": ("computed from the facts stated above and from the data "
@@ -1475,16 +1523,16 @@ REPORT_LABELS = {
         "glossary": "Terms used here",
         "page_n": lambda n, t: f"page {n} / {t}",
         "s_current": lambda nom: f"{nom} exists today.",
-        "s_gone": lambda nom, d: f"{nom} ceased to exist on {d}.",
-        "s_formed": lambda n, d: (f"It was formed on {d} by the merger of "
+        "s_gone": lambda nom, d: f"{nom} ceased to exist on {_d_en(d)}.",
+        "s_formed": lambda n, d: (f"It was formed on {_d_en(d)} by the merger of "
                                   f"{n} {_n_en(n, 'commune', 'communes')}."),
-        "s_absorbed": lambda n, d: f"It later absorbed {n} more, the last on {d}.",
-        "s_stable": lambda d: f"Its boundary has not moved since {d}.",
+        "s_absorbed": lambda n, d: f"It later absorbed {n} more, the last on {_d_en(d)}.",
+        "s_stable": lambda d: f"Its boundary has not moved since {_d_en(d)}.",
         "s_never": "Its boundary has never moved in our records.",
         "s_area": lambda a: f"It covers {a} km².",
         "s_versions": lambda n, d: (f"We hold {n} recorded "
                                     f"{_n_en(n, 'version', 'versions')}, the "
-                                    f"earliest beginning {d}."),
+                                    f"earliest beginning {_d_en(d)}."),
         "g_terms": [
             ("Version", "One period during which a unit kept the same code and "
                         "name. A new version begins at a dated event."),
@@ -1529,7 +1577,10 @@ REPORT_LABELS = {
         "m_pop_unknown": "We do not know which geography these counts are on; "
                          "they are shown without a claim about what they "
                          "describe.",
-        "m_dates": "All dates are ISO 8601 (YYYY-MM-DD) and refer to the day a "
+        "m_dates": "Dates are written out in sentences and given as ISO 8601 "
+                   "(YYYY-MM-DD) in fields, tables, the annex and this "
+                   "document's reference — copy them from a field, where the "
+                   "form is unambiguous. Either way they refer to the day a "
                    "change took civil effect, not the day it was published.",
         "m_lineage": "Predecessors and successors come from the national register's "
                      "own record of changes, with their dates. Where a date "
@@ -1587,13 +1638,13 @@ REPORT_LABELS = {
         "f_rank": "Rang par superficie",
         "f_rank_val": lambda r, n, d: (f"la plus étendue des {n} — {d}" if r == 1
                                        else f"{r}\u1d49 sur {n} — {d}"),
-        "f_stable": lambda d: f"limites inchangées depuis {d}",
+        "f_stable": lambda d: f"limites inchangées depuis le {_d_fr(d)}",
         "f_never": "limites jamais modifiées dans nos données",
         "f_declined": "Non énoncé, et pourquoi",
         "limits": "Ce que ce rapport ne peut pas vous dire",
         "l_approx": lambda period, vintage: (
             f"Le contour présenté pour {period} est approximé à partir de "
-            f"l'édition {vintage}. Sa superficie est indicative, et aucune "
+            f"l'édition {_d_fr(vintage)}. Sa superficie est indicative, et aucune "
             "modification de limite n'est mesurée contre lui."),
         "l_nogeom": lambda n, m: (
             f"{n} {_n_fr(n, 'période', 'périodes')} sur {m} "
@@ -1606,20 +1657,20 @@ REPORT_LABELS = {
             f"absorption : le territoire {_n_fr(n, "qu'elle a", "qu'elles ont")} "
             "apporté est nommé, non dessiné."),
         "l_harmonised": lambda d: (
-            f"Les effectifs sont recalculés sur le territoire du {d}. Ils sont "
+            f"Les effectifs sont recalculés sur le territoire du {_d_fr(d)}. Ils sont "
             "donc comparables d'une modification de limites à l'autre, et ne "
             "sont pas ce qui a été compté à l'époque."),
         "l_cutoff": lambda d: (
-            f"Notre image s'arrête au {d}. Une modification publiée après "
+            f"Notre image s'arrête au {_d_fr(d)}. Une modification publiée après "
             "cette date n'y figure pas, et son absence ne prouve pas qu'elle "
             "n'a pas eu lieu."),
         "contents": "Sommaire",
         "method": "Ce que nous avons fait de cette donnée",
         "cite": "Comment citer cette fiche",
         "cite_as": "Citer comme",
-        "cutoff": lambda d: f"Situation connue au {d}",
+        "cutoff": lambda d: f"Situation connue au {_d_fr(d)}",
         "cutoff_none": "Date d'arrêté inconnue pour ce pays",
-        "doc_line": lambda ref, issued: f"Référence {ref} \u00b7 établi le {issued}",
+        "doc_line": lambda ref, issued: f"Référence {ref} \u00b7 établi le {_d_fr(issued)}",
         "doc_ref": "Référence du document",
         "doc_verify": "Réobtenir ce document",
         "doc_note": ("calculée à partir des faits énoncés ci-dessus et de la "
@@ -1632,16 +1683,16 @@ REPORT_LABELS = {
         "glossary": "Termes employés ici",
         "page_n": lambda n, t: f"page {n} / {t}",
         "s_current": lambda nom: f"{nom} existe aujourd'hui.",
-        "s_gone": lambda nom, d: f"{nom} a cessé d'exister le {d}.",
-        "s_formed": lambda n, d: (f"Elle est née le {d} de la fusion de "
+        "s_gone": lambda nom, d: f"{nom} a cessé d'exister le {_d_fr(d)}.",
+        "s_formed": lambda n, d: (f"Elle est née le {_d_fr(d)} de la fusion de "
                                   f"{n} {_n_fr(n, 'commune', 'communes')}."),
-        "s_absorbed": lambda n, d: f"Elle en a absorbé {n} depuis, la dernière le {d}.",
-        "s_stable": lambda d: f"Ses limites n'ont pas bougé depuis le {d}.",
+        "s_absorbed": lambda n, d: f"Elle en a absorbé {n} depuis, la dernière le {_d_fr(d)}.",
+        "s_stable": lambda d: f"Ses limites n'ont pas bougé depuis le {_d_fr(d)}.",
         "s_never": "Ses limites n'ont jamais bougé dans nos données.",
         "s_area": lambda a: f"Elle couvre {a} km².",
         "s_versions": lambda n, d: (f"Nous détenons {n} "
                                     f"{_n_fr(n, 'version enregistrée', 'versions enregistrées')}, "
-                                    f"la plus ancienne débutant le {d}."),
+                                    f"la plus ancienne débutant le {_d_fr(d)}."),
         "g_terms": [
             ("Version", "Une période pendant laquelle une unité a gardé le même "
                         "code et le même nom. Une nouvelle version commence à un "
@@ -1693,9 +1744,12 @@ REPORT_LABELS = {
         "m_pop_unknown": "Nous ignorons sur quelle géographie ces effectifs sont "
                          "comptés ; ils sont affichés sans affirmation sur ce "
                          "qu'ils décrivent.",
-        "m_dates": "Toutes les dates sont au format ISO 8601 (AAAA-MM-JJ) et "
-                   "désignent le jour où un changement a pris effet civil, non "
-                   "celui de sa publication.",
+        "m_dates": "Les dates sont écrites en toutes lettres dans les phrases "
+                   "et au format ISO 8601 (AAAA-MM-JJ) dans les champs, les "
+                   "tableaux, l'annexe et la référence de ce document — "
+                   "recopiez-les depuis un champ, où la forme est non ambiguë. "
+                   "Dans les deux cas elles désignent le jour où un changement "
+                   "a pris effet civil, non celui de sa publication.",
         "m_lineage": "Les communes d'origine et les successeurs proviennent du "
                      "registre national des changements, avec leurs dates. Lorsqu'une "
                      "date contredit l'événement qu'elle décrit, elle est affichée "

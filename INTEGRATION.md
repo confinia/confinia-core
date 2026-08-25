@@ -64,14 +64,25 @@ and each version says whether one exists via `has_geometry`.
 **`declined`** is a list, not an absence. Receiving no `rank` cannot tell you
 "Confinia never computes rank" from "this rank could not be established", and
 that difference is the product. Each entry carries a stable machine `reason` and
-a `text` in the requested language — print it, or re-word it, but do not drop
-it.
+a `text` in the requested language.
+
+**Rephrasing is expected; dropping is not.** The `reason` exists precisely so
+you can write your own sentence — in your own voice, your own date format, your
+own document. What must survive is the fact that something was declined and
+why. Reprint our wording, or replace it entirely; just never let the absence
+pass silently.
 
 **`limitations`** are the boundaries of what the stated facts support: an
 outline approximated from a later edition, periods with no boundary at all,
 predecessors named but not drawn, a population recomputed for a later
 territory, and the data cut-off. They are counted from the record in hand, never
-generic.
+generic. Same rule: rewrite them freely, drop them never.
+
+**On dates.** Sentences in `summary`, `limitations` and `events[].detail` are
+written for a human and spell their dates out. Fields — `as_known_on`,
+`versions[].valid_from`, `events[].date`, `sources[].vintages` — are ISO 8601.
+If your document wants a different form, compose from the fields rather than
+reprinting our sentences; that is what the fields are for.
 
 **`as_known_on`** is the data cut-off. Without it a reader cannot tell a missing
 event from a not-yet-published one, and silence reads as completeness.
