@@ -1131,6 +1131,33 @@ def monthly_charge_cents(used: int) -> int:
 EPOCH = date(1970, 1, 1)   # the free tier's lifetime bucket (period sentinel)
 
 
+def _free_bucket(email: str | None) -> str:
+    """The free allowance belongs to a MAILBOX, not to a key.
+
+    Measured on production, 2026-08-25: `POST /v1/keys` mints a key from an
+    unverified address, and a brand-new key reported used 0 / remaining 10 while
+    the caller behind it had already spent 6. Minting was therefore cheaper than
+    paying -- the gate stopped the honest and inconvenienced nobody else.
+
+    Bucketing on the address raises the cost from "one HTTP request" to "one
+    mailbox", which is the most this can achieve without verification. It is a
+    speed bump by design: the underlying data is INSEE and IGN under Licence
+    Ouverte, so what we sell is the assembly and the provenance, not exclusivity
+    we do not have.
+
+    `+tag` is stripped because every major provider ignores it, so leaving it in
+    would hand the loop straight back. Hashed like the visitor IP: premium_seen
+    has no business holding addresses in clear when a fingerprint does the same
+    work.
+    """
+    e = (email or "").strip().lower()
+    local, _, domain = e.partition("@")
+    local = local.split("+", 1)[0]
+    e = f"{local}@{domain}" if domain else local
+    return "email:" + hashlib.sha256(
+        f"{VISITOR_SECRET}|premium|{e}".encode()).hexdigest()[:32]
+
+
 def _premium_caller(request: Request) -> tuple:
     """Resolve (tier, limit, period, caller) for the premium quota. Caller = a
     valid API key (enterprise unlimited AND unmetered; partner unlimited but
@@ -1139,7 +1166,8 @@ def _premium_caller(request: Request) -> tuple:
     key = request.headers.get("x-api-key") or request.query_params.get("api_key")
     if key:
         with ops_cursor() as cur:
-            cur.execute("SELECT active, tier FROM public.api_key WHERE key = %s::uuid", (key,))
+            cur.execute("SELECT active, tier, email FROM public.api_key "
+                        "WHERE key = %s::uuid", (key,))
             row = cur.fetchone()
         if row and row[0]:
             if row[1] == "enterprise":
@@ -1167,7 +1195,10 @@ def _premium_caller(request: Request) -> tuple:
                 # CHARGE. limit=None with a period means "record, never refuse".
                 return ("pro", None if METERED else PRO_MONTHLY,
                         date.today().replace(day=1), f"key:{key}")
-            return ("free", PREMIUM_FREE, EPOCH, f"key:{key}")
+            # A free key is a self-issued thing; its allowance follows the
+            # mailbox it was issued to, so a second key does not buy a second
+            # allowance.
+            return ("free", PREMIUM_FREE, EPOCH, _free_bucket(row[2]))
     ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \
         or (request.client.host if request.client else "anon")
     caller = "ip:" + hashlib.sha256(f"{VISITOR_SECRET}|premium|{ip}".encode()).hexdigest()[:32]
