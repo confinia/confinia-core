@@ -42,6 +42,36 @@ build)
 # there had it ever answered 2xx on /healthz.
 write-upstreams|promote)
 	c="${2:?active color (blue|green)}"
+	# A promotion changes what production serves, so it must ship code that has
+	# been reviewed. This directory is BOTH the deployment checkout and the tree
+	# people edit in: deploy-staging resets it to the commit it deploys, and
+	# promote-production does not -- it runs whatever is sitting here. On
+	# 2026-08-24 that meant a production promotion executed scripts from an
+	# unmerged branch. Nothing broke, and nothing would have said so.
+	#
+	# write-upstreams is exempt: deploy-edge.sh calls it to regenerate the state
+	# file, which changes no colour.
+	#
+	# PROMOTE_UNSHIPPED=1 overrides. A rollback runs through this same path, and
+	# a guard that blocks a rollback during an incident is worse than the hazard
+	# it guards against.
+	if [ "$1" = promote ] && [ "${PROMOTE_UNSHIPPED:-0}" != 1 ]; then
+		if ! git diff --quiet HEAD --; then
+			echo "REFUSING: tracked files are modified in $PWD." >&2
+			git --no-pager diff --stat HEAD -- >&2
+			echo "A promotion would ship them. Commit, or PROMOTE_UNSHIPPED=1." >&2
+			exit 3
+		fi
+		git fetch -q origin main 2>/dev/null \
+			|| echo "  [!] could not reach origin; checking against the last known origin/main" >&2
+		if ! git merge-base --is-ancestor HEAD origin/main; then
+			echo "REFUSING: HEAD $(git rev-parse --short HEAD) is not on origin/main." >&2
+			echo "  this checkout is on $(git rev-parse --abbrev-ref HEAD) -- promoting" >&2
+			echo "  would put unreviewed code live. PROMOTE_UNSHIPPED=1 to override." >&2
+			exit 3
+		fi
+		echo "  promoting $(git rev-parse --short HEAD), which is on origin/main"
+	fi
 	case "$c" in
 		# Blue is still on its legacy port: it is the ACTIVE colour and cannot be
 		# recreated onto 11120 before the founder's promotion. Green is 11220 only,
