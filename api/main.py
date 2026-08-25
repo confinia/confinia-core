@@ -2744,16 +2744,22 @@ def _facts(cur, code: str, country: str, versions: list, pop: dict | None,
     #    from doing to this what the first locator did to the PDF.
     if district and district.get("rings") and area:
         try:
-            # 30 s, not 3. The rank USED to be decided by the clock: at 3 s a
-            # cold page cache lost a race the same query wins warm in ~295 ms,
-            # so an identical request stated the rank or declined it depending
-            # on server load -- and since the document's reference is computed
-            # from the facts it states (#205), two honest copies of one commune
-            # disagreed. A fact that appears and vanishes with load is a
-            # problem for the reader before it is one for the digest. This
-            # remains a guard against a pathological district, not a race: it
-            # is far above the warm cost and far above the cold one.
-            cur.execute("SET LOCAL statement_timeout = '30s'")
+            # 10 s. Two constraints, and #259 only respected one of them.
+            #
+            # ABOVE the query's cost: 3 s was the same order as its cold cost,
+            # so the clock decided whether the rank was stated -- an identical
+            # request answered differently depending on load, and the document
+            # reference moved with it.
+            #
+            # BELOW the caller's patience, which #259 missed and production
+            # taught us on 2026-08-25: at 30 s this single query could consume
+            # the whole 30 s a client waits for the REPORT, so the promotion
+            # smoke timed out and rolled itself back. A wrong fact became an
+            # unavailable page, which is the worse of the two.
+            #
+            # 10 s is ~30x the warm cost, above the cold one, and leaves two
+            # thirds of a 30 s client budget for everything else.
+            cur.execute("SET LOCAL statement_timeout = '10s'")
             cur.execute(
                 "WITH d AS ("
                 "  SELECT geom_simple g FROM commune_version "

@@ -22,11 +22,24 @@ def _fn(name):
     return body
 
 
-def test_the_rank_budget_is_far_above_its_cost_warm_or_cold():
-    """3 s was the same order as the cold query, so load decided the outcome."""
-    budgets = re.findall(r"SET LOCAL statement_timeout = '(\d+)s'", SRC)
+def test_the_rank_budget_sits_between_the_query_and_the_caller():
+    """Two constraints, and each one was learned the hard way.
+
+    ABOVE the query's cost: at 3 s the clock decided whether the rank was
+    stated, so identical requests disagreed and the document reference moved
+    with them.
+
+    BELOW the caller's patience: at 30 s this one query could consume the whole
+    30 s a client waits for the report, and on 2026-08-25 a promotion smoke
+    timed out and rolled back a healthy deployment. A wrong fact became an
+    unavailable page, which is worse.
+    """
+    budgets = [int(b) for b in
+               re.findall(r"SET LOCAL statement_timeout = '(\d+)s'", SRC)]
     assert budgets, "the guard must still exist"
-    assert all(int(b) >= 30 for b in budgets), f"too tight to be load-proof: {budgets}"
+    for b in budgets:
+        assert b >= 5, f"{b}s races the cold query, as 3s did"
+        assert b <= 15, f"{b}s can eat a 30s client budget on its own, as 30s did"
 
 
 def test_a_rank_we_cannot_compute_is_still_declined_rather_than_invented():

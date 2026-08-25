@@ -205,6 +205,25 @@ stage() {
 promote() {
 	A=$(active); P=$(other "$A")
 	./deploy/stacks.sh promote "$P"
+	# Warm the colour we just made live, before anything measures it.
+	#
+	# 2026-08-25: a promotion switched correctly, proved the new colour was
+	# answering, and then FAILED its production smoke -- the report PDF took
+	# longer than the 30 s a client waits, because that request was the one
+	# paying the cold cost of the geometry and the neighbours. The colour was
+	# healthy; the first caller was simply unlucky, and the first caller was
+	# the smoke, so a good deployment rolled itself back.
+	#
+	# The smoke must not be the request that pays for the cold cache. Failures
+	# are ignored on purpose: this is a favour to the next caller, never a gate
+	# -- the smoke that follows is the gate.
+	local port
+	port=$(port_of "$P")
+	echo "== warming $P on $port before the smoke"
+	curl -sf --max-time 90 -o /dev/null \
+		"http://127.0.0.1:$port/v1/communes/01033/report.pdf?country=FR" || true
+	curl -sf --max-time 30 -o /dev/null \
+		"http://127.0.0.1:$port/v1/communes/01033/history" || true
 }
 
 case "${1:-full}" in

@@ -556,3 +556,21 @@ def test_container_replacement_is_atomic():
             f"{os.path.basename(path)} must replace atomically, not rm-then-run"
         assert "rm -f" not in body, \
             f"{os.path.basename(path)} still removes by hand before running"
+
+
+def test_a_promotion_warms_the_colour_before_the_smoke_measures_it():
+    """2026-08-25: a promotion switched correctly, proved the new colour was
+    answering, then failed its production smoke because the report PDF was the
+    request paying the cold cost of geometry and neighbours. The colour was
+    healthy; the first caller was unlucky, and the first caller was the smoke.
+
+    The warm-up must not be a gate -- the smoke that follows is the gate -- so
+    its failures are swallowed on purpose.
+    """
+    src = open(os.path.join(os.path.dirname(__file__), "..", "deploy",
+                            "deploy-api.sh"), encoding="utf-8").read()
+    promote = src.split("promote() {")[1].split("\n}")[0]
+    assert "report.pdf" in promote, "warm the expensive path, not just /healthz"
+    assert "|| true" in promote, "a warm-up that can fail a deployment is a second gate"
+    assert promote.index("stacks.sh promote") < promote.index("warming"), \
+        "warm the colour that is now live, not the one being left"
