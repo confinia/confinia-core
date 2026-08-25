@@ -1911,6 +1911,8 @@ DECLINE_PHRASES = {
         "density:population-basis-unknown":
             "densité : nous ignorons sur quelle géographie ces effectifs sont "
             "comptés",
+        "rank:not-comparable": "rang : cette version n'existe plus, elle ne "
+                               "peut pas être comparée aux communes d'aujourd'hui",
         "rank:timed-out": "rang : comparaison trop coûteuse pour être établie ici",
     },
     "en": {
@@ -1926,6 +1928,8 @@ DECLINE_PHRASES = {
             "dividing them by today's area would mix two territories",
         "density:population-basis-unknown":
             "density: we do not know which geography these counts are on",
+        "rank:not-comparable": "rank: this version no longer exists, so it "
+                               "cannot be placed among today's communes",
         "rank:timed-out": "rank: the comparison was too costly to establish here",
     },
 }
@@ -2629,13 +2633,29 @@ def _facts(cur, code: str, country: str, versions: list, pop: dict | None,
                 "    AND ST_Contains(d.g, ST_Centroid(c.geom_simple))) "
                 "SELECT (SELECT count(*) FROM peers), "
                 "       (SELECT count(*) + 1 FROM peers p WHERE p.km2 > "
-                "          (SELECT km2 FROM peers WHERE code = %s))",
+                "          (SELECT km2 FROM peers WHERE code = %s)), "
+                # The unit's OWN area within the peer set, and the reason this
+                # query has three columns instead of two. `peers` holds the
+                # CURRENT communes of the district, so a version that no longer
+                # exists is not in it: its area came back NULL, `p.km2 > NULL`
+                # matched nothing, the count was 0 and the rank 0 + 1 = 1.
+                # Every dissolved commune therefore claimed to be the largest of
+                # its district -- Lez, 2.58 km2, dissolved in 2019, was "la plus
+                # etendue des 595" in production. Reading it back is how we know
+                # whether the rank means anything.
+                "       (SELECT km2 FROM peers WHERE code = %s)",
                 (country, FAR_FUTURE, district["marker"][0], district["marker"][1],
-                 country, list(MUNICIPAL_TYPES), FAR_FUTURE, code))
+                 country, list(MUNICIPAL_TYPES), FAR_FUTURE, code, code))
             row = cur.fetchone()
-            if row and row[0] and row[1]:
+            if row and row[0] and row[1] and row[2] is not None:
                 out["rank"] = {"district": district.get("name"),
                                "peers": int(row[0]), "by_area": int(row[1])}
+            elif row and row[2] is None:
+                # Not a failure: a commune that no longer exists cannot be
+                # ranked among the communes of today. Ranking it against its
+                # OWN period would be a fact worth having, and is a different
+                # query -- until then we say why rather than invent a place.
+                out["declined"].append("rank:not-comparable")
         except Exception:
             # A rank we could not compute is a rank we do not claim. Reaching
             # here should now mean the district is genuinely pathological or
