@@ -34,7 +34,9 @@ def test_a_report_with_nothing_to_admit_still_states_its_cut_off():
     d, lab = bundle(), labels()
     lines = m.limitation_lines(d, lab)
     assert lines, "the cut-off applies to every report"
-    assert d["cutoff"] in lines[-1]
+    # Sentences spell their dates since #272; the cut-off is still the one
+    # stated, just not in the form a machine would copy.
+    assert m._d_en(d["cutoff"]) in lines[-1]
     assert "not evidence" in lines[-1], "absence must not read as proof"
 
 
@@ -46,7 +48,7 @@ def test_an_approximated_outline_says_which_edition_it_came_from():
     d["versions"][0]["approx"] = True
     line = [l for l in m.limitation_lines(d, lab) if "approximated" in l]
     assert line, "an approximated outline must be admitted"
-    assert "2026-01-01" in line[0], "the edition it was taken from"
+    assert m._d_en("2026-01-01") in line[0], "the edition it was taken from"
     assert "indicative" in line[0]
 
 
@@ -73,7 +75,7 @@ def test_a_harmonised_population_says_it_is_not_what_was_counted():
     d["population"] = {"geography_basis": "harmonised",
                        "harmonised_on": "2025-01-01", "series": [[1968, 900]]}
     line = [l for l in m.limitation_lines(d, lab) if "recomputed" in l]
-    assert line and "2025-01-01" in line[0]
+    assert line and m._d_en("2025-01-01") in line[0]
     assert "not what was counted at the time" in line[0]
 
 

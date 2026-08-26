@@ -82,7 +82,13 @@ def test_the_repo_carries_no_amounts():
     # and the deploy scripts pass them through without a value
     sbx = open(os.path.join(ROOT, "deploy", "sandbox-up.sh"), encoding="utf-8").read()
     for var in ("BILLING_FLOOR_CENTS", "BILLING_PER_REPORT_CENTS", "BILLING_CAP_CENTS"):
-        assert f'-e {var}="${{{var}:-0}}"' in sbx, f"{var} not passed through to the sandbox"
+        # The PROPERTY, not the mechanism: the amount reaches the sandbox and
+        # defaults to 0 when unset. This asserted `-e VAR="${VAR:-0}"` until the
+        # launcher moved to a Quadlet env file, at which point it failed while
+        # the behaviour was correct -- and nobody saw it, because this file has
+        # never run in CI.
+        assert f'{var}=${{{var}:-0}}' in sbx or f'-e {var}="${{{var}:-0}}"' in sbx, \
+            f"{var} does not reach the sandbox with a zero default"
 
 
 def test_metered_pro_is_recorded_but_never_refused():
