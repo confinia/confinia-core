@@ -87,4 +87,28 @@ SAMPLE=$(q "SELECT least(count(*), 200) FROM public.unit_uid")
 
 echo "== $SAMPLE sampled identifiers match the live register exactly"
 echo "   (dump holds $UIDS, live holds $LIVE_UIDS -- live may have grown since)"
+# Is a copy of this leaving the VM at all? The drill proves the file comes
+# back; it cannot prove the file still exists after the disk does not. The Mac
+# writes a receipt when it pulls (deploy/macos/pull-ops-backups.sh), and this
+# is where its absence becomes visible.
+#
+# Two thresholds, because they mean different things: a laptop closed for a
+# long weekend is not an incident, and a chain that stopped a fortnight ago is.
+# Only the second exits non-zero, which is what platform's tenant-unit-failed
+# alert can see.
+RECEIPT=~/backups/ops/.last-pull
+if [ -r "$RECEIPT" ]; then
+	PULL_H=$(( ( $(date +%s) - $(stat -c %Y "$RECEIPT") ) / 3600 ))
+	if [ "$PULL_H" -gt 336 ]; then
+		echo "FAIL: no copy has left this VM for $((PULL_H / 24)) days ($(cat "$RECEIPT"))" >&2
+		exit 1
+	elif [ "$PULL_H" -gt 72 ]; then
+		echo "  [!] last off-VM copy was $((PULL_H / 24)) days ago -- is the Mac pulling?" >&2
+	else
+		echo "== off-VM copy $((PULL_H))h ago: $(cat "$RECEIPT")"
+	fi
+else
+	echo "  [!] no off-VM copy has ever been recorded: these dumps live on one disk" >&2
+fi
+
 echo "OK: $(basename "$SRC") restores, and the identifiers come back identical."

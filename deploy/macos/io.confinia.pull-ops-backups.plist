@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Daily pull of the ops dumps to this Mac. Install:
+
+    cp deploy/macos/io.confinia.pull-ops-backups.plist ~/Library/LaunchAgents/
+    # edit CONFINIA_REMOTE below first
+    launchctl load ~/Library/LaunchAgents/io.confinia.pull-ops-backups.plist
+
+  RunAtLoad plus a calendar interval: a laptop is asleep at 06:30 more often
+  than a server is, and StartCalendarInterval alone silently skips a run it
+  slept through. Between the two, a Mac that is open at any point in the day
+  pulls that day.
+-->
+<plist version="1.0"><dict>
+  <key>Label</key><string>io.confinia.pull-ops-backups</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>REPLACE-WITH-PATH/deploy/macos/pull-ops-backups.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CONFINIA_REMOTE</key><string>confinia@REPLACE-WITH-HOST</string>
+  </dict>
+  <key>StartCalendarInterval</key><dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>30</integer></dict>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/tmp/confinia-pull-ops.log</string>
+  <key>StandardErrorPath</key><string>/tmp/confinia-pull-ops.err</string>
+</dict></plist>
