@@ -63,78 +63,22 @@ jobs:
             curl -sf http://127.0.0.1:8000/healthz && break || sleep 2
           done
           curl -sf http://127.0.0.1:8000/healthz
-      - name: Signup journey (TEST_SUBSCRIPTION.md)
-        run: pytest -v tests/test_subscription.py
-      - name: Polar pro journey (TEST_POLAR.md)
-        if: always()
-        run: pytest -v tests/test_polar.py
-      - name: Python client (issue #22)
-        if: always()
-        run: pytest -v tests/test_python_client.py
-      - name: Passage tables (issue #21)
-        if: always()
-        run: pytest -v tests/test_passage.py
-      - name: EPCI unit level (issue #5)
-        if: always()
-        run: pytest -v tests/test_epci.py
-      - name: Embedded checkout wiring (issue #49)
-        if: always()
-        run: pytest -v tests/test_embed_static.py
-      - name: Language coherency (issue #79)
-        if: always()
-        run: pytest -v tests/test_i18n.py
-      - name: Distinct-town report quota (issue #83)
-        if: always()
-        run: pytest -v tests/test_report_quota.py
-      - name: Historical population (issue #88)
-        if: always()
-        run: pytest -v tests/test_population.py
-      - name: Report neighbours (issue #96)
-        if: always()
-        run: pytest -v tests/test_report_neighbours.py
-
-      - name: Deployment pipeline invariants (issue #109)
-        if: always()
-        run: pytest -v tests/test_pipeline_static.py
-      - name: Demo publish cannot delete what it does not own (issue #118)
-        if: always()
-        run: pytest -v tests/test_demo_publish_static.py
-      - name: Italian lineage parsing (issue #91)
-        if: always()
-        run: pytest -v tests/test_istat.py
-      - name: Ingestion fails loudly (issue #99)
-        if: always()
-        run: pytest -v tests/test_ingestion_fails_loudly.py
-      - name: Mail and alerting as code (issue #132)
-        if: always()
-        run: pytest -v tests/test_mail_static.py
-      - name: Staging cannot write into production data (issue #113)
-        if: always()
-        run: pytest -v tests/test_staging_isolation.py
-      - name: Each environment serves its own static files (issue #111)
-        if: always()
-        run: pytest -v tests/test_static_per_environment.py
-      - name: The #123 watchdog repairs honestly (issue #123)
-        if: always()
-        run: pytest -v tests/test_portwatch_selfheal.py
-      - name: Realm bootstrap survives set -u (issue #132)
-        if: always()
-        run: pytest -v tests/test_setup_realm_static.py
-      - name: Maintenance page tells the truth (issue #99)
-        if: always()
-        run: pytest -v tests/test_maintenance_static.py
-      - name: Credits we owe to people (issue #92)
-        if: always()
-        run: pytest -v tests/test_credits_static.py
-      - name: Demo dependency pinning (issue #103)
-        if: always()
-        run: pytest -v tests/test_demo_deps_static.py
-      - name: Environments dashboard wiring (issue #85)
-        if: always()
-        run: pytest -v tests/test_env_dashboard_static.py
-      - name: Billing portal auth gate (issue #81)
-        if: always()
-        run: pytest -v tests/test_billing.py
+      # ONE step, not one per file. This job used to name every test file by
+      # hand, and the list was maintained by memory: 39 files had drifted out
+      # of it, including every test written this week. Running the suite for
+      # the first time found three of them already failing, broken the day
+      # before by a merged change nobody could see break them.
+      #
+      # A file added to tests/ is now covered because it exists, not because
+      # someone remembered. The three exclusions are jobs of their own or must
+      # never run here: e2e drives a real browser, smoke_prod talks to
+      # PRODUCTION, and keycloak has its own service container below.
+      - name: The whole suite (issue #115)
+        run: |
+          pytest -v tests/ \
+            --ignore=tests/e2e \
+            --ignore=tests/smoke_prod.py \
+            --ignore=tests/test_keycloak.py
       - name: API log on failure
         if: failure()
         run: tail -80 /tmp/api.log
