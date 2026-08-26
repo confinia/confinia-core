@@ -1,0 +1,16 @@
+# A backup nobody has restored is a hope. This runs the drill weekly, as the
+# `confinia` user for the same reason the backup does: rootless podman is
+# per-user, and from another account `podman exec confinia_ops-db_1` sees
+# nothing -- which is how eight consecutive 20-byte "backups" reported success.
+#
+# Install:
+#   cp deploy/systemd/confinia-restore-drill.* ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now confinia-restore-drill.timer
+#
+# Failure exits non-zero, which is what lets platform's tenant-unit-failed
+# alert see it. A drill that cannot fail visibly is theatre.
+[Unit]
+Description=Confinia weekly restore drill (proves the ops dump comes back)
+[Service]
+Type=oneshot
+ExecStart=/bin/bash %h/projects/confinia/deploy/restore-drill.sh
